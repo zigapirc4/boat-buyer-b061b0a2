@@ -250,7 +250,7 @@ const Index = () => {
             {displayListings.map((listing) => {
               const img = getImageUrl(listing);
               return (
-                <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+                <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col cursor-pointer" onClick={() => handleCardClick(listing)}>
                   {img && (
                     <img
                       src={img}
