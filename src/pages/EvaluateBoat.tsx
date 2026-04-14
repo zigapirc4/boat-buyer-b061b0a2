@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown } from "lucide-react";
+import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, Anchor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { saveBoat } from "@/lib/boatStore";
-import { evaluate, type EvalResult } from "@/lib/evaluateBoat";
+import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -16,12 +15,35 @@ interface SimilarBoat {
   title: string;
   url: string;
   description: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
+  engine_info: string | null;
+}
+
+interface ImportedExtras {
+  location?: string;
+  images?: string[];
+  engineMake?: string;
+  engineModel?: string;
+  engineHp?: number;
+  engineType?: string;
+  hullMaterial?: string;
+  cabins?: number;
+  descriptionSummary?: string;
+  equipmentHighlights?: string[];
+  recentWork?: string[];
+  knownIssues?: string[];
 }
 
 const EvaluateBoat = () => {
   const { toast } = useToast();
   const [listingUrl, setListingUrl] = useState("");
   const [isScraping, setIsScraping] = useState(false);
+
+  const [boatType, setBoatType] = useState<BoatType>("sailboat");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
   const [price, setPrice] = useState("");
@@ -29,11 +51,15 @@ const EvaluateBoat = () => {
   const [engine, setEngine] = useState("");
   const [hull, setHull] = useState("");
   const [sails, setSails] = useState("");
+  const [engineHours, setEngineHours] = useState("");
+  const [engineYear, setEngineYear] = useState("");
+
+  const [extras, setExtras] = useState<ImportedExtras>({});
   const [result, setResult] = useState<EvalResult | null>(null);
   const [similarBoats, setSimilarBoats] = useState<SimilarBoat[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  const canEvaluate = model && year && price && length && engine && hull && sails;
+  const canEvaluate = model && year && price && length && engine && hull && (boatType === "powerboat" || sails);
 
   const handleScrape = async () => {
     if (!listingUrl.trim()) return;
@@ -48,6 +74,7 @@ const EvaluateBoat = () => {
       if (error) throw error;
       if (data?.success && data.data) {
         const d = data.data;
+        if (d.boat_type) setBoatType(d.boat_type);
         if (d.boat_model) setModel(d.boat_model);
         if (d.year) setYear(String(d.year));
         if (d.price_eur) setPrice(String(Math.round(d.price_eur)));
@@ -55,6 +82,24 @@ const EvaluateBoat = () => {
         if (d.engine_condition) setEngine(d.engine_condition);
         if (d.hull_condition) setHull(d.hull_condition);
         if (d.sails_condition) setSails(d.sails_condition);
+        if (d.engine_hours) setEngineHours(String(d.engine_hours));
+        if (d.engine_year) setEngineYear(String(d.engine_year));
+
+        setExtras({
+          location: d.location,
+          images: d.images,
+          engineMake: d.engine_make,
+          engineModel: d.engine_model,
+          engineHp: d.engine_hp,
+          engineType: d.engine_type,
+          hullMaterial: d.hull_material,
+          cabins: d.cabins,
+          descriptionSummary: d.description_summary,
+          equipmentHighlights: d.equipment_highlights,
+          recentWork: d.recent_work,
+          knownIssues: d.known_issues,
+        });
+
         toast({ title: "Listing imported!", description: `Found: ${d.boat_model || "boat details"}` });
       } else {
         toast({ title: "Could not extract details", description: data?.error || "Try a different listing URL.", variant: "destructive" });
@@ -69,15 +114,28 @@ const EvaluateBoat = () => {
 
   const handleEvaluate = async () => {
     if (!canEvaluate) return;
-    const evalResult = evaluate(Number(year), Number(price), Number(length), engine, hull, sails);
+    const evalResult = evaluate({
+      boatType,
+      year: Number(year),
+      price: Number(price),
+      lengthFt: Number(length),
+      engine,
+      hull,
+      sails: boatType === "powerboat" ? "none" : sails,
+      engineHours: engineHours ? Number(engineHours) : undefined,
+      engineYear: engineYear ? Number(engineYear) : undefined,
+      engineHp: extras.engineHp,
+      hullMaterial: extras.hullMaterial,
+      knownIssues: extras.knownIssues,
+      recentWork: extras.recentWork,
+    });
     setResult(evalResult);
     setSimilarBoats([]);
 
-    // Search for similar boats in the background
     setIsSearching(true);
     try {
       const { data, error } = await supabase.functions.invoke("search-similar-boats", {
-        body: { model, length_feet: Number(length), year: Number(year) },
+        body: { model, length_feet: Number(length), year: Number(year), boat_type: boatType },
       });
       if (!error && data?.success && data.data) {
         setSimilarBoats(data.data);
@@ -97,8 +155,8 @@ const EvaluateBoat = () => {
 
   const scoreBarColor = (score: number, max: number) => {
     const pct = score / max;
-    if (pct >= 0.8) return "bg-success";
-    if (pct >= 0.5) return "bg-warning";
+    if (pct >= 0.75) return "bg-success";
+    if (pct >= 0.45) return "bg-warning";
     return "bg-destructive";
   };
 
@@ -124,26 +182,109 @@ const EvaluateBoat = () => {
         <p className="text-xs text-muted-foreground mt-2">Works with most boat listing sites (Boat24, YachtWorld, etc.)</p>
       </Card>
 
+      {/* Imported Images */}
+      {extras.images && extras.images.length > 0 && (
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
+          {extras.images.slice(0, 5).map((img, i) => (
+            <img key={i} src={img} alt={`Boat photo ${i + 1}`} className="h-24 w-36 object-cover rounded-lg shrink-0 border" />
+          ))}
+        </div>
+      )}
+
+      {/* Imported Summary */}
+      {extras.descriptionSummary && (
+        <Card className="p-3 mb-6 bg-muted/50">
+          <p className="text-sm text-muted-foreground flex gap-2">
+            <Info className="w-4 h-4 shrink-0 mt-0.5" />
+            {extras.descriptionSummary}
+          </p>
+          {extras.location && (
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> {extras.location}
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* Form */}
       <div className="space-y-4">
-        <div><Label>Boat Model</Label><Input placeholder="e.g. Bavaria 37" value={model} onChange={e => setModel(e.target.value)} /></div>
+        <div>
+          <Label>Boat Type</Label>
+          <Select value={boatType} onValueChange={(v) => setBoatType(v as BoatType)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sailboat">⛵ Sailboat</SelectItem>
+              <SelectItem value="powerboat">🚤 Powerboat</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div><Label>Boat Model</Label><Input placeholder="e.g. Bavaria 37 / Fairline Targa 43" value={model} onChange={e => setModel(e.target.value)} /></div>
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Year</Label><Input type="number" placeholder="2005" value={year} onChange={e => setYear(e.target.value)} /></div>
           <div><Label>Price (EUR)</Label><Input type="number" placeholder="45000" value={price} onChange={e => setPrice(e.target.value)} /></div>
         </div>
         <div><Label>Length (feet)</Label><Input type="number" placeholder="37" value={length} onChange={e => setLength(e.target.value)} /></div>
 
+        <div className="grid grid-cols-2 gap-4">
+          <div><Label>Engine Hours</Label><Input type="number" placeholder="1500" value={engineHours} onChange={e => setEngineHours(e.target.value)} /></div>
+          <div><Label>Engine Year</Label><Input type="number" placeholder="2010" value={engineYear} onChange={e => setEngineYear(e.target.value)} /></div>
+        </div>
+
+        {/* Engine info from import */}
+        {(extras.engineMake || extras.engineHp) && (
+          <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">
+            🔧 {[extras.engineMake, extras.engineModel, extras.engineHp && `${extras.engineHp}HP`, extras.engineType].filter(Boolean).join(" · ")}
+          </div>
+        )}
+
         <div><Label>Engine Condition</Label>
           <Select value={engine} onValueChange={setEngine}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-            <SelectContent><SelectItem value="good">Good</SelectItem><SelectItem value="average">متوسط</SelectItem><SelectItem value="bad">Bad</SelectItem></SelectContent></Select></div>
+            <SelectContent><SelectItem value="good">Good</SelectItem><SelectItem value="average">Average</SelectItem><SelectItem value="bad">Bad</SelectItem></SelectContent></Select></div>
 
         <div><Label>Hull Condition</Label>
           <Select value={hull} onValueChange={setHull}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
             <SelectContent><SelectItem value="good">Good</SelectItem><SelectItem value="osmosis">Osmosis</SelectItem><SelectItem value="damaged">Damaged</SelectItem></SelectContent></Select></div>
 
-        <div><Label>Sails Condition</Label>
-          <Select value={sails} onValueChange={setSails}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-            <SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="average">Average</SelectItem><SelectItem value="worn">Worn</SelectItem></SelectContent></Select></div>
+        {boatType === "sailboat" && (
+          <div><Label>Sails Condition</Label>
+            <Select value={sails} onValueChange={setSails}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="average">Average</SelectItem><SelectItem value="worn">Worn</SelectItem></SelectContent></Select></div>
+        )}
+
+        {/* Equipment & Issues from import */}
+        {extras.equipmentHighlights && extras.equipmentHighlights.length > 0 && (
+          <div>
+            <Label className="text-xs">Equipment</Label>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {extras.equipmentHighlights.map((eq, i) => (
+                <span key={i} className="text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full">{eq}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {extras.knownIssues && extras.knownIssues.length > 0 && (
+          <Card className="p-3 border-destructive/30 bg-destructive/5">
+            <Label className="text-xs text-destructive">⚠️ Known Issues</Label>
+            <ul className="mt-1 space-y-1">
+              {extras.knownIssues.map((issue, i) => (
+                <li key={i} className="text-xs text-muted-foreground">• {issue}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        {extras.recentWork && extras.recentWork.length > 0 && (
+          <Card className="p-3 border-success/30 bg-success/5">
+            <Label className="text-xs text-success">✅ Recent Work</Label>
+            <ul className="mt-1 space-y-1">
+              {extras.recentWork.map((work, i) => (
+                <li key={i} className="text-xs text-muted-foreground">• {work}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
 
         <Button className="w-full h-12 text-base" disabled={!canEvaluate} onClick={handleEvaluate}>Evaluate Boat</Button>
       </div>
@@ -201,7 +342,7 @@ const EvaluateBoat = () => {
             <ul className="space-y-2">
               {result.recommendations.map((r, i) => (
                 <li key={i} className="text-sm text-muted-foreground flex gap-2">
-                  <span className="text-accent mt-0.5">•</span>
+                  <span className="text-accent mt-0.5 shrink-0">•</span>
                   <span>{r}</span>
                 </li>
               ))}
@@ -225,14 +366,41 @@ const EvaluateBoat = () => {
                     href={boat.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+                    className="block rounded-lg bg-muted/50 hover:bg-muted transition-colors overflow-hidden"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{boat.title}</p>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{boat.description}</p>
+                    <div className="flex">
+                      {boat.image_url && (
+                        <img
+                          src={boat.image_url}
+                          alt={boat.title}
+                          className="w-24 h-24 object-cover shrink-0"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                      )}
+                      <div className="p-3 flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-1">
+                          <p className="text-sm font-medium truncate">{boat.title}</p>
+                          <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
+                        </div>
+                        {boat.price_eur && (
+                          <p className="text-sm font-bold text-accent mt-0.5">€{boat.price_eur.toLocaleString()}</p>
+                        )}
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          {boat.year && <span className="text-xs text-muted-foreground">{boat.year}</span>}
+                          {boat.length_feet && <span className="text-xs text-muted-foreground">{boat.length_feet}ft</span>}
+                          {boat.location && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                              <MapPin className="w-2.5 h-2.5" />{boat.location}
+                            </span>
+                          )}
+                        </div>
+                        {boat.engine_info && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{boat.engine_info}</p>
+                        )}
+                        {boat.description && !boat.engine_info && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{boat.description}</p>
+                        )}
                       </div>
-                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
                     </div>
                   </a>
                 ))}
