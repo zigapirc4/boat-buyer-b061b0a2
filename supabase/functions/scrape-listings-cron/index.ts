@@ -46,32 +46,30 @@ Deno.serve(async (req) => {
             limit: 8,
             tbs: "qdr:w",
             scrapeOptions: {
-              formats: [
-                {
-                  type: "json",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      listings: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            boat_name: { type: "string" },
-                            price_eur: { type: "number" },
-                            year: { type: "number" },
-                            length_feet: { type: "number" },
-                            location: { type: "string" },
-                            image_url: { type: "string" },
-                            engine_info: { type: "string" },
-                          },
+              formats: ["extract"],
+              extract: {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listings: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          boat_name: { type: "string" },
+                          price_eur: { type: "number" },
+                          year: { type: "number" },
+                          length_feet: { type: "number" },
+                          location: { type: "string" },
+                          image_url: { type: "string" },
+                          engine_info: { type: "string" },
                         },
                       },
                     },
                   },
-                  prompt: "Extract all boat listings on this page. Get boat name, price in EUR, year, length in feet, location, main image URL, and engine info.",
                 },
-              ],
+                prompt: "Extract all boat listings on this page. Get boat name, price in EUR, year, length in feet, location, main image URL, and engine info.",
+              },
             },
           }),
         });
