@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
+import { BoatDetailModal } from "@/components/BoatDetailModal";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
