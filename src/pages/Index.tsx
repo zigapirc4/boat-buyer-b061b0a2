@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -201,7 +201,10 @@ const Index = () => {
       </div>
 
       <div className="w-full max-w-sm space-y-4 animate-fade-in">
-        <Button asChild className="w-full h-14 text-base gap-3" size="lg">
+        <Button asChild className="w-full h-14 text-base gap-3 bg-gradient-to-r from-primary to-primary/80" size="lg">
+          <Link to="/chat"><MessageCircle className="w-5 h-5" /> Find My Perfect Boat</Link>
+        </Button>
+        <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/evaluate"><Ship className="w-5 h-5" /> Evaluate a Boat</Link>
         </Button>
         <Button asChild variant="secondary" className="w-full h-14 text-base gap-3" size="lg">
