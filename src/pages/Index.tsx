@@ -1,12 +1,26 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Filter } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w ago`;
+}
 
 interface CachedListing {
   id: string;
