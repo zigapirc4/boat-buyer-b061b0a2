@@ -50,6 +50,8 @@ const Index = () => {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
+  const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // Country coordinates for proximity scoring
   const COUNTRY_COORDS: Record<string, [number, number]> = {
