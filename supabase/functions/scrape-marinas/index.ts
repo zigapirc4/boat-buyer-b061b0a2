@@ -143,8 +143,8 @@ Deno.serve(async (req) => {
           headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             url,
-            formats: ['extract'],
-            extract: { schema: EXTRACTION_SCHEMA, prompt: EXTRACTION_PROMPT },
+            formats: ['markdown'],
+            onlyMainContent: true,
           }),
         });
 
