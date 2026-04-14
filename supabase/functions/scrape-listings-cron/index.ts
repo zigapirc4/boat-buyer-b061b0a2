@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,13 +6,13 @@ const corsHeaders = {
 };
 
 const SEARCH_QUERIES = [
-  { query: "sailboat for sale Europe 2024 2025 price EUR listing", boat_type: "sailboat" },
-  { query: "powerboat motorboat for sale Europe 2024 2025 price EUR listing", boat_type: "powerboat" },
-  { query: "sailing yacht for sale Mediterranean price listing", boat_type: "sailboat" },
-  { query: "motor yacht for sale Europe price listing", boat_type: "powerboat" },
+  { query: "sailboat for sale Europe price EUR site:yachtworld.com OR site:boats.com OR site:scanboat.com", boat_type: "sailboat" },
+  { query: "powerboat motorboat for sale Europe price EUR site:yachtworld.com OR site:boats.com OR site:boatshop24.com", boat_type: "powerboat" },
+  { query: "sailing yacht for sale Mediterranean price listing site:boat24.com OR site:sailboatlistings.com", boat_type: "sailboat" },
+  { query: "motor yacht for sale Europe price listing site:boat24.com OR site:boatshop24.com", boat_type: "powerboat" },
 ];
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -30,14 +28,11 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log("Starting hourly listing scrape...");
 
-    const allListings: any[] = [];
-
-    // Search across multiple queries
-    for (const { query, boat_type } of SEARCH_QUERIES) {
+    // Run all searches in parallel for speed
+    const searchPromises = SEARCH_QUERIES.map(async ({ query, boat_type }) => {
       try {
         console.log(`Searching: ${query}`);
         const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
@@ -46,101 +41,142 @@ serve(async (req) => {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ query, limit: 5, tbs: "qdr:w" }),
+          body: JSON.stringify({
+            query,
+            limit: 8,
+            tbs: "qdr:w",
+            scrapeOptions: {
+              formats: [
+                {
+                  type: "json",
+                  schema: {
+                    type: "object",
+                    properties: {
+                      listings: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            boat_name: { type: "string" },
+                            price_eur: { type: "number" },
+                            year: { type: "number" },
+                            length_feet: { type: "number" },
+                            location: { type: "string" },
+                            image_url: { type: "string" },
+                            engine_info: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  prompt: "Extract all boat listings on this page. Get boat name, price in EUR, year, length in feet, location, main image URL, and engine info.",
+                },
+              ],
+            },
+          }),
         });
 
         if (!searchRes.ok) {
           console.error(`Search failed for "${query}":`, await searchRes.text());
-          continue;
+          return [];
         }
 
         const searchData = await searchRes.json();
         const results = searchData?.data || [];
+        const listings: any[] = [];
 
-        // Scrape each result for structured data
-        for (const item of results.slice(0, 3)) {
+        for (const item of results) {
           if (!item.url) continue;
+          let source = "";
+          try { source = new URL(item.url).hostname.replace("www.", ""); } catch {}
 
-          try {
-            const scrapeRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
+          // Try to get structured extraction
+          const json = item?.json || item?.extract;
+          if (json?.listings && Array.isArray(json.listings)) {
+            for (const l of json.listings) {
+              if (!l.boat_name && !l.price_eur) continue;
+              listings.push({
+                title: l.boat_name || "Unknown",
                 url: item.url,
-                formats: ["extract"],
-                extract: {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      boat_name: { type: "string", description: "Boat model name" },
-                      boat_type: { type: "string", description: "sailboat or powerboat" },
-                      price_eur: { type: "number", description: "Price in EUR" },
-                      year: { type: "number", description: "Year built" },
-                      length_feet: { type: "number", description: "Length in feet" },
-                      location: { type: "string", description: "Location (city, country)" },
-                      image_url: { type: "string", description: "URL of the main boat photo" },
-                      engine_info: { type: "string", description: "Brief engine info" },
-                    },
-                  },
-                  prompt: "Extract the first/main boat listing. Get price in EUR, location, image URL, and engine info.",
-                },
-              }),
-            });
-
-            if (!scrapeRes.ok) continue;
-            const scrapeData = await scrapeRes.json();
-            const extract = scrapeData?.data?.extract || {};
-
-            if (!extract.boat_name && !extract.price_eur) continue;
-
-            let source = "";
-            try { source = new URL(item.url).hostname.replace("www.", ""); } catch {}
-
-            allListings.push({
-              title: extract.boat_name || item.title || "Unknown",
+                boat_type: boat_type,
+                price_eur: l.price_eur || null,
+                year: l.year || null,
+                length_feet: l.length_feet || null,
+                location: l.location || null,
+                image_url: l.image_url || null,
+                engine_info: l.engine_info || null,
+                source,
+                scraped_at: new Date().toISOString(),
+              });
+            }
+          } else {
+            // Fallback: use search result metadata
+            listings.push({
+              title: item.title || "Unknown",
               url: item.url,
-              boat_type: extract.boat_type || boat_type,
-              price_eur: extract.price_eur || null,
-              year: extract.year || null,
-              length_feet: extract.length_feet || null,
-              location: extract.location || null,
-              image_url: extract.image_url || null,
-              engine_info: extract.engine_info || null,
+              boat_type: boat_type,
+              price_eur: null,
+              year: null,
+              length_feet: null,
+              location: null,
+              image_url: null,
+              engine_info: null,
               source,
               scraped_at: new Date().toISOString(),
             });
-          } catch (e) {
-            console.error(`Failed to scrape ${item.url}:`, e);
           }
         }
+
+        return listings;
       } catch (e) {
         console.error(`Search query failed:`, e);
+        return [];
       }
-    }
+    });
 
-    console.log(`Scraped ${allListings.length} listings, upserting to database...`);
+    const allResults = await Promise.all(searchPromises);
+    const allListings = allResults.flat();
 
-    // Upsert listings (update if URL already exists)
-    if (allListings.length > 0) {
-      const { error: upsertError } = await supabase
-        .from("cached_listings")
-        .upsert(allListings, { onConflict: "url" });
+    // Deduplicate by URL
+    const seen = new Set<string>();
+    const uniqueListings = allListings.filter(l => {
+      if (seen.has(l.url)) return false;
+      seen.add(l.url);
+      return true;
+    });
 
-      if (upsertError) {
-        console.error("Upsert error:", upsertError);
+    console.log(`Found ${uniqueListings.length} unique listings, upserting...`);
+
+    if (uniqueListings.length > 0) {
+      const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${supabaseServiceKey}`,
+          apikey: supabaseServiceKey,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates",
+        },
+        body: JSON.stringify(uniqueListings),
+      });
+
+      if (!resp.ok) {
+        console.error("Upsert error:", await resp.text());
       }
     }
 
     // Clean up old listings (older than 7 days)
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    await supabase.from("cached_listings").delete().lt("scraped_at", weekAgo);
+    await fetch(`${supabaseUrl}/rest/v1/cached_listings?scraped_at=lt.${weekAgo}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${supabaseServiceKey}`,
+        apikey: supabaseServiceKey,
+      },
+    });
 
-    console.log(`Done! ${allListings.length} listings stored.`);
+    console.log(`Done! ${uniqueListings.length} listings stored.`);
 
-    return new Response(JSON.stringify({ success: true, count: allListings.length }), {
+    return new Response(JSON.stringify({ success: true, count: uniqueListings.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
