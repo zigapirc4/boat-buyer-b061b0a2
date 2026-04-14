@@ -274,7 +274,12 @@ const Index = () => {
                     {listing.description && (
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{listing.description}</p>
                     )}
-                    <p className="text-[10px] text-muted-foreground/60 mt-1">{listing.source}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-[10px] text-muted-foreground/60">{listing.source}</p>
+                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5">
+                        <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
+                      </span>
+                    </div>
 
                     <div className="flex gap-2 mt-auto pt-3">
                       <Button
