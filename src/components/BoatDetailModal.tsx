@@ -215,14 +215,14 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   if (!listing) return null;
 
   const images: string[] = [];
-  if (listing.image_urls?.length) images.push(...listing.image_urls);
-  else if (listing.image_url) images.push(listing.image_url);
+  if (effective!.image_urls?.length) images.push(...effective!.image_urls);
+  else if (effective!.image_url) images.push(effective!.image_url);
 
   const handlePrev = () => setImgIndex(i => (i > 0 ? i - 1 : images.length - 1));
   const handleNext = () => setImgIndex(i => (i < images.length - 1 ? i + 1 : 0));
 
   const handleEvaluate = () => {
-    if (!listing.price_eur || !listing.length_feet || !listing.year) return;
+    if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
     const result = evaluate({
       boatType: (listing.boat_type || "sailboat") as BoatType,
       year: listing.year,
