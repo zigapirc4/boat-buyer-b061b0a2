@@ -164,7 +164,19 @@ function parseListingFromSearch(item: any, queryIndex: number): any | null {
   if (!isLikelyListingUrl(item.url)) return null;
 
   const text = `${item.title || ""} ${item.description || ""}`;
-  const isSailboat = queryIndex < SAILBOAT_QUERY_COUNT;
+  const textLower = text.toLowerCase();
+  
+  // Detect boat type from content first, fall back to query index
+  const SAILBOAT_KEYWORDS = ["sailboat", "sailing", "sloop", "ketch", "cutter", "catamaran", "trimaran", "jedrilica", "barca a vela", "segelboot", "voilier", "velero", "oceanis", "sun odyssey", "hanse ", "dehler", "hallberg", "bavaria cruiser", "dufour", "elan impression", "grand soleil", "najad", "x-yachts", "catalina", "hunter ", "lagoon", "fountaine pajot", "nautitech", "oyster", "contest", "swan ", "feeling", "moody"];
+  const POWERBOAT_KEYWORDS = ["powerboat", "motorboat", "motor yacht", "flybridge", "express cruiser", "center console", "cabin cruiser", "sport boat", "gliser", "motorna", "motorboot", "barca a motore", "bateau moteur", "antares", "merry fisher", "cap camarat", "fairline", "princess v", "azimut", "sunseeker", "cranchi", "sessa", "quicksilver", "nimbus", "galeon", "sea ray", "boston whaler", "prestige", "absolute", "saxdor", "axopar"];
+  
+  const isSailFromContent = SAILBOAT_KEYWORDS.some(k => textLower.includes(k));
+  const isPowerFromContent = POWERBOAT_KEYWORDS.some(k => textLower.includes(k));
+  
+  let boatType: string;
+  if (isSailFromContent && !isPowerFromContent) boatType = "sailboat";
+  else if (isPowerFromContent && !isSailFromContent) boatType = "powerboat";
+  else boatType = queryIndex < SAILBOAT_QUERY_COUNT ? "sailboat" : "powerboat";
 
   // Reject titles that are clearly category pages
   const titleLower = (item.title || "").toLowerCase();
@@ -238,7 +250,7 @@ function parseListingFromSearch(item: any, queryIndex: number): any | null {
   return {
     title: (item.title || "Unknown").substring(0, 200).replace(/\s*[-|].*$/, ""),
     url: item.url,
-    boat_type: isSailboat ? "sailboat" : "powerboat",
+    boat_type: boatType,
     price_eur: price,
     year,
     length_feet: lengthFeet,
