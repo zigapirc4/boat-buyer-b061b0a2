@@ -449,7 +449,14 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {activeTab === "costs" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
               <h3 className="font-semibold text-primary">Annual Ownership Cost</h3>
-              {!listing.length_feet ? (
+              {isFetching ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
+              ) : fetchError && !effective!.length_feet ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{fetchError}</p>
+                  <Button variant="outline" size="sm" onClick={fetchMissingData}>Retry</Button>
+                </div>
+              ) : !effective!.length_feet ? (
                 <p className="text-sm text-muted-foreground">Missing boat length — cannot calculate costs.</p>
               ) : (
                 <>
