@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,6 +48,11 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [minPrice, setMinPrice] = useState<string>("");
+  const [maxPrice, setMaxPrice] = useState<string>("");
+  const [minLength, setMinLength] = useState<string>("");
+  const [maxLength, setMaxLength] = useState<string>("");
+  const [showFilters, setShowFilters] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
@@ -134,6 +139,18 @@ const Index = () => {
         if (sourceFilter !== "all") {
           query = query.eq("source", sourceFilter);
         }
+        if (minPrice) {
+          query = query.gte("price_eur", parseInt(minPrice));
+        }
+        if (maxPrice) {
+          query = query.lte("price_eur", parseInt(maxPrice));
+        }
+        if (minLength) {
+          query = query.gte("length_feet", parseInt(minLength));
+        }
+        if (maxLength) {
+          query = query.lte("length_feet", parseInt(maxLength));
+        }
 
         const { data, error } = await query;
         if (!error && data) {
@@ -157,7 +174,7 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter, sourceFilter, userCoords]);
+  }, [boatTypeFilter, sourceFilter, userCoords, minPrice, maxPrice, minLength, maxLength]);
 
   // Fetch all distinct sources for the dropdown
   const [allSources, setAllSources] = useState<string[]>([]);
