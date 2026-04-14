@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
     console.log(`Phase 1 done: ${allListings.length} raw, ${uniqueListings.length} unique (after quality filter)`);
 
     // Phase 2: Enrich top listings via scrape+extract
-    const toEnrich = skipEnrich ? [] : uniqueListings.slice(0, 50);
+    const toEnrich = skipEnrich ? [] : uniqueListings.slice(0, 10);
     console.log(`Phase 2: Enriching ${toEnrich.length} listings${skipEnrich ? " (skipped)" : ""}...`);
 
     const ENRICH_BATCH = 5;
