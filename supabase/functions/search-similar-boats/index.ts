@@ -31,40 +31,20 @@ serve(async (req) => {
     const typeLabel = boat_type === "powerboat" ? "powerboat motorboat" : "sailboat";
     const lengthRange = length_feet ? `${Math.round(length_feet - 4)}-${Math.round(length_feet + 4)} feet` : "";
     const yearRange = year ? `${year - 5}-${year + 5}` : "";
-    const query = `"${model}" ${typeLabel} for sale ${lengthRange} ${yearRange} price EUR`.trim();
+    
+    // Search for individual listings, not aggregator pages
+    const query = `"${model}" ${typeLabel} for sale ${lengthRange} ${yearRange} price listing`.trim();
 
     console.log("Searching for similar boats:", query);
 
-    // Search with scrapeOptions to get content from each result
+    // Step 1: Get search results
     const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        query,
-        limit: 6,
-        scrapeOptions: {
-          formats: ["extract"],
-          extract: {
-            schema: {
-              type: "object",
-              properties: {
-                boat_name: { type: "string", description: "Boat model name" },
-                price_eur: { type: "number", description: "Price in EUR" },
-                year: { type: "number", description: "Year built" },
-                length_feet: { type: "number", description: "Length in feet" },
-                location: { type: "string", description: "Where the boat is located" },
-                image_url: { type: "string", description: "Main photo URL of the boat" },
-                engine_info: { type: "string", description: "Brief engine details (make, HP, hours)" },
-                condition_summary: { type: "string", description: "One-sentence summary of the boat's condition" },
-              },
-            },
-            prompt: "Extract boat listing details. Get the price in EUR, location, and the main boat image URL. Summarize engine and condition briefly.",
-          },
-        },
-      }),
+      body: JSON.stringify({ query, limit: 8 }),
     });
 
     const searchData = await searchRes.json();
@@ -77,22 +57,97 @@ serve(async (req) => {
       );
     }
 
-    const results = (searchData?.data || []).map((r: any) => {
-      const extract = r.extract || {};
-      return {
-        title: extract.boat_name || r.title || "Unknown listing",
-        url: r.url || "",
-        description: extract.condition_summary || r.description || "",
-        price_eur: extract.price_eur || null,
-        year: extract.year || null,
-        length_feet: extract.length_feet || null,
-        location: extract.location || null,
-        image_url: extract.image_url || null,
-        engine_info: extract.engine_info || null,
-      };
-    }).filter((r: any) => r.url);
+    const rawResults = searchData?.data || [];
+    console.log(`Got ${rawResults.length} search results, scraping top ones for details...`);
 
-    console.log(`Found ${results.length} similar boats with details`);
+    // Filter out aggregator/listing-index pages, prefer individual listing URLs
+    const candidateUrls = rawResults
+      .filter((r: any) => r.url)
+      .map((r: any) => ({ url: r.url, title: r.title || "", description: r.description || "" }));
+
+    // Step 2: Scrape top 5 individual listings for structured data
+    const scrapePromises = candidateUrls.slice(0, 5).map(async (item: any) => {
+      try {
+        const scrapeRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url: item.url,
+            formats: ["extract"],
+            extract: {
+              schema: {
+                type: "object",
+                properties: {
+                  boat_name: { type: "string", description: "Boat model name" },
+                  price_eur: { type: "number", description: "Price in EUR. Convert from other currencies if needed." },
+                  year: { type: "number", description: "Year built" },
+                  length_feet: { type: "number", description: "Length in feet" },
+                  location: { type: "string", description: "Where the boat is located (city, country)" },
+                  image_url: { type: "string", description: "URL of the main boat photo" },
+                  engine_info: { type: "string", description: "Brief engine details (make, HP, hours if available)" },
+                  condition_summary: { type: "string", description: "One-sentence summary of the boat's condition" },
+                },
+              },
+              prompt: "Extract boat listing details from this page. Get the price in EUR (convert if needed), location, the main boat image URL, and brief engine and condition info. If this is a listing index page with multiple boats, extract the first/most relevant one.",
+            },
+          }),
+        });
+
+        if (!scrapeRes.ok) return null;
+
+        const scrapeData = await scrapeRes.json();
+        const extract = scrapeData?.data?.extract || {};
+
+        // Only return if we got meaningful data
+        if (!extract.boat_name && !extract.price_eur) return null;
+
+        return {
+          title: extract.boat_name || item.title || "Unknown listing",
+          url: item.url,
+          description: extract.condition_summary || item.description || "",
+          price_eur: extract.price_eur || null,
+          year: extract.year || null,
+          length_feet: extract.length_feet || null,
+          location: extract.location || null,
+          image_url: extract.image_url || null,
+          engine_info: extract.engine_info || null,
+        };
+      } catch (e) {
+        console.error(`Failed to scrape ${item.url}:`, e);
+        return null;
+      }
+    });
+
+    const scrapedResults = (await Promise.all(scrapePromises)).filter(Boolean);
+
+    // Also include unscraped results as fallback (with description-parsed data)
+    const scrapedUrls = new Set(scrapedResults.map((r: any) => r.url));
+    const fallbackResults = candidateUrls
+      .filter((item: any) => !scrapedUrls.has(item.url))
+      .slice(0, 3)
+      .map((item: any) => {
+        // Try to parse price from description
+        const priceMatch = item.description.match(/(?:€|EUR)\s?([\d,. ]+)/i);
+        const price = priceMatch ? parseFloat(priceMatch[1].replace(/[,\s]/g, "").replace(/\.(?=\d{3})/g, "")) : null;
+        
+        return {
+          title: item.title,
+          url: item.url,
+          description: item.description,
+          price_eur: price && price > 100 ? price : null,
+          year: null,
+          length_feet: null,
+          location: null,
+          image_url: null,
+          engine_info: null,
+        };
+      });
+
+    const results = [...scrapedResults, ...fallbackResults].slice(0, 6);
+    console.log(`Returning ${results.length} similar boats (${scrapedResults.length} with full details)`);
 
     return new Response(JSON.stringify({ success: true, data: results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
