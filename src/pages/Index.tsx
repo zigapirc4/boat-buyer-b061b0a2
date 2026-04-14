@@ -563,7 +563,7 @@ const Index = () => {
         </div>
       </footer>
 
-      <BoatDetailModal listing={selectedListing} open={modalOpen} onOpenChange={setModalOpen} timeAgo={timeAgo} />
+      <BoatDetailModal listing={selectedListing} open={modalOpen} onOpenChange={setModalOpen} timeAgo={timeAgo} isSaved={selectedListing ? savedIds.has(selectedListing.id) : false} onToggleSave={toggleSave} />
     </div>
   );
 };

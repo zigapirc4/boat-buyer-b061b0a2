@@ -1,7 +1,7 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search } from "lucide-react";
+import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -128,9 +128,11 @@ interface BoatDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   timeAgo: (dateStr: string) => string;
+  isSaved?: boolean;
+  onToggleSave?: (listing: CachedListing) => void;
 }
 
-export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDetailModalProps) => {
+export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved, onToggleSave }: BoatDetailModalProps) => {
   const [imgIndex, setImgIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"details" | "evaluate" | "costs">("details");
 
@@ -353,7 +355,20 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
 
         <div className="p-6 space-y-4">
           <DialogHeader>
-            <DialogTitle className="text-xl">{effective!.title}</DialogTitle>
+            <div className="flex items-start justify-between gap-2">
+              <DialogTitle className="text-xl">{effective!.title}</DialogTitle>
+              {onToggleSave && listing && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`shrink-0 gap-1.5 ${isSaved ? 'text-coral' : ''}`}
+                  onClick={() => onToggleSave(listing)}
+                >
+                  <Heart className={`w-4 h-4 ${isSaved ? 'fill-coral' : ''}`} />
+                  {isSaved ? 'Saved' : 'Save'}
+                </Button>
+              )}
+            </div>
           </DialogHeader>
 
           {effective!.price_eur && <p className="text-2xl font-bold text-primary">€{Number(effective!.price_eur).toLocaleString()}</p>}
