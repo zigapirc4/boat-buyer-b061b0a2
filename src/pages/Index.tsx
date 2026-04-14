@@ -123,7 +123,7 @@ const Index = () => {
           .from("cached_listings")
           .select("*")
           .order("scraped_at", { ascending: false })
-          .limit(300);
+          .limit(10000);
 
         if (boatTypeFilter !== "all") {
           query = query.eq("boat_type", boatTypeFilter);
