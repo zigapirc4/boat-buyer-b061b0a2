@@ -52,6 +52,7 @@ const Index = () => {
   const [minLength, setMinLength] = useState<string>("");
   const [maxLength, setMaxLength] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
