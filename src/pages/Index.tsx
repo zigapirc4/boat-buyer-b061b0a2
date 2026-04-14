@@ -43,7 +43,6 @@ interface CachedListing {
 
 const Index = () => {
   const savedCount = getSavedBoats().length;
-  const navigate = useNavigate();
   const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
