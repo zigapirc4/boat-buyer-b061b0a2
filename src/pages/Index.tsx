@@ -104,7 +104,7 @@ const Index = () => {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const ids = new Set(JSON.parse(localStorage.getItem("boatbuyer_saved_listings") || "[]").map((l: any) => l.id));
+    const ids = new Set<string>(JSON.parse(localStorage.getItem("boatbuyer_saved_listings") || "[]").map((l: any) => l.id as string));
     setSavedIds(ids);
   }, []);
 
