@@ -54,7 +54,6 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             query: source.query,
             limit: 3,
-            scrapeOptions: { formats: ['markdown'] },
           }),
         });
 
