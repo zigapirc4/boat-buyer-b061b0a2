@@ -295,31 +295,31 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
 
         <div className="p-6 space-y-4">
           <DialogHeader>
-            <DialogTitle className="text-xl">{listing.title}</DialogTitle>
+            <DialogTitle className="text-xl">{effective!.title}</DialogTitle>
           </DialogHeader>
 
-          {listing.price_eur && <p className="text-2xl font-bold text-primary">€{Number(listing.price_eur).toLocaleString()}</p>}
+          {effective!.price_eur && <p className="text-2xl font-bold text-primary">€{Number(effective!.price_eur).toLocaleString()}</p>}
 
           {/* Specs */}
           <div className="flex flex-wrap gap-3">
-            {listing.year && <span className="text-sm bg-muted px-3 py-1 rounded-full">Year: {listing.year}</span>}
-            {listing.length_feet && <span className="text-sm bg-muted px-3 py-1 rounded-full">{Number(listing.length_feet)} ft</span>}
-            {listing.boat_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.boat_type}</span>}
-            {listing.hull_material && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.hull_material}</span>}
-            {listing.cabins && <span className="text-sm bg-muted px-3 py-1 rounded-full">{listing.cabins} cabins</span>}
-            {listing.fuel_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.fuel_type}</span>}
-            {listing.engine_hours && <span className="text-sm bg-muted px-3 py-1 rounded-full">{listing.engine_hours}h engine</span>}
+            {effective!.year && <span className="text-sm bg-muted px-3 py-1 rounded-full">Year: {effective!.year}</span>}
+            {effective!.length_feet && <span className="text-sm bg-muted px-3 py-1 rounded-full">{Number(effective!.length_feet)} ft</span>}
+            {effective!.boat_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.boat_type}</span>}
+            {effective!.hull_material && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.hull_material}</span>}
+            {effective!.cabins && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.cabins} cabins</span>}
+            {effective!.fuel_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.fuel_type}</span>}
+            {effective!.engine_hours && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.engine_hours}h engine</span>}
           </div>
 
-          {listing.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {listing.location}</p>}
-          {listing.engine_info && <p className="text-sm text-muted-foreground">⚙️ {listing.engine_info}</p>}
-          {listing.description && (
-            <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{listing.description}</p></div>
+          {effective!.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {effective!.location}</p>}
+          {effective!.engine_info && <p className="text-sm text-muted-foreground">⚙️ {effective!.engine_info}</p>}
+          {effective!.description && (
+            <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
           )}
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground/70 border-t pt-3">
-            <span>{listing.source}</span>
-            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(listing.scraped_at)}</span>
+            <span>{effective!.source}</span>
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(effective!.scraped_at)}</span>
           </div>
 
           {/* Tab buttons */}
@@ -339,7 +339,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
               <Calculator className="w-4 h-4" /> Costs
             </Button>
             <Button variant="outline" className="gap-1.5" asChild>
-              <a href={listing.url} target="_blank" rel="noopener noreferrer">
+              <a href={effective!.url} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="w-4 h-4" /> View
               </a>
             </Button>
@@ -349,7 +349,14 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {activeTab === "evaluate" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
               <h3 className="font-semibold text-primary">Quick Evaluation</h3>
-              {(!listing.price_eur || !listing.length_feet || !listing.year) ? (
+              {isFetching ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
+              ) : fetchError && (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{fetchError}</p>
+                  <Button variant="outline" size="sm" onClick={fetchMissingData}>Retry</Button>
+                </div>
+              ) : (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
                 <p className="text-sm text-muted-foreground">Missing price, length, or year — cannot evaluate this listing.</p>
               ) : (
                 <>
@@ -376,7 +383,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
                         </SelectContent>
                       </Select>
                     </div>
-                    {listing.boat_type === "sailboat" && (
+                    {effective!.boat_type === "sailboat" && (
                       <div>
                         <Label className="text-xs">Sails</Label>
                         <Select value={sailsCondition} onValueChange={setSailsCondition}>
