@@ -123,18 +123,18 @@ const Index = () => {
           .from("cached_listings")
           .select("*")
           .order("scraped_at", { ascending: false })
-          .limit(50);
+          .limit(300);
 
         if (boatTypeFilter !== "all") {
           query = query.eq("boat_type", boatTypeFilter);
+        }
+        if (sourceFilter !== "all") {
+          query = query.eq("source", sourceFilter);
         }
 
         const { data, error } = await query;
         if (!error && data) {
           let filtered = data as CachedListing[];
-          if (sourceFilter !== "all") {
-            filtered = filtered.filter(l => l.source === sourceFilter);
-          }
 
           // Sort by geographic proximity
           if (userCoords) {
@@ -154,10 +154,22 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter, userCoords]);
+  }, [boatTypeFilter, sourceFilter, userCoords]);
 
-  const sources = [...new Set(listings.map(l => l.source).filter(Boolean))].sort();
-  const displayListings = sourceFilter !== "all" ? listings.filter(l => l.source === sourceFilter) : listings;
+  // Fetch all distinct sources for the dropdown
+  const [allSources, setAllSources] = useState<string[]>([]);
+  useEffect(() => {
+    const fetchSources = async () => {
+      const { data } = await supabase.from("cached_listings").select("source");
+      if (data) {
+        const s = [...new Set(data.map((d: any) => d.source).filter(Boolean))].sort() as string[];
+        setAllSources(s);
+      }
+    };
+    fetchSources();
+  }, []);
+
+  const displayListings = listings;
 
   const handleCompare = (listing: CachedListing) => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
@@ -227,14 +239,14 @@ const Index = () => {
                 <SelectItem value="powerboat">Powerboats</SelectItem>
               </SelectContent>
             </Select>
-            {sources.length > 1 && (
+            {allSources.length > 1 && (
               <Select value={sourceFilter} onValueChange={setSourceFilter}>
                 <SelectTrigger className="w-[150px] h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Sources</SelectItem>
-                  {sources.map(s => <SelectItem key={s!} value={s!}>{s}</SelectItem>)}
+                  {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
