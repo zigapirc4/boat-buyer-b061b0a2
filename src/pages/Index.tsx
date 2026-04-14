@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search } from "lucide-react";
+import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search, ChevronLeft, ChevronRight, BookOpen, DollarSign, Shield, Compass, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +41,43 @@ interface CachedListing {
   scraped_at: string;
 }
 
+const ARTICLES = [
+  {
+    icon: DollarSign,
+    color: "bg-coral/15 text-coral",
+    title: "True Cost of Boat Ownership",
+    summary: "Marina fees, insurance, maintenance — the purchase price is just the beginning. Learn what to budget for your first year.",
+    tag: "Costs",
+    tagColor: "bg-coral/10 text-coral",
+  },
+  {
+    icon: Shield,
+    color: "bg-primary/15 text-primary",
+    title: "Pre-Purchase Survey Guide",
+    summary: "What a marine survey covers, when you need one, and how to read the report. Don't skip this step on boats over €15k.",
+    tag: "Buying",
+    tagColor: "bg-primary/10 text-primary",
+  },
+  {
+    icon: Compass,
+    color: "bg-accent/15 text-accent",
+    title: "Best Cruising Grounds: Adriatic",
+    summary: "From Slovenia to Montenegro — marina pricing, sailing conditions, and hidden anchorages along the Croatian coast.",
+    tag: "Sailing",
+    tagColor: "bg-accent/10 text-accent",
+  },
+  {
+    icon: BookOpen,
+    color: "bg-ocean/15 text-ocean",
+    title: "Sailboat vs Powerboat: Which Is Right?",
+    summary: "Comparing running costs, maintenance needs, speed, and lifestyle for first-time buyers in the Mediterranean.",
+    tag: "Guide",
+    tagColor: "bg-ocean/10 text-ocean",
+  },
+];
+
+const PER_PAGE = 24;
+
 const Index = () => {
   const savedCount = getSavedBoats().length;
   const [listings, setListings] = useState<CachedListing[]>([]);
@@ -57,6 +94,7 @@ const Index = () => {
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
@@ -150,6 +188,9 @@ const Index = () => {
     fetchSources();
   }, []);
 
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [boatTypeFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery]);
+
   const displayListings = listings.filter(l => {
     if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
     if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
@@ -163,6 +204,9 @@ const Index = () => {
     return true;
   });
 
+  const totalPages = Math.ceil(displayListings.length / PER_PAGE);
+  const paginatedListings = displayListings.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
     setModalOpen(true);
@@ -174,212 +218,278 @@ const Index = () => {
     return null;
   };
 
+  const scrollToListings = () => {
+    document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
+  };
+
   const actionCards = [
-    { to: "/evaluate", icon: Ship, label: "Evaluate", desc: "Rate any boat", color: "bg-primary/10 text-primary" },
-    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", color: "bg-accent/10 text-accent" },
-    { to: "/my-boats", icon: List, label: "My Boats", desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist", color: "bg-success/10 text-success", badge: savedCount },
+    { to: "/evaluate", icon: Ship, label: "Evaluate", desc: "Rate any boat", gradient: "from-primary to-ocean" },
+    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", gradient: "from-accent to-sky" },
+    { to: "/my-boats", icon: List, label: "My Boats", desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist", gradient: "from-coral to-warning", badge: savedCount },
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Compact Hero */}
-      <div className="border-b bg-card/50 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto px-4 py-5 flex items-center gap-4">
-          <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-primary shrink-0">
-            <Anchor className="w-5 h-5 text-primary-foreground" />
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Hero Banner */}
+      <div className="bg-gradient-to-br from-primary via-ocean to-accent text-primary-foreground">
+        <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+              <Anchor className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
+              <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
+            </div>
+            {locationLabel && (
+              <span className="hidden sm:flex items-center gap-1.5 text-xs bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full ml-auto">
+                <MapPin className="w-3 h-3" /> {locationLabel}
+              </span>
+            )}
           </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-primary leading-tight">BoatBuyer</h1>
-            <p className="text-sm text-muted-foreground">Smart boat purchase decisions</p>
+
+          {/* Action Cards */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
+            {actionCards.map((card) => (
+              <Link key={card.to} to={card.to} className="group">
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                    <card.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold flex items-center gap-1 justify-center">
+                    {card.label}
+                    {card.badge ? (
+                      <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{card.badge}</span>
+                    ) : null}
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">{card.desc}</p>
+                </div>
+              </Link>
+            ))}
           </div>
-          {locationLabel && (
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-              <MapPin className="w-3 h-3" /> {locationLabel}
-            </span>
-          )}
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Action Cards Row */}
-        <div className="grid grid-cols-3 gap-3 animate-fade-in">
-          {actionCards.map((card) => (
-            <Link key={card.to} to={card.to} className="group">
-              <Card className="p-4 flex flex-col items-center text-center gap-2 hover:shadow-md transition-all hover:-translate-y-0.5 border-transparent hover:border-primary/20">
-                <div className={`w-10 h-10 rounded-xl ${card.color} flex items-center justify-center transition-transform group-hover:scale-110`}>
-                  <card.icon className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold flex items-center gap-1.5 justify-center">
-                    {card.label}
-                    {card.badge ? (
-                      <span className="bg-accent text-accent-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">{card.badge}</span>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{card.desc}</p>
-                </div>
-              </Card>
-            </Link>
+      {/* Articles Section */}
+      <div className="max-w-6xl mx-auto px-4 py-8 w-full">
+        <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-coral" /> Buyer's Guides
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {ARTICLES.map((article, i) => (
+            <Card key={i} className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15">
+              <div className={`w-9 h-9 rounded-lg ${article.color} flex items-center justify-center mb-3 transition-transform group-hover:scale-110`}>
+                <article.icon className="w-4 h-4" />
+              </div>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${article.tagColor}`}>{article.tag}</span>
+              <h3 className="text-sm font-semibold mt-2 leading-snug font-sans">{article.title}</h3>
+              <p className="text-xs text-muted-foreground mt-1.5 line-clamp-3">{article.summary}</p>
+            </Card>
           ))}
         </div>
+      </div>
 
-        {/* Search + Filters */}
-        <div className="space-y-3 animate-fade-in">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full h-11 rounded-xl border bg-card pl-10 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm"
-            />
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-              {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
-              {!isLoading && (
-                <span className="text-sm font-normal text-muted-foreground">
-                  ({displayListings.length.toLocaleString()})
-                </span>
-              )}
-            </h2>
-            <div className="flex gap-2 flex-wrap">
-              <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
-                <SelectTrigger className="w-[120px] h-8 text-xs rounded-lg">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="sailboat">Sailboats</SelectItem>
-                  <SelectItem value="powerboat">Powerboats</SelectItem>
-                </SelectContent>
-              </Select>
-              {allSources.length > 1 && (
-                <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                  <SelectTrigger className="w-[140px] h-8 text-xs rounded-lg">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sources</SelectItem>
-                    {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
-              <Button
-                variant={showFilters ? "secondary" : "outline"}
-                size="sm"
-                className="h-8 text-xs gap-1 rounded-lg"
-                onClick={() => setShowFilters(f => !f)}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
-                {(minPrice || maxPrice || minLength || maxLength) && (
-                  <span className="ml-1 w-2 h-2 rounded-full bg-primary" />
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {showFilters && (
-            <div className="flex flex-wrap gap-3 p-3 rounded-xl border bg-card shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Price €</span>
-                <input type="number" placeholder="Min" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
-                <span className="text-xs text-muted-foreground">–</span>
-                <input type="number" placeholder="Max" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Length ft</span>
-                <input type="number" placeholder="Min" value={minLength} onChange={e => setMinLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
-                <span className="text-xs text-muted-foreground">–</span>
-                <input type="number" placeholder="Max" value={maxLength} onChange={e => setMaxLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
-              </div>
-              {(minPrice || maxPrice || minLength || maxLength) && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setMinPrice(""); setMaxPrice(""); setMinLength(""); setMaxLength(""); }}>
-                  Clear
-                </Button>
-              )}
-            </div>
-          )}
+      {/* Listings Section */}
+      <div id="listings" className="max-w-6xl mx-auto px-4 pb-8 w-full flex-1 space-y-4">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full h-11 rounded-xl border bg-card pl-10 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm"
+          />
         </div>
 
-        {/* Listings Grid */}
+        {/* Header + Filters */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+            ⛵ {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
+            {!isLoading && (
+              <span className="text-sm font-normal text-muted-foreground">
+                ({displayListings.length.toLocaleString()})
+              </span>
+            )}
+          </h2>
+          <div className="flex gap-2 flex-wrap">
+            <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
+              <SelectTrigger className="w-[120px] h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="sailboat">Sailboats</SelectItem>
+                <SelectItem value="powerboat">Powerboats</SelectItem>
+              </SelectContent>
+            </Select>
+            {allSources.length > 1 && (
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger className="w-[140px] h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sources</SelectItem>
+                  {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            <Button variant={showFilters ? "secondary" : "outline"} size="sm" className="h-8 text-xs gap-1 rounded-lg" onClick={() => setShowFilters(f => !f)}>
+              <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
+              {(minPrice || maxPrice || minLength || maxLength) && <span className="ml-1 w-2 h-2 rounded-full bg-coral" />}
+            </Button>
+          </div>
+        </div>
+
+        {showFilters && (
+          <div className="flex flex-wrap gap-3 p-3 rounded-xl border bg-card shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Price €</span>
+              <input type="number" placeholder="Min" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
+              <span className="text-xs text-muted-foreground">–</span>
+              <input type="number" placeholder="Max" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Length ft</span>
+              <input type="number" placeholder="Min" value={minLength} onChange={e => setMinLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
+              <span className="text-xs text-muted-foreground">–</span>
+              <input type="number" placeholder="Max" value={maxLength} onChange={e => setMaxLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
+            </div>
+            {(minPrice || maxPrice || minLength || maxLength) && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setMinPrice(""); setMaxPrice(""); setMinLength(""); setMaxLength(""); }}>Clear</Button>
+            )}
+          </div>
+        )}
+
+        {/* Grid */}
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-16">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading latest boats…
           </div>
-        ) : displayListings.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
-            {displayListings.map((listing) => {
-              const img = getImageUrl(listing);
-              return (
-                <Card
-                  key={listing.id}
-                  className="overflow-hidden hover:shadow-lg transition-all hover:-translate-y-0.5 flex flex-col cursor-pointer group"
-                  onClick={() => handleCardClick(listing)}
-                >
-                  <div className="relative">
-                    {img ? (
-                      <img
-                        src={img}
-                        alt={listing.title}
-                        className="w-full h-44 object-cover transition-transform group-hover:scale-[1.02]"
-                        loading="lazy"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    ) : (
-                      <div className="w-full h-44 bg-muted flex items-center justify-center">
-                        <Ship className="w-12 h-12 text-muted-foreground/20" />
+        ) : paginatedListings.length > 0 ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
+              {paginatedListings.map((listing) => {
+                const img = getImageUrl(listing);
+                return (
+                  <Card key={listing.id} className="overflow-hidden hover:shadow-lg transition-all hover:-translate-y-0.5 flex flex-col cursor-pointer group" onClick={() => handleCardClick(listing)}>
+                    <div className="relative">
+                      {img ? (
+                        <img src={img} alt={listing.title} className="w-full h-40 object-cover transition-transform group-hover:scale-[1.02]" loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      ) : (
+                        <div className="w-full h-40 bg-muted flex items-center justify-center">
+                          <Ship className="w-12 h-12 text-muted-foreground/20" />
+                        </div>
+                      )}
+                      {listing.boat_type && (
+                        <span className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full capitalize">{listing.boat_type}</span>
+                      )}
+                    </div>
+                    <div className="p-3 flex-1 flex flex-col">
+                      <p className="font-semibold text-sm truncate leading-tight">{listing.title}</p>
+                      {listing.price_eur && (
+                        <p className="text-lg font-bold text-primary mt-0.5">€{Number(listing.price_eur).toLocaleString()}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {listing.year && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{listing.year}</span>}
+                        {listing.length_feet && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{Number(listing.length_feet)}ft</span>}
+                        {listing.hull_material && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded capitalize">{listing.hull_material}</span>}
                       </div>
-                    )}
-                    {listing.boat_type && (
-                      <span className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full capitalize">
-                        {listing.boat_type}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3.5 flex-1 flex flex-col">
-                    <p className="font-semibold text-sm truncate leading-tight">{listing.title}</p>
-                    {listing.price_eur && (
-                      <p className="text-lg font-bold text-primary mt-0.5">€{Number(listing.price_eur).toLocaleString()}</p>
-                    )}
-                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
-                      {listing.year && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{listing.year}</span>}
-                      {listing.length_feet && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{Number(listing.length_feet)}ft</span>}
-                      {listing.hull_material && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded capitalize">{listing.hull_material}</span>}
+                      {listing.location && (
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-auto pt-1.5">
+                        <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>
+                        <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5 shrink-0">
+                          <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
+                        </span>
+                      </div>
+                      <div className="flex gap-2 mt-2 pt-2 border-t">
+                        <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}>
+                          <ArrowRight className="w-3 h-3" /> Details
+                        </Button>
+                        <Button variant="ghost" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => e.stopPropagation()} asChild>
+                          <a href={listing.url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="w-3 h-3" /> View
+                          </a>
+                        </Button>
+                      </div>
                     </div>
-                    {listing.location && (
-                      <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 mt-auto pt-2">
-                      <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>
-                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5 shrink-0">
-                        <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
-                      </span>
-                    </div>
+                  </Card>
+                );
+              })}
+            </div>
 
-                    <div className="flex gap-2 mt-2 pt-2 border-t">
-                      <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}>
-                        <ArrowRight className="w-3 h-3" /> Details
-                      </Button>
-                      <Button variant="ghost" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => e.stopPropagation()} asChild>
-                        <a href={listing.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="w-3 h-3" /> View
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-1 pt-4">
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-lg" disabled={page === 1} onClick={() => { setPage(p => p - 1); scrollToListings(); }}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 7) {
+                    pageNum = i + 1;
+                  } else if (page <= 4) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 3) {
+                    pageNum = totalPages - 6 + i;
+                  } else {
+                    pageNum = page - 3 + i;
+                  }
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={page === pageNum ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 w-8 p-0 rounded-lg text-xs"
+                      onClick={() => { setPage(pageNum); scrollToListings(); }}
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-lg" disabled={page === totalPages} onClick={() => { setPage(p => p + 1); scrollToListings(); }}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-8">No listings cached yet. They'll appear after the next daily scrape.</p>
+          <p className="text-sm text-muted-foreground text-center py-8">No listings found. Try adjusting your filters.</p>
         )}
       </div>
+
+      {/* Footer */}
+      <footer className="border-t bg-card/80 backdrop-blur-sm mt-auto">
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-ocean flex items-center justify-center">
+                <Anchor className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">BoatBuyer</p>
+                <p className="text-xs text-muted-foreground">Smart boat purchase decisions</p>
+              </div>
+            </div>
+            <div className="text-center sm:text-right">
+              <p className="text-sm font-medium">Žiga Pirc</p>
+              <a href="mailto:pirc.ziga@gmail.com" className="text-xs text-primary hover:underline flex items-center gap-1 justify-center sm:justify-end mt-0.5">
+                <Mail className="w-3 h-3" /> pirc.ziga@gmail.com
+              </a>
+            </div>
+          </div>
+          <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <p>© {new Date().getFullYear()} BoatBuyer. All rights reserved.</p>
+            <div className="flex gap-4">
+              <Link to="/evaluate" className="hover:text-primary transition-colors">Evaluate</Link>
+              <Link to="/cost" className="hover:text-primary transition-colors">Costs</Link>
+              <Link to="/my-boats" className="hover:text-primary transition-colors">My Boats</Link>
+            </div>
+          </div>
+        </div>
+      </footer>
 
       <BoatDetailModal listing={selectedListing} open={modalOpen} onOpenChange={setModalOpen} timeAgo={timeAgo} />
     </div>
