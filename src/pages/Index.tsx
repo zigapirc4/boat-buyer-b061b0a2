@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, MessageCircle } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
