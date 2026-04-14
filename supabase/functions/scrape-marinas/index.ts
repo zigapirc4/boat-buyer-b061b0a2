@@ -132,9 +132,11 @@ Deno.serve(async (req) => {
             query: source.query,
             limit: 5,
             scrapeOptions: {
-              formats: [
-                { type: 'json', schema: EXTRACTION_SCHEMA, prompt: EXTRACTION_PROMPT },
-              ],
+              formats: ['extract'],
+              extract: {
+                schema: EXTRACTION_SCHEMA,
+                prompt: EXTRACTION_PROMPT,
+              },
             },
           }),
         });
