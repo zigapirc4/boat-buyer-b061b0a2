@@ -62,6 +62,48 @@ export type Database = {
         }
         Relationships: []
       }
+      marinas: {
+        Row: {
+          country: string
+          created_at: string
+          currency: string | null
+          id: string
+          name: string
+          notes: string | null
+          price_per_meter_year: number | null
+          region: string | null
+          scraped_at: string
+          source: string | null
+          website: string | null
+        }
+        Insert: {
+          country: string
+          created_at?: string
+          currency?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          price_per_meter_year?: number | null
+          region?: string | null
+          scraped_at?: string
+          source?: string | null
+          website?: string | null
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          currency?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          price_per_meter_year?: number | null
+          region?: string | null
+          scraped_at?: string
+          source?: string | null
+          website?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
