@@ -218,9 +218,6 @@ const Index = () => {
         <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/evaluate"><Ship className="w-5 h-5" /> Evaluate a Boat</Link>
         </Button>
-        <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
-          <Link to="/evaluate"><Ship className="w-5 h-5" /> Evaluate a Boat</Link>
-        </Button>
         <Button asChild variant="secondary" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/cost"><Calculator className="w-5 h-5" /> Calculate Ownership Cost</Link>
         </Button>
