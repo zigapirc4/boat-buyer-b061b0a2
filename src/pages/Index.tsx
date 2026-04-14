@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator } from "lucide-react";
+import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -52,6 +52,7 @@ const Index = () => {
   const [minLength, setMinLength] = useState<string>("");
   const [maxLength, setMaxLength] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
@@ -181,6 +182,11 @@ const Index = () => {
     if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
     if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
     if (maxLength && l.length_feet !== null && l.length_feet > parseInt(maxLength)) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const haystack = `${l.title} ${l.location || ""} ${l.engine_info || ""} ${l.description || ""} ${l.hull_material || ""} ${l.boat_type || ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
     return true;
   });
 
@@ -226,11 +232,22 @@ const Index = () => {
 
       {/* Latest Listings Section */}
       <div className="w-full max-w-4xl mt-16 animate-fade-in">
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full h-10 rounded-lg border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h2 className="text-xl font-bold text-primary flex items-center gap-2">
             🔥 {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
+            {searchQuery && <span className="text-sm font-normal text-muted-foreground">({displayListings.length} results)</span>}
           </h2>
-          {locationLabel && (
+          {locationLabel && !searchQuery && (
             <p className="text-xs text-muted-foreground -mt-1">Showing nearby listings first</p>
           )}
           <div className="flex gap-2 flex-wrap">
