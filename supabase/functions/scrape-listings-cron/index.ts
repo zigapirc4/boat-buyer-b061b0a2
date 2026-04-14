@@ -6,10 +6,8 @@ const corsHeaders = {
 };
 
 const SEARCH_QUERIES = [
-  { query: "sailboat for sale Europe price EUR site:yachtworld.com OR site:boats.com OR site:scanboat.com", boat_type: "sailboat" },
-  { query: "powerboat motorboat for sale Europe price EUR site:yachtworld.com OR site:boats.com OR site:boatshop24.com", boat_type: "powerboat" },
-  { query: "sailing yacht for sale Mediterranean price listing site:boat24.com OR site:sailboatlistings.com", boat_type: "sailboat" },
-  { query: "motor yacht for sale Europe price listing site:boat24.com OR site:boatshop24.com", boat_type: "powerboat" },
+  { query: "sailboat for sale Europe price EUR yachtworld OR boats.com OR scanboat", boat_type: "sailboat" },
+  { query: "powerboat for sale Europe price EUR yachtworld OR boatshop24 OR boat24", boat_type: "powerboat" },
 ];
 
 Deno.serve(async (req) => {
@@ -31,7 +29,7 @@ Deno.serve(async (req) => {
 
     console.log("Starting hourly listing scrape...");
 
-    // Run all searches in parallel for speed
+    // Run searches in parallel - no per-page scraping for speed
     const searchPromises = SEARCH_QUERIES.map(async ({ query, boat_type }) => {
       try {
         console.log(`Searching: ${query}`);
@@ -41,93 +39,56 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            query,
-            limit: 8,
-            tbs: "qdr:w",
-            scrapeOptions: {
-              formats: ["extract"],
-              extract: {
-                schema: {
-                  type: "object",
-                  properties: {
-                    listings: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          boat_name: { type: "string" },
-                          price_eur: { type: "number" },
-                          year: { type: "number" },
-                          length_feet: { type: "number" },
-                          location: { type: "string" },
-                          image_url: { type: "string" },
-                          engine_info: { type: "string" },
-                        },
-                      },
-                    },
-                  },
-                },
-                prompt: "Extract all boat listings on this page. Get boat name, price in EUR, year, length in feet, location, main image URL, and engine info.",
-              },
-            },
-          }),
+          body: JSON.stringify({ query, limit: 10, tbs: "qdr:w" }),
         });
 
         if (!searchRes.ok) {
-          console.error(`Search failed for "${query}":`, await searchRes.text());
+          console.error(`Search failed:`, await searchRes.text());
           return [];
         }
 
         const searchData = await searchRes.json();
         const results = searchData?.data || [];
-        const listings: any[] = [];
+        console.log(`Got ${results.length} results for "${query}"`);
 
-        for (const item of results) {
-          if (!item.url) continue;
+        return results.map((item: any) => {
           let source = "";
           try { source = new URL(item.url).hostname.replace("www.", ""); } catch {}
 
-          // Try to get structured extraction
-          const json = item?.json || item?.extract;
-          if (json?.listings && Array.isArray(json.listings)) {
-            for (const l of json.listings) {
-              if (!l.boat_name && !l.price_eur) continue;
-              listings.push({
-                title: l.boat_name || "Unknown",
-                url: item.url,
-                boat_type: boat_type,
-                price_eur: l.price_eur || null,
-                year: l.year || null,
-                length_feet: l.length_feet || null,
-                location: l.location || null,
-                image_url: l.image_url || null,
-                engine_info: l.engine_info || null,
-                source,
-                scraped_at: new Date().toISOString(),
-              });
-            }
-          } else {
-            // Fallback: use search result metadata
-            listings.push({
-              title: item.title || "Unknown",
-              url: item.url,
-              boat_type: boat_type,
-              price_eur: null,
-              year: null,
-              length_feet: null,
-              location: null,
-              image_url: null,
-              engine_info: null,
-              source,
-              scraped_at: new Date().toISOString(),
-            });
-          }
-        }
+          // Parse price from title/description
+          const text = `${item.title || ""} ${item.description || ""}`;
+          const priceMatch = text.match(/(?:€|EUR)\s*([\d,.']+)/i) || text.match(/([\d,.']+)\s*(?:€|EUR)/i);
+          const price = priceMatch ? parseFloat(priceMatch[1].replace(/[,.']/g, "")) : null;
+          const validPrice = price && price > 1000 && price < 50000000 ? price : null;
 
-        return listings;
+          // Parse year
+          const yearMatch = text.match(/\b(19[6-9]\d|20[0-2]\d)\b/);
+          const year = yearMatch ? parseInt(yearMatch[1]) : null;
+
+          // Parse length
+          const lenMatch = text.match(/([\d.]+)\s*(?:ft|feet|foot)/i) || text.match(/([\d.]+)\s*m\b/i);
+          const lengthFeet = lenMatch ? (text.match(/\bm\b/i) ? parseFloat(lenMatch[1]) * 3.281 : parseFloat(lenMatch[1])) : null;
+
+          // Extract location hints
+          const locMatch = text.match(/(?:in|at|located?|port|marina)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+          const location = locMatch ? locMatch[1] : null;
+
+          return {
+            title: (item.title || "Unknown").substring(0, 200),
+            url: item.url,
+            boat_type,
+            price_eur: validPrice,
+            year,
+            length_feet: lengthFeet ? Math.round(lengthFeet * 10) / 10 : null,
+            location,
+            image_url: null,
+            engine_info: null,
+            source,
+            scraped_at: new Date().toISOString(),
+          };
+        }).filter((l: any) => l.url);
       } catch (e) {
-        console.error(`Search query failed:`, e);
+        console.error(`Search failed:`, e);
         return [];
       }
     });
@@ -137,7 +98,7 @@ Deno.serve(async (req) => {
 
     // Deduplicate by URL
     const seen = new Set<string>();
-    const uniqueListings = allListings.filter(l => {
+    const uniqueListings = allListings.filter((l: any) => {
       if (seen.has(l.url)) return false;
       seen.add(l.url);
       return true;
@@ -159,6 +120,8 @@ Deno.serve(async (req) => {
 
       if (!resp.ok) {
         console.error("Upsert error:", await resp.text());
+      } else {
+        console.log("Upsert successful");
       }
     }
 
