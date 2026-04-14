@@ -110,53 +110,40 @@ const SAILBOAT_QUERY_COUNT = 44; // queries 0-43 are sailboats
 const REJECT_URL_PATTERNS = [
   "/search", "/results", "/category", "/login", "/register",
   "/about", "/contact", "/faq", "/privacy", "/terms",
-  "/boats-for-sale/make-", "/boats-for-sale/manufacturer-",
-  "/boats-for-sale/type-", "/boats-for-sale/?",
-  "/boats/make-", "/boats/manufacturer-",
-  "/boats/type-", "/boats/?",
+  "/boats-for-sale", "/yachts-for-sale", "/boats-for-sale/",
+  "/boats/make-", "/boats/manufacturer-", "/boats/type-",
   "/dealer", "/broker", "/brand",
-  "/blog", "/news", "/article", "/guide",
-  "/compare", "/review",
+  "/blog", "/news", "/article", "/guide", "/review", "/compare",
   "youtube.com", "facebook.com", "instagram.com", "twitter.com",
   "reddit.com", "wikipedia.org", "pinterest.com", "tiktok.com",
   "/home/product-range", "/model-range",
   "?make=", "&make=", "/make/",
-  "/worldregion-", "/country-",
+  "/worldregion-", "/country-", "?country=",
   "/used-", "yacht-sales/", "/pre-owned",
-  "/yachts-for-sale/", "/boats-for-sale/",
   "listings-by-brand", "/groups/",
-  "boattrader.com/boats/", "boats.com/boats-for-sale",
-  "yachtworld.com/boats-for-sale/make-",
-  "rightboat.com/boats-for-sale/",
-  "boatshop24.com/us/boats-for-sale/",
-  "topboats.com/boats/",
-  "boatshowavenue.com/boats-for-sale/",
-  "boatzon.com/make/",
-  "botentekoop.com/boats/",
-  "denisonyachtsales.com/yachts-for-sale",
-  "unitedyacht.com/Used-Yachts",
-  "galatiyachts.com/used-",
-  "curtisstokes.net/yacht-sales/",
-  "flagleryachts.com/used-",
-  "jbys.com/listings-by-brand/",
-  "bonitaboatcenter.com/boats-for-sale",
+  "boat-buyers-guide", "/buyer",
+  "?q=", "?SearchCriteria",
+  "/annunci-", // subito.it search pages
+  "/location/", // sailboatlistings location pages
+  "view_records=",
 ];
 
-// Patterns that suggest an individual listing page
-const LISTING_URL_INDICATORS = [
-  /\/boat\/\d/i,
-  /\/listing[s]?\/\d/i,
-  /\/ad\/\d/i,
-  /\/oglas\/\d/i,        // mornar.net style
-  /\/annonce\/\d/i,
-  /\/yacht\/\d/i,
-  /\/detail[s]?\/\d/i,
-  /\/offer\/\d/i,
-  /\/\d{4,}[-/]/,        // numeric IDs in path
-  /[-/]\d{5,}/,          // long numeric IDs
-  /\/boats?\/.+\/.+\d/i, // e.g. /boat/brand/model-12345
-  /\.html$/i,
-  /\/inserzione\/\d/i,   // subito.it
+// Allowlisted URL patterns for known listing sites — must match to accept
+const SITE_LISTING_PATTERNS: [string, RegExp][] = [
+  ["yachtworld.com", /yachtworld\.com\/yacht\/\d+-\w+-\d+/i],
+  ["boat24.com", /boat24\.com\/\w+\/\w+\/\w+\/\w+/i],  // e.g. /en/sailingboats/brand/model-id/
+  ["mornar.net", /mornar\.net\/Show\/boat\.asp\?ID=\d+/i],
+  ["scanboat.com", /scanboat\.com\/\w+\/\w+\/\w+-\d+/i],
+  ["boats.com", /boats\.com\/boat\/\d+/i],
+  ["sailboatlistings.com", /sailboatlistings\.com\/view\/\d+/i],
+  ["subito.it", /subito\.it\/annuncio\//i],
+  ["theyachtmarket.com", /theyachtmarket\.com\/\w+\/\w+\/\d+/i],
+  ["boatshop24.com", /boatshop24\.com\/\w+\/\w+\/\d+/i],
+  ["bandofboats.com", /bandofboats\.com\/\w+\/\w+-for-sale\/\d+/i],
+  ["apolloduck", /apolloduck\.\w+\/boat\/\w+-for-sale\/\d+/i],
+  ["devalk.nl", /devalk\.nl\/\w+\/yachtbrokerage\/\d+/i],
+  ["yachtall.com", /yachtall\.com\/\w+\/boat\/\w+-s\d+/i],
+  ["rightboat.com", /rightboat\.com\/\w+\/\d+/i],
 ];
 
 function isLikelyListingUrl(url: string): boolean {
@@ -165,18 +152,22 @@ function isLikelyListingUrl(url: string): boolean {
   // Reject known non-listing patterns
   if (REJECT_URL_PATTERNS.some(p => urlLower.includes(p.toLowerCase()))) return false;
 
-  // Accept if URL matches listing indicators
-  if (LISTING_URL_INDICATORS.some(r => r.test(url))) return true;
+  // Check site-specific listing patterns
+  for (const [site, pattern] of SITE_LISTING_PATTERNS) {
+    if (urlLower.includes(site)) {
+      return pattern.test(url);
+    }
+  }
 
-  // Accept URLs with specific boat model names in path (e.g. /bavaria-34-cruiser-123)
-  const path = urlLower.split("?")[0];
-  const segments = path.split("/").filter(Boolean);
-  const lastSegment = segments[segments.length - 1] || "";
+  // For unknown sites, require strong listing indicators
+  const hasNumericId = /[-/]\d{5,}/.test(url) || /\/\d{4,}[-/]/.test(url);
+  const hasListingPath = /\/(boat|yacht|listing|ad|detail|offer|annonce|oglas|inserzione)s?[/-]/i.test(url);
+  const endsWithHtml = /\.html$/i.test(url);
+  
+  if (hasListingPath && hasNumericId) return true;
+  if (endsWithHtml && hasNumericId) return true;
+  if (hasNumericId && url.split("/").filter(Boolean).length >= 4) return true;
 
-  // Listing URLs typically have longer, specific last segments with numbers
-  if (lastSegment.length > 15 && /\d/.test(lastSegment)) return true;
-
-  // If we can't tell, reject to avoid junk
   return false;
 }
 
