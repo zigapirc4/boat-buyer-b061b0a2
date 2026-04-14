@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,7 +43,6 @@ interface CachedListing {
 
 const Index = () => {
   const savedCount = getSavedBoats().length;
-  const navigate = useNavigate();
   const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
@@ -185,14 +184,6 @@ const Index = () => {
     return true;
   });
 
-  const handleCompare = (listing: CachedListing) => {
-    navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
-  };
-
-  const handleOwnershipCost = (listing: CachedListing) => {
-    navigate(`/cost?url=${encodeURIComponent(listing.url)}`);
-  };
-
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
     setModalOpen(true);
@@ -217,9 +208,6 @@ const Index = () => {
       <div className="w-full max-w-sm space-y-4 animate-fade-in">
         <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/evaluate"><Ship className="w-5 h-5" /> Evaluate a Boat</Link>
-        </Button>
-        <Button asChild variant="secondary" className="w-full h-14 text-base gap-3" size="lg">
-          <Link to="/cost"><Calculator className="w-5 h-5" /> Calculate Ownership Cost</Link>
         </Button>
         <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/my-boats">
@@ -390,9 +378,9 @@ const Index = () => {
                         variant="outline"
                         size="sm"
                         className="flex-1 text-xs gap-1"
-                        onClick={(e) => { e.stopPropagation(); handleCompare(listing); }}
+                        onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}
                       >
-                        <ArrowRight className="w-3 h-3" /> Compare
+                        <ArrowRight className="w-3 h-3" /> Details
                       </Button>
                       <Button
                         variant="ghost"
@@ -420,8 +408,6 @@ const Index = () => {
         listing={selectedListing}
         open={modalOpen}
         onOpenChange={setModalOpen}
-        onCompare={handleCompare}
-        onOwnershipCost={handleOwnershipCost}
         timeAgo={timeAgo}
       />
     </div>
