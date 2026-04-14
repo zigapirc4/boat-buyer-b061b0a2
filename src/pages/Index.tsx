@@ -148,8 +148,11 @@ const Index = () => {
       <div className="w-full max-w-4xl mt-16 animate-fade-in">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h2 className="text-xl font-bold text-primary flex items-center gap-2">
-            🔥 Latest Listings
+            🔥 {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
           </h2>
+          {locationLabel && (
+            <p className="text-xs text-muted-foreground -mt-1">Showing nearby listings first</p>
+          )}
           <div className="flex gap-2">
             <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
               <SelectTrigger className="w-[130px] h-8 text-xs">
