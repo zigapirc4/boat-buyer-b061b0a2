@@ -224,10 +224,12 @@ Deno.serve(async (req) => {
     // Allow passing a subset of queries to split across multiple invocations
     let startIdx = 0;
     let endIdx = SEARCH_QUERIES.length;
+    let skipEnrich = false;
     try {
       const body = await req.json();
       if (body.startIdx !== undefined) startIdx = body.startIdx;
       if (body.endIdx !== undefined) endIdx = body.endIdx;
+      if (body.skipEnrich) skipEnrich = true;
     } catch {}
 
     const queries = SEARCH_QUERIES.slice(startIdx, endIdx);
