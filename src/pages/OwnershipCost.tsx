@@ -146,9 +146,10 @@ const OwnershipCost = () => {
     try {
       const { data, error } = await supabase.functions.invoke("scrape-boat-listing", { body: { url: targetUrl } });
       if (error) throw error;
-      const d = data;
+      if (!data?.success || !data.data) throw new Error(data?.error || "Could not extract boat details");
+      const d = data.data;
       setBoat({
-        name: d.model || d.title || "Unknown Boat",
+        name: d.boat_model || d.title || "Unknown Boat",
         year: d.year || null,
         lengthM: d.length_feet ? d.length_feet * 0.3048 : null,
         boatType: d.boat_type || "sailboat",
@@ -157,7 +158,7 @@ const OwnershipCost = () => {
         hullMaterial: d.hull_material || null,
         hasInboard: true,
       });
-      toast({ title: "Boat imported", description: d.model || d.title });
+      toast({ title: "Boat imported", description: d.boat_model || d.title });
     } catch (e: any) {
       toast({ title: "Import failed", description: e.message, variant: "destructive" });
     } finally {
