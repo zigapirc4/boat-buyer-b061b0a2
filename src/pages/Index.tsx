@@ -101,6 +101,33 @@ const Index = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedArticle, setSelectedArticle] = useState<typeof ARTICLES[number] | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const ids = new Set(JSON.parse(localStorage.getItem("boatbuyer_saved_listings") || "[]").map((l: any) => l.id));
+    setSavedIds(ids);
+  }, []);
+
+  const toggleSave = (listing: CachedListing) => {
+    if (savedIds.has(listing.id)) {
+      removeListing(listing.id);
+      setSavedIds(prev => { const n = new Set(prev); n.delete(listing.id); return n; });
+    } else {
+      saveListing({
+        id: listing.id,
+        title: listing.title,
+        url: listing.url,
+        boat_type: listing.boat_type,
+        price_eur: listing.price_eur,
+        year: listing.year,
+        length_feet: listing.length_feet,
+        location: listing.location,
+        image_url: listing.image_url,
+        source: listing.source,
+      });
+      setSavedIds(prev => new Set(prev).add(listing.id));
+    }
+  };
 
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
