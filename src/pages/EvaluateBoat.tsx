@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, LinkIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { saveBoat } from "@/lib/boatStore";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface EvalResult {
   score: number;
@@ -37,6 +38,8 @@ function evaluate(year: number, price: number, engine: string, hull: string, sai
 
 const EvaluateBoat = () => {
   const { toast } = useToast();
+  const [listingUrl, setListingUrl] = useState("");
+  const [isScraping, setIsScraping] = useState(false);
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
   const [price, setPrice] = useState("");
@@ -47,6 +50,39 @@ const EvaluateBoat = () => {
   const [result, setResult] = useState<EvalResult | null>(null);
 
   const canEvaluate = model && year && price && length && engine && hull && sails;
+
+  const handleScrape = async () => {
+    if (!listingUrl.trim()) return;
+    setIsScraping(true);
+    setResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
+        body: { url: listingUrl },
+      });
+
+      if (error) throw error;
+
+      if (data?.success && data.data) {
+        const d = data.data;
+        if (d.boat_model) setModel(d.boat_model);
+        if (d.year) setYear(String(d.year));
+        if (d.price_eur) setPrice(String(Math.round(d.price_eur)));
+        if (d.length_feet) setLength(String(Math.round(d.length_feet)));
+        if (d.engine_condition) setEngine(d.engine_condition);
+        if (d.hull_condition) setHull(d.hull_condition);
+        if (d.sails_condition) setSails(d.sails_condition);
+        toast({ title: "Listing imported!", description: `Found: ${d.boat_model || "boat details"}` });
+      } else {
+        toast({ title: "Could not extract details", description: data?.error || "Try a different listing URL.", variant: "destructive" });
+      }
+    } catch (e) {
+      console.error("Scrape error:", e);
+      toast({ title: "Scraping failed", description: "Check the URL and try again.", variant: "destructive" });
+    } finally {
+      setIsScraping(false);
+    }
+  };
 
   const handleEvaluate = () => {
     if (!canEvaluate) return;
@@ -66,6 +102,27 @@ const EvaluateBoat = () => {
       </Link>
 
       <h1 className="text-2xl font-bold text-primary mb-6">Evaluate a Boat</h1>
+
+      {/* URL Import Section */}
+      <Card className="p-4 mb-6 border-dashed border-2">
+        <Label className="text-sm font-medium flex items-center gap-2 mb-2">
+          <LinkIcon className="w-4 h-4" /> Import from listing URL
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Paste boat listing URL…"
+            value={listingUrl}
+            onChange={(e) => setListingUrl(e.target.value)}
+            className="flex-1"
+          />
+          <Button onClick={handleScrape} disabled={isScraping || !listingUrl.trim()} size="sm">
+            {isScraping ? <Loader2 className="w-4 h-4 animate-spin" /> : "Import"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Works with most boat listing sites (Boat24, YachtWorld, etc.)
+        </p>
+      </Card>
 
       <div className="space-y-4">
         <div><Label>Boat Model</Label><Input placeholder="e.g. Bavaria 37" value={model} onChange={e => setModel(e.target.value)} /></div>
