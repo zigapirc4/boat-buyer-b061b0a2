@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
+import { BoatDetailModal } from "@/components/BoatDetailModal";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -49,6 +50,8 @@ const Index = () => {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
+  const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   // Country coordinates for proximity scoring
   const COUNTRY_COORDS: Record<string, [number, number]> = {
@@ -160,6 +163,15 @@ const Index = () => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
   };
 
+  const handleOwnershipCost = (listing: CachedListing) => {
+    navigate(`/cost?url=${encodeURIComponent(listing.url)}`);
+  };
+
+  const handleCardClick = (listing: CachedListing) => {
+    setSelectedListing(listing);
+    setModalOpen(true);
+  };
+
   const getImageUrl = (listing: CachedListing) => {
     if (listing.image_url) return listing.image_url;
     if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
@@ -238,7 +250,7 @@ const Index = () => {
             {displayListings.map((listing) => {
               const img = getImageUrl(listing);
               return (
-                <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+                <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col cursor-pointer" onClick={() => handleCardClick(listing)}>
                   {img && (
                     <img
                       src={img}
@@ -286,7 +298,7 @@ const Index = () => {
                         variant="outline"
                         size="sm"
                         className="flex-1 text-xs gap-1"
-                        onClick={() => handleCompare(listing)}
+                        onClick={(e) => { e.stopPropagation(); handleCompare(listing); }}
                       >
                         <ArrowRight className="w-3 h-3" /> Compare
                       </Button>
@@ -294,6 +306,7 @@ const Index = () => {
                         variant="ghost"
                         size="sm"
                         className="flex-1 text-xs gap-1"
+                        onClick={(e) => e.stopPropagation()}
                         asChild
                       >
                         <a href={listing.url} target="_blank" rel="noopener noreferrer">
@@ -310,6 +323,15 @@ const Index = () => {
           <p className="text-sm text-muted-foreground text-center py-4">No listings cached yet. They'll appear after the next daily scrape.</p>
         )}
       </div>
+
+      <BoatDetailModal
+        listing={selectedListing}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onCompare={handleCompare}
+        onOwnershipCost={handleOwnershipCost}
+        timeAgo={timeAgo}
+      />
     </div>
   );
 };
