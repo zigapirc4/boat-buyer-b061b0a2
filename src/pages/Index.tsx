@@ -5,6 +5,7 @@ import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, S
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
@@ -49,6 +50,7 @@ const ARTICLES = [
     summary: "Marina fees, insurance, maintenance — the purchase price is just the beginning. Learn what to budget for your first year.",
     tag: "Costs",
     tagColor: "bg-coral/10 text-coral",
+    body: "Owning a boat goes far beyond the sticker price. Here's a breakdown of what to expect in your first year:\n\n**Marina / Berth Fees** — Annual berth costs in the Adriatic range from €40–120 per meter per year depending on location. ACI marinas in Croatia are among the most popular, with prices varying by season and boat length.\n\n**Insurance** — Hull and liability insurance typically costs 1–2% of the boat's value per year. A €50,000 boat might cost €500–1,000/year to insure.\n\n**Maintenance** — Budget 5–10% of the boat's purchase price annually. This covers antifouling, engine service, rigging checks, and unexpected repairs.\n\n**Winterization** — Haul-out, storage, and spring launch can run €500–1,500 depending on boat size and yard location.\n\n**Fuel & Consumables** — Powerboats consume significantly more fuel. Sailboats are cheaper to run but still need diesel for the engine and electronics.\n\n**Registration & Taxes** — Varies by flag state. Slovenian registration is straightforward; Croatian waters require a vignette (sojourn tax).",
   },
   {
     icon: Shield,
@@ -57,6 +59,7 @@ const ARTICLES = [
     summary: "What a marine survey covers, when you need one, and how to read the report. Don't skip this step on boats over €15k.",
     tag: "Buying",
     tagColor: "bg-primary/10 text-primary",
+    body: "A marine survey is your best protection when buying a used boat. Here's what you need to know:\n\n**When to Get One** — Always recommended for boats over €15,000 or older than 10 years. Banks and insurers often require one.\n\n**Types of Surveys:**\n- *Condition & Valuation (C&V)* — Full inspection of hull, deck, rigging, engine, and systems. Includes a fair market valuation.\n- *Hull-only* — Focuses on structural integrity, osmosis, and underwater fittings.\n- *Engine survey* — Specialist inspection of engines and drive systems.\n\n**What the Surveyor Checks** — Hull integrity, deck core condition, standing and running rigging, through-hulls, electrical systems, engine hours and compression, safety equipment, and documentation.\n\n**Reading the Report** — Focus on items marked 'requires immediate attention' vs 'recommended.' Use serious findings as negotiation leverage — a €2,000 repair issue can knock €3,000 off the price.\n\n**Cost** — Expect €10–15 per foot for a full survey. A 37-foot boat survey costs roughly €370–550 plus haul-out fees.",
   },
   {
     icon: Compass,
@@ -65,6 +68,7 @@ const ARTICLES = [
     summary: "From Slovenia to Montenegro — marina pricing, sailing conditions, and hidden anchorages along the Croatian coast.",
     tag: "Sailing",
     tagColor: "bg-accent/10 text-accent",
+    body: "The Adriatic Sea offers some of Europe's best cruising, with over 1,200 islands and crystal-clear waters.\n\n**Slovenia** — A short coastline but excellent marinas in Portorož, Izola, and Koper. Great starting point with easy access to Italy and Croatia.\n\n**Croatia** — The crown jewel. Key areas include:\n- *Istria* — Close to Slovenia, charming towns like Rovinj and Pula. Less crowded than Dalmatia.\n- *Kvarner* — Islands of Cres, Lošinj, and Krk. Protected sailing with reliable winds.\n- *Dalmatia* — Split to Dubrovnik. Stunning islands (Hvar, Vis, Korčula, Mljet). More crowded July–August.\n\n**Montenegro** — Kotor Bay is a must-visit. Fewer marinas but growing infrastructure. Very affordable.\n\n**Wind & Weather** — The *Maestral* (NW afternoon breeze) is your friend. Watch out for the *Bura* (strong NE wind) in winter and the *Jugo* (SE sirocco) which brings rain.\n\n**Anchoring** — Free anchoring is common outside marine reserves. Always check local regulations — some bays now charge fees in peak season.",
   },
   {
     icon: BookOpen,
@@ -73,6 +77,7 @@ const ARTICLES = [
     summary: "Comparing running costs, maintenance needs, speed, and lifestyle for first-time buyers in the Mediterranean.",
     tag: "Guide",
     tagColor: "bg-ocean/10 text-ocean",
+    body: "Choosing between sail and power is one of the biggest decisions for a first-time buyer. Here's an honest comparison:\n\n**Running Costs:**\n- *Sailboat* — Lower fuel costs (engine used mainly for maneuvering). Higher rigging maintenance.\n- *Powerboat* — Fuel is the biggest expense. A 35ft powerboat can burn 20–40L/hour at cruising speed vs 2–4L/hour for a sailboat under engine.\n\n**Purchase Price** — Sailboats generally offer more boat for the money. A well-maintained 35ft sailboat from the 2000s can be found for €40–80k. Equivalent powerboats start at €60–120k.\n\n**Maintenance:**\n- *Sailboat* — Sails (replace every 7–10 years, €3–8k), rigging (replace every 15–20 years, €5–15k), and standard hull/engine work.\n- *Powerboat* — More engine hours = more engine maintenance. Twin engines double the cost.\n\n**Lifestyle:**\n- *Sailboat* — Slower, quieter, more romantic. You work with the wind. Great for longer passages and overnight sailing.\n- *Powerboat* — Faster point-to-point travel. Better for day trips, fishing, and watersports. More spacious interiors at the same length.\n\n**Recommendation** — If you plan to cruise the Adriatic on weekends and holidays, a 30–38ft sailboat is hard to beat for value and experience. If speed and comfort for day trips matter more, look at displacement or semi-displacement powerboats for fuel efficiency.",
   },
 ];
 
@@ -95,6 +100,7 @@ const Index = () => {
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedArticle, setSelectedArticle] = useState<typeof ARTICLES[number] | null>(null);
 
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
@@ -277,17 +283,48 @@ const Index = () => {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {ARTICLES.map((article, i) => (
-            <Card key={i} className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15">
+            <Card key={i} onClick={() => setSelectedArticle(article)} className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15">
               <div className={`w-9 h-9 rounded-lg ${article.color} flex items-center justify-center mb-3 transition-transform group-hover:scale-110`}>
                 <article.icon className="w-4 h-4" />
               </div>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${article.tagColor}`}>{article.tag}</span>
               <h3 className="text-sm font-semibold mt-2 leading-snug font-sans">{article.title}</h3>
               <p className="text-xs text-muted-foreground mt-1.5 line-clamp-3">{article.summary}</p>
+              <span className="text-xs text-primary font-medium mt-2 inline-block group-hover:underline">Read more →</span>
             </Card>
           ))}
         </div>
       </div>
+
+      {/* Article Modal */}
+      <Dialog open={!!selectedArticle} onOpenChange={(open) => !open && setSelectedArticle(null)}>
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+          {selectedArticle && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3 mb-1">
+                  <div className={`w-10 h-10 rounded-lg ${selectedArticle.color} flex items-center justify-center`}>
+                    <selectedArticle.icon className="w-5 h-5" />
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedArticle.tagColor}`}>{selectedArticle.tag}</span>
+                </div>
+                <DialogTitle className="text-lg font-bold font-heading">{selectedArticle.title}</DialogTitle>
+                <DialogDescription>{selectedArticle.summary}</DialogDescription>
+              </DialogHeader>
+              <div className="prose prose-sm max-w-none text-foreground mt-2">
+                {selectedArticle.body.split('\n\n').map((paragraph, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-muted-foreground mb-3" dangerouslySetInnerHTML={{
+                    __html: paragraph
+                      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-foreground">$1</strong>')
+                      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                      .replace(/\n/g, '<br />')
+                  }} />
+                ))}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Listings Section */}
       <div id="listings" className="max-w-6xl mx-auto px-4 pb-8 w-full flex-1 space-y-4">
