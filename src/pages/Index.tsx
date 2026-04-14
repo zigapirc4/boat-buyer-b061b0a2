@@ -163,6 +163,15 @@ const Index = () => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
   };
 
+  const handleOwnershipCost = (listing: CachedListing) => {
+    navigate(`/cost?url=${encodeURIComponent(listing.url)}`);
+  };
+
+  const handleCardClick = (listing: CachedListing) => {
+    setSelectedListing(listing);
+    setModalOpen(true);
+  };
+
   const getImageUrl = (listing: CachedListing) => {
     if (listing.image_url) return listing.image_url;
     if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
