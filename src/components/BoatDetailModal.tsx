@@ -1,7 +1,7 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Calculator, ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, Calculator, ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship } from "lucide-react";
 import { useState } from "react";
 
 interface CachedListing {
