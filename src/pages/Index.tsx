@@ -1,12 +1,12 @@
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search, ChevronLeft, ChevronRight, BookOpen, DollarSign, Shield, Compass, Mail } from "lucide-react";
+import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search, ChevronLeft, ChevronRight, BookOpen, DollarSign, Shield, Compass, Mail, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { getSavedBoats } from "@/lib/boatStore";
+import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 
@@ -101,6 +101,33 @@ const Index = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedArticle, setSelectedArticle] = useState<typeof ARTICLES[number] | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const ids = new Set<string>(JSON.parse(localStorage.getItem("boatbuyer_saved_listings") || "[]").map((l: any) => l.id as string));
+    setSavedIds(ids);
+  }, []);
+
+  const toggleSave = (listing: CachedListing) => {
+    if (savedIds.has(listing.id)) {
+      removeListing(listing.id);
+      setSavedIds(prev => { const n = new Set(prev); n.delete(listing.id); return n; });
+    } else {
+      saveListing({
+        id: listing.id,
+        title: listing.title,
+        url: listing.url,
+        boat_type: listing.boat_type,
+        price_eur: listing.price_eur,
+        year: listing.year,
+        length_feet: listing.length_feet,
+        location: listing.location,
+        image_url: listing.image_url,
+        source: listing.source,
+      });
+      setSavedIds(prev => new Set(prev).add(listing.id));
+    }
+  };
 
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
@@ -441,7 +468,7 @@ const Index = () => {
                           <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
                         </span>
                       </div>
-                      <div className="flex gap-2 mt-2 pt-2 border-t">
+                      <div className="flex gap-1.5 mt-2 pt-2 border-t">
                         <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}>
                           <ArrowRight className="w-3 h-3" /> Details
                         </Button>
@@ -449,6 +476,14 @@ const Index = () => {
                           <a href={listing.url} target="_blank" rel="noopener noreferrer">
                             <ExternalLink className="w-3 h-3" /> View
                           </a>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`text-xs gap-1 h-7 w-7 rounded-lg p-0 shrink-0 ${savedIds.has(listing.id) ? 'text-coral' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); toggleSave(listing); }}
+                        >
+                          <Heart className={`w-3.5 h-3.5 ${savedIds.has(listing.id) ? 'fill-coral' : ''}`} />
                         </Button>
                       </div>
                     </div>

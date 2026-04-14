@@ -6,7 +6,22 @@ export interface SavedBoat {
   date: string;
 }
 
+export interface SavedListing {
+  id: string;
+  title: string;
+  url: string;
+  boat_type: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
+  source: string | null;
+  savedAt: string;
+}
+
 const STORAGE_KEY = "boatbuyer_saved";
+const LISTINGS_KEY = "boatbuyer_saved_listings";
 
 export function getSavedBoats(): SavedBoat[] {
   try {
@@ -25,4 +40,28 @@ export function saveBoat(boat: Omit<SavedBoat, "id" | "date">) {
 export function deleteBoat(id: string) {
   const boats = getSavedBoats().filter((b) => b.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(boats));
+}
+
+export function getSavedListings(): SavedListing[] {
+  try {
+    return JSON.parse(localStorage.getItem(LISTINGS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveListing(listing: Omit<SavedListing, "savedAt">) {
+  const listings = getSavedListings();
+  if (listings.some(l => l.id === listing.id)) return; // no duplicates
+  listings.unshift({ ...listing, savedAt: new Date().toISOString() });
+  localStorage.setItem(LISTINGS_KEY, JSON.stringify(listings));
+}
+
+export function removeListing(id: string) {
+  const listings = getSavedListings().filter(l => l.id !== id);
+  localStorage.setItem(LISTINGS_KEY, JSON.stringify(listings));
+}
+
+export function isListingSaved(id: string): boolean {
+  return getSavedListings().some(l => l.id === id);
 }
