@@ -139,18 +139,6 @@ const Index = () => {
         if (sourceFilter !== "all") {
           query = query.eq("source", sourceFilter);
         }
-        if (minPrice) {
-          query = query.gte("price_eur", parseInt(minPrice));
-        }
-        if (maxPrice) {
-          query = query.lte("price_eur", parseInt(maxPrice));
-        }
-        if (minLength) {
-          query = query.gte("length_feet", parseInt(minLength));
-        }
-        if (maxLength) {
-          query = query.lte("length_feet", parseInt(maxLength));
-        }
 
         const { data, error } = await query;
         if (!error && data) {
@@ -174,7 +162,7 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter, sourceFilter, userCoords, minPrice, maxPrice, minLength, maxLength]);
+  }, [boatTypeFilter, sourceFilter, userCoords]);
 
   // Fetch all distinct sources for the dropdown
   const [allSources, setAllSources] = useState<string[]>([]);
