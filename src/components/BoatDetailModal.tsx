@@ -1,7 +1,7 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2 } from "lucide-react";
+import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -46,6 +46,40 @@ interface MaintenanceItem {
   costHigh: number;
   frequency: string;
   applicable: boolean;
+}
+
+// Infer engine condition from available data
+function inferEngineCondition(engineHours: number | null | undefined, year: number | null, engineInfo: string | null): string {
+  const age = year ? new Date().getFullYear() - year : null;
+  const hours = engineHours || 0;
+  
+  // Check engine info text for clues
+  const info = (engineInfo || "").toLowerCase();
+  if (info.includes("new engine") || info.includes("rebuilt") || info.includes("overhauled")) return "good";
+  if (info.includes("needs") || info.includes("problem") || info.includes("issue")) return "bad";
+  
+  if (hours > 5000 || (age && age > 25)) return "bad";
+  if (hours > 2000 || (age && age > 15)) return "average";
+  return "good";
+}
+
+// Infer hull condition from available data
+function inferHullCondition(hullMaterial: string | null, year: number | null, description: string | null): string {
+  const desc = (description || "").toLowerCase();
+  if (desc.includes("osmosis") || desc.includes("blistering")) return "osmosis";
+  if (desc.includes("hull damage") || desc.includes("collision") || desc.includes("grounding")) return "damaged";
+  return "good";
+}
+
+// Infer sails condition from available data
+function inferSailsCondition(year: number | null, description: string | null): string {
+  const desc = (description || "").toLowerCase();
+  if (desc.includes("new sail") || desc.includes("new genoa") || desc.includes("new main")) return "new";
+  if (desc.includes("worn sail") || desc.includes("old sail") || desc.includes("needs sail")) return "worn";
+  const age = year ? new Date().getFullYear() - year : 15;
+  if (age <= 5) return "new";
+  if (age <= 15) return "average";
+  return "worn";
 }
 
 function getMaintenanceBreakdown(lengthM: number, year: number | null, boatType: string, hullMaterial: string | null, engineHours: number | null): MaintenanceItem[] {
@@ -102,14 +136,20 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
 
   // Enriched listing data (merged with fetched data)
   const [enrichedListing, setEnrichedListing] = useState<CachedListing | null>(null);
+  const [enrichedExtras, setEnrichedExtras] = useState<{
+    engineCondition?: string;
+    hullCondition?: string;
+    sailsCondition?: string;
+    knownIssues?: string[];
+    recentWork?: string[];
+    equipmentHighlights?: string[];
+    descriptionSummary?: string;
+  }>({});
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
-  const [engineCondition, setEngineCondition] = useState("good");
-  const [hullCondition, setHullCondition] = useState("good");
-  const [sailsCondition, setSailsCondition] = useState("average");
 
   // Costs state
   const [marinas, setMarinas] = useState<Marina[]>([]);
@@ -135,15 +175,12 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     setActiveTab("details");
     setEvalResult(null);
     setCostResult(null);
-    setEngineCondition("good");
-    setHullCondition("good");
-    setSailsCondition("average");
     setSelectedMarinaId("");
     setEnrichedListing(null);
+    setEnrichedExtras({});
     setFetchError(null);
   }, [listing?.id]);
 
-  // Auto-fetch missing data when evaluate or costs tab needs it
   const needsFetch = (tab: "evaluate" | "costs") => {
     if (!effective) return false;
     if (tab === "evaluate") return !effective.price_eur || !effective.length_feet || !effective.year;
@@ -180,10 +217,15 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
         image_url: listing.image_url ?? (d.images?.[0] || null),
         image_urls: listing.image_urls?.length ? listing.image_urls : (d.images || null),
       });
-      // Set conditions from scraped data
-      if (d.engine_condition) setEngineCondition(d.engine_condition);
-      if (d.hull_condition) setHullCondition(d.hull_condition);
-      if (d.sails_condition && d.sails_condition !== "none") setSailsCondition(d.sails_condition);
+      setEnrichedExtras({
+        engineCondition: d.engine_condition,
+        hullCondition: d.hull_condition,
+        sailsCondition: d.sails_condition,
+        knownIssues: d.known_issues,
+        recentWork: d.recent_work,
+        equipmentHighlights: d.equipment_highlights,
+        descriptionSummary: d.description_summary,
+      });
     } catch {
       setFetchError("Failed to fetch listing details.");
     } finally {
@@ -191,11 +233,19 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     }
   };
 
+  // Auto-fetch when needed
   useEffect(() => {
     if ((activeTab === "evaluate" || activeTab === "costs") && needsFetch(activeTab) && !isFetching && !enrichedListing && !fetchError) {
       fetchMissingData();
     }
   }, [activeTab]);
+
+  // Auto-evaluate when evaluate tab is opened and data is available
+  useEffect(() => {
+    if (activeTab === "evaluate" && effective && effective.price_eur && effective.length_feet && effective.year && !evalResult && !isFetching) {
+      runEvaluation();
+    }
+  }, [activeTab, effective, isFetching]);
 
   // Load marinas when costs tab is activated
   useEffect(() => {
@@ -221,18 +271,26 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   const handlePrev = () => setImgIndex(i => (i > 0 ? i - 1 : images.length - 1));
   const handleNext = () => setImgIndex(i => (i < images.length - 1 ? i + 1 : 0));
 
-  const handleEvaluate = () => {
+  const runEvaluation = () => {
     if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
+    
+    // Infer conditions from listing data
+    const engine = enrichedExtras.engineCondition || inferEngineCondition(effective!.engine_hours, effective!.year, effective!.engine_info);
+    const hull = enrichedExtras.hullCondition || inferHullCondition(effective!.hull_material, effective!.year, effective!.description);
+    const sails = effective!.boat_type === "powerboat" ? "none" : (enrichedExtras.sailsCondition || inferSailsCondition(effective!.year, effective!.description));
+
     const result = evaluate({
       boatType: (effective!.boat_type || "sailboat") as BoatType,
       year: effective!.year,
       price: effective!.price_eur,
       lengthFt: effective!.length_feet,
-      engine: engineCondition,
-      hull: hullCondition,
-      sails: effective!.boat_type === "powerboat" ? "none" : sailsCondition,
+      engine,
+      hull,
+      sails,
       engineHours: effective!.engine_hours || undefined,
       hullMaterial: effective!.hull_material || undefined,
+      knownIssues: enrichedExtras.knownIssues,
+      recentWork: enrichedExtras.recentWork,
     });
     setEvalResult(result);
   };
@@ -266,12 +324,12 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   const filteredMarinas = marinas.filter(m => !selectedCountry || m.country === selectedCountry);
   const scoreBarColor = (score: number, max: number) => {
     const pct = score / max;
-    if (pct >= 0.75) return "bg-green-500";
-    if (pct >= 0.45) return "bg-yellow-500";
-    return "bg-red-500";
+    if (pct >= 0.75) return "bg-success";
+    if (pct >= 0.45) return "bg-warning";
+    return "bg-destructive";
   };
 
-  const categories = costResult ? [...new Set(costResult.maintenanceItems.map(i => i.category))] : [];
+  const costCategories = costResult ? [...new Set(costResult.maintenanceItems.map(i => i.category))] : [];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
@@ -317,6 +375,38 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
             <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
           )}
 
+          {/* Equipment highlights from enrichment */}
+          {enrichedExtras.equipmentHighlights && enrichedExtras.equipmentHighlights.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Equipment</h3>
+              <div className="flex flex-wrap gap-1">
+                {enrichedExtras.equipmentHighlights.map((eq, i) => (
+                  <span key={i} className="text-xs bg-accent/10 text-accent-foreground px-2 py-0.5 rounded-full">{eq}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Known issues from enrichment */}
+          {enrichedExtras.knownIssues && enrichedExtras.knownIssues.length > 0 && (
+            <Card className="p-3 border-destructive/30 bg-destructive/5">
+              <p className="text-xs font-semibold text-destructive mb-1">⚠️ Known Issues</p>
+              {enrichedExtras.knownIssues.map((issue, i) => (
+                <p key={i} className="text-xs text-muted-foreground">• {issue}</p>
+              ))}
+            </Card>
+          )}
+
+          {/* Recent work from enrichment */}
+          {enrichedExtras.recentWork && enrichedExtras.recentWork.length > 0 && (
+            <Card className="p-3 border-primary/30 bg-primary/5">
+              <p className="text-xs font-semibold text-primary mb-1">✅ Recent Work</p>
+              {enrichedExtras.recentWork.map((work, i) => (
+                <p key={i} className="text-xs text-muted-foreground">• {work}</p>
+              ))}
+            </Card>
+          )}
+
           <div className="flex items-center gap-3 text-xs text-muted-foreground/70 border-t pt-3">
             <span>{effective!.source}</span>
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(effective!.scraped_at)}</span>
@@ -348,7 +438,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {/* ===== EVALUATE SECTION ===== */}
           {activeTab === "evaluate" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
-              <h3 className="font-semibold text-primary">Quick Evaluation</h3>
+              <h3 className="font-semibold text-primary flex items-center gap-2"><TrendingDown className="w-4 h-4" /> Evaluation</h3>
               {isFetching ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
               ) : fetchError && (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
@@ -358,88 +448,64 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
                 </div>
               ) : (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
                 <p className="text-sm text-muted-foreground">Missing price, length, or year — cannot evaluate this listing.</p>
+              ) : !evalResult ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Evaluating…</div>
               ) : (
-                <>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs">Engine</Label>
-                      <Select value={engineCondition} onValueChange={setEngineCondition}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="good">Good</SelectItem>
-                          <SelectItem value="average">Average</SelectItem>
-                          <SelectItem value="bad">Bad</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Hull</Label>
-                      <Select value={hullCondition} onValueChange={setHullCondition}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="good">Good</SelectItem>
-                          <SelectItem value="osmosis">Osmosis</SelectItem>
-                          <SelectItem value="damaged">Damaged</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {effective!.boat_type === "sailboat" && (
-                      <div>
-                        <Label className="text-xs">Sails</Label>
-                        <Select value={sailsCondition} onValueChange={setSailsCondition}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="new">New</SelectItem>
-                            <SelectItem value="average">Average</SelectItem>
-                            <SelectItem value="worn">Worn</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </div>
-                  <Button className="w-full" size="sm" onClick={handleEvaluate}>
-                    <TrendingDown className="w-4 h-4 mr-1" /> Run Evaluation
-                  </Button>
-                </>
-              )}
-
-              {evalResult && (
-                <div className="space-y-3 animate-fade-in">
-                  <Card className="p-4 text-center">
-                    <p className={`text-4xl font-bold ${evalResult.color}`}>{evalResult.score}</p>
-                    <p className={`text-lg font-semibold ${evalResult.color}`}>{evalResult.verdict}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{evalResult.priceAssessment}</p>
+                <div className="space-y-4 animate-fade-in">
+                  {/* Score card */}
+                  <Card className="p-6 text-center">
+                    <p className={`text-5xl font-bold ${evalResult.color}`}>{evalResult.score}</p>
+                    <p className={`text-lg font-semibold mt-1 ${evalResult.color}`}>{evalResult.verdict}</p>
+                    <p className="text-sm text-muted-foreground mt-2">{evalResult.priceAssessment}</p>
                   </Card>
 
-                  <div className="space-y-2">
-                    {evalResult.categories.map((cat) => (
-                      <div key={cat.name}>
-                        <div className="flex items-center justify-between text-xs mb-0.5">
-                          <span className="font-medium">{cat.icon} {cat.name}</span>
-                          <span className="text-muted-foreground">{cat.score}/{cat.maxScore}</span>
+                  {/* Score breakdown */}
+                  <Card className="p-4">
+                    <h4 className="font-semibold text-primary mb-3 text-sm">Score Breakdown</h4>
+                    <div className="space-y-3">
+                      {evalResult.categories.map((cat) => (
+                        <div key={cat.name}>
+                          <div className="flex items-center justify-between text-sm mb-1">
+                            <span className="font-medium">{cat.icon} {cat.name}</span>
+                            <span className="text-muted-foreground">{cat.score}/{cat.maxScore}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-muted overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${scoreBarColor(cat.score, cat.maxScore)}`}
+                              style={{ width: `${(cat.score / cat.maxScore) * 100}%` }} />
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{cat.details}</p>
                         </div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className={`h-full rounded-full ${scoreBarColor(cat.score, cat.maxScore)}`}
-                            style={{ width: `${(cat.score / cat.maxScore) * 100}%` }} />
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{cat.details}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {evalResult.estimatedRepairCost > 0 && (
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-destructive/10">
-                      <span className="text-sm font-medium flex items-center gap-1"><Wrench className="w-4 h-4" /> Est. Repairs</span>
-                      <span className="font-bold text-destructive">€{evalResult.estimatedRepairCost.toLocaleString()}</span>
+                      ))}
                     </div>
+                  </Card>
+
+                  {/* Estimated repair costs */}
+                  {evalResult.estimatedRepairCost > 0 && (
+                    <Card className="p-4">
+                      <h4 className="font-semibold text-primary mb-2 text-sm flex items-center gap-2">
+                        <Wrench className="w-4 h-4" /> Estimated Repair Costs
+                      </h4>
+                      <p className="text-2xl font-bold text-destructive">€{evalResult.estimatedRepairCost.toLocaleString()}</p>
+                      {effective!.price_eur && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          True cost: €{(Number(effective!.price_eur) + evalResult.estimatedRepairCost).toLocaleString()} (price + repairs)
+                        </p>
+                      )}
+                    </Card>
                   )}
 
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-semibold">Recommendations</h4>
-                    {evalResult.recommendations.map((r, i) => (
-                      <p key={i} className="text-xs text-muted-foreground">• {r}</p>
-                    ))}
-                  </div>
+                  {/* Recommendations */}
+                  <Card className="p-4">
+                    <h4 className="font-semibold text-primary mb-2 text-sm">💡 Recommendations</h4>
+                    <ul className="space-y-1.5">
+                      {evalResult.recommendations.map((r, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex gap-2">
+                          <span className="text-accent mt-0.5 shrink-0">•</span>
+                          <span>{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
                 </div>
               )}
             </div>
@@ -448,7 +514,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {/* ===== COSTS SECTION ===== */}
           {activeTab === "costs" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
-              <h3 className="font-semibold text-primary">Annual Ownership Cost</h3>
+              <h3 className="font-semibold text-primary flex items-center gap-2"><Calculator className="w-4 h-4" /> Annual Ownership Cost</h3>
               {isFetching ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
               ) : fetchError && !effective!.length_feet ? (
@@ -491,7 +557,8 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
               )}
 
               {costResult && (
-                <div className="space-y-3 animate-fade-in">
+                <div className="space-y-4 animate-fade-in">
+                  {/* Summary */}
                   <Card className="p-4">
                     <div className="space-y-2">
                       {costResult.marina > 0 && (
@@ -500,40 +567,66 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
                       <div className="flex justify-between text-sm"><span className="text-muted-foreground">Maintenance (low)</span><span className="font-medium">€{costResult.maintenanceLow.toLocaleString()}</span></div>
                       <div className="flex justify-between text-sm"><span className="text-muted-foreground">Maintenance (high)</span><span className="font-medium">€{costResult.maintenanceHigh.toLocaleString()}</span></div>
                       <div className="border-t pt-2 mt-1">
-                        <div className="flex justify-between font-bold"><span>Total (low)</span><span className="text-green-600">€{costResult.totalLow.toLocaleString()}/yr</span></div>
-                        <div className="flex justify-between font-bold mt-0.5"><span>Total (high)</span><span className="text-orange-500">€{costResult.totalHigh.toLocaleString()}/yr</span></div>
+                        <div className="flex justify-between font-bold"><span>Total (low)</span><span className="text-primary">€{costResult.totalLow.toLocaleString()}/yr</span></div>
+                        <div className="flex justify-between font-bold mt-0.5"><span>Total (high)</span><span className="text-destructive">€{costResult.totalHigh.toLocaleString()}/yr</span></div>
                       </div>
                       <p className="text-[10px] text-muted-foreground">Monthly: €{Math.round(costResult.totalLow / 12).toLocaleString()} – €{Math.round(costResult.totalHigh / 12).toLocaleString()}</p>
                     </div>
                   </Card>
 
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold">Cost Breakdown</h4>
-                    {categories.map(cat => {
-                      const catItems = costResult.maintenanceItems.filter(i => i.category === cat);
-                      const catAvg = catItems.reduce((s, i) => s + (i.costLow + i.costHigh) / 2, 0);
-                      const totalAvg = (costResult.totalLow + costResult.totalHigh) / 2 || 1;
-                      const pct = (catAvg / totalAvg) * 100;
-                      return (
-                        <div key={cat}>
-                          <div className="flex justify-between text-xs mb-0.5">
-                            <span className="font-medium">{cat}</span>
-                            <span className="text-muted-foreground">€{Math.round(catAvg).toLocaleString()} ({Math.round(pct)}%)</span>
+                  {/* Category breakdown */}
+                  <Card className="p-4">
+                    <h4 className="text-sm font-semibold text-primary mb-3">Cost Breakdown by Category</h4>
+                    <div className="space-y-2">
+                      {costCategories.map(cat => {
+                        const catItems = costResult.maintenanceItems.filter(i => i.category === cat);
+                        const catAvg = catItems.reduce((s, i) => s + (i.costLow + i.costHigh) / 2, 0);
+                        const totalAvg = (costResult.totalLow + costResult.totalHigh) / 2 || 1;
+                        const pct = (catAvg / totalAvg) * 100;
+                        return (
+                          <div key={cat}>
+                            <div className="flex justify-between text-xs mb-0.5">
+                              <span className="font-medium">{cat}</span>
+                              <span className="text-muted-foreground">€{Math.round(catAvg).toLocaleString()} ({Math.round(pct)}%)</span>
+                            </div>
+                            <Progress value={pct} className="h-1.5" />
                           </div>
-                          <Progress value={pct} className="h-1.5" />
+                        );
+                      })}
+                      {costResult.marina > 0 && (
+                        <div>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span className="font-medium">Marina Berth</span>
+                            <span className="text-muted-foreground">€{costResult.marina.toLocaleString()}</span>
+                          </div>
+                          <Progress value={(costResult.marina / ((costResult.totalLow + costResult.totalHigh) / 2 || 1)) * 100} className="h-1.5" />
                         </div>
-                      );
-                    })}
-                    {costResult.marina > 0 && (
-                      <div>
-                        <div className="flex justify-between text-xs mb-0.5">
-                          <span className="font-medium">Marina Berth</span>
-                          <span className="text-muted-foreground">€{costResult.marina.toLocaleString()}</span>
+                      )}
+                    </div>
+                  </Card>
+
+                  {/* Detailed items */}
+                  <Card className="p-4">
+                    <h4 className="text-sm font-semibold text-primary mb-3">Detailed Maintenance Items</h4>
+                    <div className="space-y-3">
+                      {costCategories.map(cat => (
+                        <div key={cat}>
+                          <h5 className="font-medium text-xs text-primary mb-1 flex items-center gap-1"><Wrench className="w-3 h-3" /> {cat}</h5>
+                          <div className="space-y-0.5">
+                            {costResult.maintenanceItems.filter(i => i.category === cat).map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-xs py-0.5 border-b border-border/30 last:border-0">
+                                <div>
+                                  <span className="text-foreground">{item.item}</span>
+                                  <span className="text-muted-foreground ml-1.5">({item.frequency})</span>
+                                </div>
+                                <span className="text-muted-foreground whitespace-nowrap">€{item.costLow.toLocaleString()} – €{item.costHigh.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <Progress value={(costResult.marina / ((costResult.totalLow + costResult.totalHigh) / 2 || 1)) * 100} className="h-1.5" />
-                      </div>
-                    )}
-                  </div>
+                      ))}
+                    </div>
+                  </Card>
                 </div>
               )}
             </div>
