@@ -185,14 +185,6 @@ const Index = () => {
     return true;
   });
 
-  const handleCompare = (listing: CachedListing) => {
-    navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
-  };
-
-  const handleOwnershipCost = (listing: CachedListing) => {
-    navigate(`/cost?url=${encodeURIComponent(listing.url)}`);
-  };
-
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
     setModalOpen(true);
