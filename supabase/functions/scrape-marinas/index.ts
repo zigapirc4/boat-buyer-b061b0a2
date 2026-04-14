@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
 
         const searchData = await searchResp.json();
         for (const result of (searchData.data || [])) {
-          const json = result?.json || result?.extract;
+          const json = result?.extract;
           if (!json?.marinas) continue;
 
           const sourceUrl = result.url || '';
