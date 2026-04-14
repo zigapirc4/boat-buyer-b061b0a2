@@ -381,7 +381,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
               <h3 className="text-sm font-semibold mb-1">Equipment</h3>
               <div className="flex flex-wrap gap-1">
                 {enrichedExtras.equipmentHighlights.map((eq, i) => (
-                  <span key={i} className="text-xs bg-accent/10 text-accent-foreground px-2 py-0.5 rounded-full">{eq}</span>
+                  <span key={i} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{eq}</span>
                 ))}
               </div>
             </div>
