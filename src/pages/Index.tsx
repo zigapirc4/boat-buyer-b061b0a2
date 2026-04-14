@@ -122,6 +122,8 @@ const Index = () => {
         let query = supabase
           .from("cached_listings")
           .select("*")
+          .not("price_eur", "is", null)
+          .not("image_url", "is", null)
           .order("scraped_at", { ascending: false })
           .limit(10000);
 
