@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/card";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 
-interface LatestListing {
+interface CachedListing {
+  id: string;
   title: string;
   url: string;
   boat_type: string;
@@ -16,23 +17,27 @@ interface LatestListing {
   location: string | null;
   image_url: string | null;
   engine_info: string | null;
-  source: string;
+  source: string | null;
+  scraped_at: string;
 }
 
 const Index = () => {
   const savedCount = getSavedBoats().length;
   const navigate = useNavigate();
-  const [listings, setListings] = useState<LatestListing[]>([]);
+  const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchListings = async () => {
       try {
-        const { data, error } = await supabase.functions.invoke("fetch-latest-listings", {
-          body: { boat_type: "all" },
-        });
-        if (!error && data?.success && data.data) {
-          setListings(data.data);
+        const { data, error } = await supabase
+          .from("cached_listings")
+          .select("*")
+          .order("scraped_at", { ascending: false })
+          .limit(8);
+
+        if (!error && data) {
+          setListings(data as CachedListing[]);
         }
       } catch (e) {
         console.error("Failed to fetch listings:", e);
@@ -43,8 +48,7 @@ const Index = () => {
     fetchListings();
   }, []);
 
-  const handleCompare = (listing: LatestListing) => {
-    // Navigate to evaluate page with the listing URL pre-filled
+  const handleCompare = (listing: CachedListing) => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
   };
 
@@ -87,12 +91,12 @@ const Index = () => {
 
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
-            <Loader2 className="w-4 h-4 animate-spin" /> Finding latest boats for sale…
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading latest boats…
           </div>
         ) : listings.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            {listings.map((listing, i) => (
-              <Card key={i} className="overflow-hidden hover:shadow-md transition-shadow">
+            {listings.map((listing) => (
+              <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow">
                 {listing.image_url && (
                   <img
                     src={listing.image_url}
@@ -104,11 +108,11 @@ const Index = () => {
                 <div className="p-4">
                   <p className="font-semibold text-sm truncate">{listing.title}</p>
                   {listing.price_eur && (
-                    <p className="text-lg font-bold text-accent mt-1">€{listing.price_eur.toLocaleString()}</p>
+                    <p className="text-lg font-bold text-accent mt-1">€{Number(listing.price_eur).toLocaleString()}</p>
                   )}
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                     {listing.year && <span className="text-xs text-muted-foreground">{listing.year}</span>}
-                    {listing.length_feet && <span className="text-xs text-muted-foreground">{listing.length_feet}ft</span>}
+                    {listing.length_feet && <span className="text-xs text-muted-foreground">{Number(listing.length_feet)}ft</span>}
                     {listing.boat_type && (
                       <span className="text-xs text-muted-foreground capitalize">{listing.boat_type}</span>
                     )}
@@ -148,7 +152,7 @@ const Index = () => {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">No listings found at the moment.</p>
+          <p className="text-sm text-muted-foreground text-center py-4">No listings cached yet. They'll appear after the first hourly scrape.</p>
         )}
       </div>
     </div>

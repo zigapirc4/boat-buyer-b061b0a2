@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      cached_listings: {
+        Row: {
+          boat_type: string | null
+          created_at: string
+          engine_info: string | null
+          id: string
+          image_url: string | null
+          length_feet: number | null
+          location: string | null
+          price_eur: number | null
+          scraped_at: string
+          source: string | null
+          title: string
+          url: string
+          year: number | null
+        }
+        Insert: {
+          boat_type?: string | null
+          created_at?: string
+          engine_info?: string | null
+          id?: string
+          image_url?: string | null
+          length_feet?: number | null
+          location?: string | null
+          price_eur?: number | null
+          scraped_at?: string
+          source?: string | null
+          title: string
+          url: string
+          year?: number | null
+        }
+        Update: {
+          boat_type?: string | null
+          created_at?: string
+          engine_info?: string | null
+          id?: string
+          image_url?: string | null
+          length_feet?: number | null
+          location?: string | null
+          price_eur?: number | null
+          scraped_at?: string
+          source?: string | null
+          title?: string
+          url?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
