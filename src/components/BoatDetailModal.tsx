@@ -224,25 +224,25 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   const handleEvaluate = () => {
     if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
     const result = evaluate({
-      boatType: (listing.boat_type || "sailboat") as BoatType,
-      year: listing.year,
-      price: listing.price_eur,
-      lengthFt: listing.length_feet,
+      boatType: (effective!.boat_type || "sailboat") as BoatType,
+      year: effective!.year,
+      price: effective!.price_eur,
+      lengthFt: effective!.length_feet,
       engine: engineCondition,
       hull: hullCondition,
-      sails: listing.boat_type === "powerboat" ? "none" : sailsCondition,
-      engineHours: listing.engine_hours || undefined,
-      hullMaterial: listing.hull_material || undefined,
+      sails: effective!.boat_type === "powerboat" ? "none" : sailsCondition,
+      engineHours: effective!.engine_hours || undefined,
+      hullMaterial: effective!.hull_material || undefined,
     });
     setEvalResult(result);
   };
 
   const handleCalcCost = () => {
-    if (!listing.length_feet) return;
-    const lengthM = listing.length_feet * 0.3048;
+    if (!effective!.length_feet) return;
+    const lengthM = effective!.length_feet * 0.3048;
     const selectedMarina = marinas.find(m => m.id === selectedMarinaId);
     const marinaCost = selectedMarina ? lengthM * (selectedMarina.price_per_meter_year || 0) : 0;
-    const items = getMaintenanceBreakdown(lengthM, listing.year, listing.boat_type || "sailboat", listing.hull_material, listing.engine_hours || null);
+    const items = getMaintenanceBreakdown(lengthM, effective!.year, effective!.boat_type || "sailboat", effective!.hull_material, effective!.engine_hours || null);
     const applicable = items.filter(i => i.applicable);
 
     let maintenanceLow = 0, maintenanceHigh = 0;
