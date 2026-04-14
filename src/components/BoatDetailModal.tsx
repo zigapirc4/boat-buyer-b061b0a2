@@ -53,7 +53,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, onCompare, onOwne
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
         {/* Image gallery */}
-        {images.length > 0 && (
+        {images.length > 0 ? (
           <div className="relative w-full aspect-video bg-muted">
             <img
               src={images[imgIndex]}
@@ -74,6 +74,10 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, onCompare, onOwne
                 </div>
               </>
             )}
+          </div>
+        ) : (
+          <div className="w-full aspect-video bg-muted flex items-center justify-center">
+            <Ship className="w-16 h-16 text-muted-foreground/30" />
           </div>
         )}
 
