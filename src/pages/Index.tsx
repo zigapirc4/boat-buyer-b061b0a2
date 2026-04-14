@@ -267,7 +267,7 @@ const Index = () => {
               const img = getImageUrl(listing);
               return (
                 <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col cursor-pointer" onClick={() => handleCardClick(listing)}>
-                  {img && (
+                  {img ? (
                     <img
                       src={img}
                       alt={listing.title}
@@ -275,6 +275,10 @@ const Index = () => {
                       loading="lazy"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
+                  ) : (
+                    <div className="w-full h-40 bg-muted flex items-center justify-center">
+                      <Ship className="w-12 h-12 text-muted-foreground/30" />
+                    </div>
                   )}
                   <div className="p-4 flex-1 flex flex-col">
                     <p className="font-semibold text-sm truncate">{listing.title}</p>
