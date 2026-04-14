@@ -100,6 +100,11 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   const [imgIndex, setImgIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"details" | "evaluate" | "costs">("details");
 
+  // Enriched listing data (merged with fetched data)
+  const [enrichedListing, setEnrichedListing] = useState<CachedListing | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [engineCondition, setEngineCondition] = useState("good");
@@ -121,6 +126,9 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     totalHigh: number;
   } | null>(null);
 
+  // The effective listing (enriched if available, else original)
+  const effective = enrichedListing || listing;
+
   // Reset state when listing changes
   useEffect(() => {
     setImgIndex(0);
@@ -131,7 +139,63 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     setHullCondition("good");
     setSailsCondition("average");
     setSelectedMarinaId("");
+    setEnrichedListing(null);
+    setFetchError(null);
   }, [listing?.id]);
+
+  // Auto-fetch missing data when evaluate or costs tab needs it
+  const needsFetch = (tab: "evaluate" | "costs") => {
+    if (!effective) return false;
+    if (tab === "evaluate") return !effective.price_eur || !effective.length_feet || !effective.year;
+    if (tab === "costs") return !effective.length_feet;
+    return false;
+  };
+
+  const fetchMissingData = async () => {
+    if (!listing || isFetching) return;
+    setIsFetching(true);
+    setFetchError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
+        body: { url: listing.url },
+      });
+      if (error || !data?.success) {
+        setFetchError("Could not fetch listing details. Try again later.");
+        return;
+      }
+      const d = data.data;
+      setEnrichedListing({
+        ...listing,
+        price_eur: listing.price_eur ?? d.price_eur ?? null,
+        year: listing.year ?? d.year ?? null,
+        length_feet: listing.length_feet ?? d.length_feet ?? null,
+        boat_type: listing.boat_type || d.boat_type || "sailboat",
+        hull_material: listing.hull_material ?? d.hull_material ?? null,
+        engine_hours: listing.engine_hours ?? d.engine_hours ?? null,
+        engine_info: listing.engine_info ?? (d.engine_make ? `${d.engine_make} ${d.engine_model || ""} ${d.engine_hp ? d.engine_hp + "hp" : ""}`.trim() : null),
+        cabins: listing.cabins ?? d.cabins ?? null,
+        fuel_type: listing.fuel_type ?? d.engine_type ?? null,
+        location: listing.location ?? d.location ?? null,
+        description: listing.description ?? d.description_summary ?? null,
+        image_url: listing.image_url ?? (d.images?.[0] || null),
+        image_urls: listing.image_urls?.length ? listing.image_urls : (d.images || null),
+      });
+      // Set conditions from scraped data
+      if (d.engine_condition) setEngineCondition(d.engine_condition);
+      if (d.hull_condition) setHullCondition(d.hull_condition);
+      if (d.sails_condition && d.sails_condition !== "none") setSailsCondition(d.sails_condition);
+    } catch {
+      setFetchError("Failed to fetch listing details.");
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    if ((activeTab === "evaluate" || activeTab === "costs") && needsFetch(activeTab) && !isFetching && !enrichedListing && !fetchError) {
+      fetchMissingData();
+    }
+  }, [activeTab]);
 
   // Load marinas when costs tab is activated
   useEffect(() => {
