@@ -177,7 +177,13 @@ const Index = () => {
     fetchSources();
   }, []);
 
-  const displayListings = listings;
+  const displayListings = listings.filter(l => {
+    if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
+    if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
+    if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
+    if (maxLength && l.length_feet !== null && l.length_feet > parseInt(maxLength)) return false;
+    return true;
+  });
 
   const handleCompare = (listing: CachedListing) => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
