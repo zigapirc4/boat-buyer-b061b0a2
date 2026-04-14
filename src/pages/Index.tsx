@@ -1,12 +1,26 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Filter } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSavedBoats } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w ago`;
+}
 
 interface CachedListing {
   id: string;
@@ -33,29 +47,67 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [userCountry, setUserCountry] = useState<string | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
 
-  // Detect user country via reverse geocoding
+  // Country coordinates for proximity scoring
+  const COUNTRY_COORDS: Record<string, [number, number]> = {
+    slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
+    greece: [39.07, 21.82], france: [46.60, 1.89], spain: [40.46, -3.75],
+    germany: [51.17, 10.45], denmark: [56.26, 9.50], sweden: [60.13, 18.64],
+    finland: [61.92, 25.75], netherlands: [52.13, 5.29], uk: [55.38, -3.44],
+    "united kingdom": [55.38, -3.44], turkey: [38.96, 35.24], montenegro: [42.71, 19.37],
+    portugal: [39.40, -8.22], albania: [41.15, 20.17], austria: [47.52, 14.55],
+    hungary: [47.16, 19.50], "czech republic": [49.82, 15.47], poland: [51.92, 19.15],
+    norway: [60.47, 8.47], florida: [27.66, -81.52], california: [36.78, -119.42],
+    texas: [31.97, -99.90],
+  };
+
+  function getLocationScore(location: string | null, userLat: number, userLon: number): number {
+    if (!location) return 9999;
+    const loc = location.toLowerCase();
+
+    // Try to find a known country/region in the location string
+    let bestDist = 9999;
+    for (const [name, [lat, lon]] of Object.entries(COUNTRY_COORDS)) {
+      if (loc.includes(name)) {
+        const dist = Math.sqrt(Math.pow(userLat - lat, 2) + Math.pow(userLon - lon, 2));
+        bestDist = Math.min(bestDist, dist);
+      }
+    }
+
+    // Also check common location patterns like "City, Country"
+    if (bestDist === 9999) {
+      // Check if any nearby country name fragments match
+      const nearbyKeywords = ["adriatic", "mediterranean", "baltic", "europe"];
+      if (nearbyKeywords.some(k => loc.includes(k))) {
+        bestDist = 20; // generic European = moderate distance
+      }
+    }
+
+    return bestDist;
+  }
+
+  // Detect user location
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          setUserCoords({ lat: latitude, lon: longitude });
           try {
             const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=en`
+              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=en`
             );
             const data = await res.json();
-            const country = data?.address?.country || null;
-            if (country) {
-              setUserCountry(country);
-              setLocationLabel(data?.address?.city || data?.address?.town || data?.address?.state || country);
-            }
+            const city = data?.address?.city || data?.address?.town || data?.address?.state;
+            const country = data?.address?.country;
+            setLocationLabel(city || country || "");
           } catch {
-            // silently fail
+            setLocationLabel("");
           }
         },
-        () => {}, // permission denied - that's fine
+        () => {},
         { timeout: 5000 }
       );
     }
@@ -81,13 +133,12 @@ const Index = () => {
             filtered = filtered.filter(l => l.source === sourceFilter);
           }
 
-          // Sort: listings matching user's country first
-          if (userCountry) {
-            const countryLower = userCountry.toLowerCase();
+          // Sort by geographic proximity
+          if (userCoords) {
             filtered.sort((a, b) => {
-              const aMatch = a.location?.toLowerCase().includes(countryLower) ? 1 : 0;
-              const bMatch = b.location?.toLowerCase().includes(countryLower) ? 1 : 0;
-              return bMatch - aMatch;
+              const aDist = getLocationScore(a.location, userCoords.lat, userCoords.lon);
+              const bDist = getLocationScore(b.location, userCoords.lat, userCoords.lon);
+              return aDist - bDist;
             });
           }
 
@@ -100,7 +151,7 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter, userCountry]);
+  }, [boatTypeFilter, userCoords]);
 
   const sources = [...new Set(listings.map(l => l.source).filter(Boolean))].sort();
   const displayListings = sourceFilter !== "all" ? listings.filter(l => l.source === sourceFilter) : listings;
@@ -223,7 +274,12 @@ const Index = () => {
                     {listing.description && (
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{listing.description}</p>
                     )}
-                    <p className="text-[10px] text-muted-foreground/60 mt-1">{listing.source}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-[10px] text-muted-foreground/60">{listing.source}</p>
+                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5">
+                        <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
+                      </span>
+                    </div>
 
                     <div className="flex gap-2 mt-auto pt-3">
                       <Button
