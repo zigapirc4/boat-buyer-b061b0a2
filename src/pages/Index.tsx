@@ -123,6 +123,8 @@ const Index = () => {
           .from("cached_listings")
           .select("*")
           .not("price_eur", "is", null)
+          .not("image_url", "is", null)
+          .neq("image_url", "none")
           .order("scraped_at", { ascending: false })
           .limit(10000);
 
