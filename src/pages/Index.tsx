@@ -33,6 +33,33 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [userCountry, setUserCountry] = useState<string | null>(null);
+  const [locationLabel, setLocationLabel] = useState<string>("");
+
+  // Detect user country via reverse geocoding
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=en`
+            );
+            const data = await res.json();
+            const country = data?.address?.country || null;
+            if (country) {
+              setUserCountry(country);
+              setLocationLabel(data?.address?.city || data?.address?.town || data?.address?.state || country);
+            }
+          } catch {
+            // silently fail
+          }
+        },
+        () => {}, // permission denied - that's fine
+        { timeout: 5000 }
+      );
+    }
+  }, []);
 
   useEffect(() => {
     const fetchListings = async () => {
@@ -41,7 +68,7 @@ const Index = () => {
           .from("cached_listings")
           .select("*")
           .order("scraped_at", { ascending: false })
-          .limit(24);
+          .limit(50);
 
         if (boatTypeFilter !== "all") {
           query = query.eq("boat_type", boatTypeFilter);
@@ -53,6 +80,17 @@ const Index = () => {
           if (sourceFilter !== "all") {
             filtered = filtered.filter(l => l.source === sourceFilter);
           }
+
+          // Sort: listings matching user's country first
+          if (userCountry) {
+            const countryLower = userCountry.toLowerCase();
+            filtered.sort((a, b) => {
+              const aMatch = a.location?.toLowerCase().includes(countryLower) ? 1 : 0;
+              const bMatch = b.location?.toLowerCase().includes(countryLower) ? 1 : 0;
+              return bMatch - aMatch;
+            });
+          }
+
           setListings(filtered);
         }
       } catch (e) {
@@ -62,7 +100,7 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter]);
+  }, [boatTypeFilter, userCountry]);
 
   const sources = [...new Set(listings.map(l => l.source).filter(Boolean))].sort();
   const displayListings = sourceFilter !== "all" ? listings.filter(l => l.source === sourceFilter) : listings;
