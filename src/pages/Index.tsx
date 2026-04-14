@@ -123,18 +123,18 @@ const Index = () => {
           .from("cached_listings")
           .select("*")
           .order("scraped_at", { ascending: false })
-          .limit(50);
+          .limit(300);
 
         if (boatTypeFilter !== "all") {
           query = query.eq("boat_type", boatTypeFilter);
+        }
+        if (sourceFilter !== "all") {
+          query = query.eq("source", sourceFilter);
         }
 
         const { data, error } = await query;
         if (!error && data) {
           let filtered = data as CachedListing[];
-          if (sourceFilter !== "all") {
-            filtered = filtered.filter(l => l.source === sourceFilter);
-          }
 
           // Sort by geographic proximity
           if (userCoords) {
