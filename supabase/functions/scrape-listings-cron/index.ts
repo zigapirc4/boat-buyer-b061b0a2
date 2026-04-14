@@ -106,57 +106,67 @@ const SEARCH_QUERIES = [
 
 const SAILBOAT_QUERY_COUNT = 44; // queries 0-43 are sailboats
 
-// Patterns that indicate a search/category/aggregation page, NOT an individual listing
+// Hard reject patterns — these are NEVER individual listings
 const REJECT_URL_PATTERNS = [
-  "/search", "/results", "/category", "/login", "/register",
-  "/about", "/contact", "/faq", "/privacy", "/terms",
-  "/boats-for-sale", "/yachts-for-sale", "/boats-for-sale/",
-  "/boats/make-", "/boats/manufacturer-", "/boats/type-",
-  "/dealer", "/broker", "/brand",
-  "/blog", "/news", "/article", "/guide", "/review", "/compare",
+  "/login", "/register", "/about", "/contact", "/faq", "/privacy", "/terms",
+  "/blog", "/news", "/article", "/guide", "/review",
   "youtube.com", "facebook.com", "instagram.com", "twitter.com",
   "reddit.com", "wikipedia.org", "pinterest.com", "tiktok.com",
   "/home/product-range", "/model-range",
-  "?make=", "&make=", "/make/",
-  "/worldregion-", "/country-", "?country=",
-  "/used-", "yacht-sales/", "/pre-owned",
-  "listings-by-brand", "/groups/",
   "boat-buyers-guide", "/buyer",
-  "?q=", "?SearchCriteria",
-  "/annunci-", // subito.it search pages
-  "/location/", // sailboatlistings location pages
-  "view_records=",
 ];
 
-// Allowlisted URL patterns for known listing sites — must match to accept
-const SITE_LISTING_PATTERNS: [string, RegExp][] = [
-  ["yachtworld.com", /yachtworld\.com\/yacht\/\d+-\w+-\d+/i],
-  ["boat24.com", /boat24\.com\/\w+\/\w+\/\w+\/\w+/i],  // e.g. /en/sailingboats/brand/model-id/
-  ["mornar.net", /mornar\.net\/Show\/boat\.asp\?ID=\d+/i],
-  ["scanboat.com", /scanboat\.com\/\w+\/\w+\/\w+-\d+/i],
-  ["boats.com", /boats\.com\/boat\/\d+/i],
-  ["sailboatlistings.com", /sailboatlistings\.com\/view\/\d+/i],
-  ["subito.it", /subito\.it\/annuncio\//i],
-  ["theyachtmarket.com", /theyachtmarket\.com\/\w+\/\w+\/\d+/i],
-  ["boatshop24.com", /boatshop24\.com\/\w+\/\w+\/\d+/i],
-  ["bandofboats.com", /bandofboats\.com\/\w+\/\w+-for-sale\/\d+/i],
-  ["apolloduck", /apolloduck\.\w+\/boat\/\w+-for-sale\/\d+/i],
-  ["devalk.nl", /devalk\.nl\/\w+\/yachtbrokerage\/\d+/i],
-  ["yachtall.com", /yachtall\.com\/\w+\/boat\/\w+-s\d+/i],
-  ["rightboat.com", /rightboat\.com\/\w+\/\d+/i],
+// Known boat marketplace domains — URLs from these are likely valid
+const KNOWN_BOAT_SITES = [
+  "yachtworld.com", "boat24.com", "mornar.net", "scanboat.com",
+  "boats.com", "sailboatlistings.com", "subito.it", "theyachtmarket.com",
+  "boatshop24.com", "bandofboats.com", "apolloduck", "devalk.nl",
+  "yachtall.com", "rightboat.com", "boattrader.com", "botentekoop.com",
+  "cosmos-yachting.com", "nonstopboats.com", "itboat.com",
+  "grabau-international.com", "euroyachts.com", "sysyachtsales.com",
+  "yachthub.com", "multihullcompany.com", "yachtsaleswest.com",
+  "denisonyachtsales.com", "curtisstokes.net", "networkYachtBrokers",
+  "boatsall.com", "boatsonline.com", "sailsquare.com",
+  "cfrancisyachts.com", "ancasta.com", "broomyachts.com",
+];
+
+// URL patterns that indicate a SEARCH or CATEGORY page (not a listing)
+const SEARCH_PAGE_PATTERNS = [
+  /\?make=/i, /&make=/i,
+  /\?SearchCriteria/i,
+  /\?q=/i, /&q=/i,
+  /view_records=1/i,
+  /\/boats-for-sale\/\?/i,             // boats.com search with params
+  /yachtworld\.com\/boats-for-sale\/make-/i,
+  /boats\.com\/boats-for-sale/i,
+  /boattrader\.com\/boats\/make-/i,
+  /boattrader\.com\/boats\/type-/i,
+  /\/annunci-\w+\/vendita\//i,         // subito.it search pages
+  /mornar\.net\/[Ss]how\/results\.asp/i,
+  /scanboat\.com\/\w+\/boat-market\/boats\?/i,
+  /theyachtmarket\.com\/en\/\?/i,      // homepage with params
+  /sailboatlistings\.com\/sailboats_/i, // category pages
+  /sailboatlistings\.com\/location\//i,
+  /sailboatlistings\.com\/cgi-bin\//i,
+  /sailboatlistings\.com\/$/,
 ];
 
 function isLikelyListingUrl(url: string): boolean {
   const urlLower = url.toLowerCase();
 
-  // Reject known non-listing patterns
+  // Hard reject
   if (REJECT_URL_PATTERNS.some(p => urlLower.includes(p.toLowerCase()))) return false;
 
-  // Check site-specific listing patterns
-  for (const [site, pattern] of SITE_LISTING_PATTERNS) {
-    if (urlLower.includes(site)) {
-      return pattern.test(url);
-    }
+  // Reject search/category pages on known sites
+  if (SEARCH_PAGE_PATTERNS.some(r => r.test(url))) return false;
+
+  // Accept if it's from a known boat site (after search page rejection)
+  const isKnownSite = KNOWN_BOAT_SITES.some(s => urlLower.includes(s.toLowerCase()));
+  if (isKnownSite) {
+    // Still reject if URL is just the homepage
+    const path = new URL(url).pathname;
+    if (path === "/" || path === "") return false;
+    return true;
   }
 
   // For unknown sites, require strong listing indicators
