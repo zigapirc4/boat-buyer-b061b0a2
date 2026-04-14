@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock } from "lucide-react";
+import { Anchor, Calculator, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,6 +48,11 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [minPrice, setMinPrice] = useState<string>("");
+  const [maxPrice, setMaxPrice] = useState<string>("");
+  const [minLength, setMinLength] = useState<string>("");
+  const [maxLength, setMaxLength] = useState<string>("");
+  const [showFilters, setShowFilters] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
@@ -172,7 +177,13 @@ const Index = () => {
     fetchSources();
   }, []);
 
-  const displayListings = listings;
+  const displayListings = listings.filter(l => {
+    if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
+    if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
+    if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
+    if (maxLength && l.length_feet !== null && l.length_feet > parseInt(maxLength)) return false;
+    return true;
+  });
 
   const handleCompare = (listing: CachedListing) => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
@@ -234,7 +245,7 @@ const Index = () => {
           {locationLabel && (
             <p className="text-xs text-muted-foreground -mt-1">Showing nearby listings first</p>
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
               <SelectTrigger className="w-[130px] h-8 text-xs">
                 <SelectValue />
@@ -256,8 +267,70 @@ const Index = () => {
                 </SelectContent>
               </Select>
             )}
+            <Button
+              variant={showFilters ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setShowFilters(f => !f)}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
+              {(minPrice || maxPrice || minLength || maxLength) && (
+                <span className="ml-1 w-2 h-2 rounded-full bg-primary" />
+              )}
+            </Button>
           </div>
         </div>
+
+        {showFilters && (
+          <div className="flex flex-wrap gap-3 mb-4 p-3 rounded-lg border bg-muted/30">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Price €</span>
+              <input
+                type="number"
+                placeholder="Min"
+                value={minPrice}
+                onChange={e => setMinPrice(e.target.value)}
+                className="w-24 h-8 rounded-md border bg-background px-2 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxPrice}
+                onChange={e => setMaxPrice(e.target.value)}
+                className="w-24 h-8 rounded-md border bg-background px-2 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Length ft</span>
+              <input
+                type="number"
+                placeholder="Min"
+                value={minLength}
+                onChange={e => setMinLength(e.target.value)}
+                className="w-20 h-8 rounded-md border bg-background px-2 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxLength}
+                onChange={e => setMaxLength(e.target.value)}
+                className="w-20 h-8 rounded-md border bg-background px-2 text-xs"
+              />
+            </div>
+            {(minPrice || maxPrice || minLength || maxLength) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => { setMinPrice(""); setMaxPrice(""); setMinLength(""); setMaxLength(""); }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
