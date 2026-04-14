@@ -182,6 +182,11 @@ const Index = () => {
     if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
     if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
     if (maxLength && l.length_feet !== null && l.length_feet > parseInt(maxLength)) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const haystack = `${l.title} ${l.location || ""} ${l.engine_info || ""} ${l.description || ""} ${l.hull_material || ""} ${l.boat_type || ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
     return true;
   });
 
