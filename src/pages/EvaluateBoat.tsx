@@ -1,39 +1,21 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save, LinkIcon, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { saveBoat } from "@/lib/boatStore";
+import { evaluate, type EvalResult } from "@/lib/evaluateBoat";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
-interface EvalResult {
-  score: number;
-  verdict: string;
-  color: string;
-  penalties: string[];
-}
-
-function evaluate(year: number, price: number, engine: string, hull: string, sails: string): EvalResult {
-  let score = 100;
-  const penalties: string[] = [];
-  const currentYear = new Date().getFullYear();
-  const age = currentYear - year;
-
-  if (age > 20) { score -= 20; penalties.push(`Boat is ${age} years old (−20)`); }
-  if (engine === "bad") { score -= 30; penalties.push("Engine in bad condition (−30)"); }
-  if (hull === "osmosis") { score -= 40; penalties.push("Hull has osmosis (−40)"); }
-  if (hull === "damaged") { score -= 30; penalties.push("Hull is damaged (−30)"); }
-  if (sails === "worn") { score -= 15; penalties.push("Sails are worn (−15)"); }
-  if (price > 100000 && age > 20) { score -= 20; penalties.push("Price too high for age (−20)"); }
-
-  score = Math.max(0, score);
-  const verdict = score >= 80 ? "Good Deal" : score >= 50 ? "Fair Deal" : "Risky Purchase";
-  const color = score >= 80 ? "text-success" : score >= 50 ? "text-warning" : "text-destructive";
-  return { score, verdict, color, penalties };
+interface SimilarBoat {
+  title: string;
+  url: string;
+  description: string;
 }
 
 const EvaluateBoat = () => {
@@ -48,6 +30,8 @@ const EvaluateBoat = () => {
   const [hull, setHull] = useState("");
   const [sails, setSails] = useState("");
   const [result, setResult] = useState<EvalResult | null>(null);
+  const [similarBoats, setSimilarBoats] = useState<SimilarBoat[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const canEvaluate = model && year && price && length && engine && hull && sails;
 
@@ -55,14 +39,13 @@ const EvaluateBoat = () => {
     if (!listingUrl.trim()) return;
     setIsScraping(true);
     setResult(null);
+    setSimilarBoats([]);
 
     try {
       const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
         body: { url: listingUrl },
       });
-
       if (error) throw error;
-
       if (data?.success && data.data) {
         const d = data.data;
         if (d.boat_model) setModel(d.boat_model);
@@ -84,15 +67,39 @@ const EvaluateBoat = () => {
     }
   };
 
-  const handleEvaluate = () => {
+  const handleEvaluate = async () => {
     if (!canEvaluate) return;
-    setResult(evaluate(Number(year), Number(price), engine, hull, sails));
+    const evalResult = evaluate(Number(year), Number(price), Number(length), engine, hull, sails);
+    setResult(evalResult);
+    setSimilarBoats([]);
+
+    // Search for similar boats in the background
+    setIsSearching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("search-similar-boats", {
+        body: { model, length_feet: Number(length), year: Number(year) },
+      });
+      if (!error && data?.success && data.data) {
+        setSimilarBoats(data.data);
+      }
+    } catch (e) {
+      console.error("Similar boats search error:", e);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleSave = () => {
     if (!result) return;
     saveBoat({ model, score: result.score, verdict: result.verdict });
     toast({ title: "Saved!", description: `${model} added to My Boats.` });
+  };
+
+  const scoreBarColor = (score: number, max: number) => {
+    const pct = score / max;
+    if (pct >= 0.8) return "bg-success";
+    if (pct >= 0.5) return "bg-warning";
+    return "bg-destructive";
   };
 
   return (
@@ -103,27 +110,21 @@ const EvaluateBoat = () => {
 
       <h1 className="text-2xl font-bold text-primary mb-6">Evaluate a Boat</h1>
 
-      {/* URL Import Section */}
+      {/* URL Import */}
       <Card className="p-4 mb-6 border-dashed border-2">
         <Label className="text-sm font-medium flex items-center gap-2 mb-2">
           <LinkIcon className="w-4 h-4" /> Import from listing URL
         </Label>
         <div className="flex gap-2">
-          <Input
-            placeholder="Paste boat listing URL…"
-            value={listingUrl}
-            onChange={(e) => setListingUrl(e.target.value)}
-            className="flex-1"
-          />
+          <Input placeholder="Paste boat listing URL…" value={listingUrl} onChange={(e) => setListingUrl(e.target.value)} className="flex-1" />
           <Button onClick={handleScrape} disabled={isScraping || !listingUrl.trim()} size="sm">
             {isScraping ? <Loader2 className="w-4 h-4 animate-spin" /> : "Import"}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Works with most boat listing sites (Boat24, YachtWorld, etc.)
-        </p>
+        <p className="text-xs text-muted-foreground mt-2">Works with most boat listing sites (Boat24, YachtWorld, etc.)</p>
       </Card>
 
+      {/* Form */}
       <div className="space-y-4">
         <div><Label>Boat Model</Label><Input placeholder="e.g. Bavaria 37" value={model} onChange={e => setModel(e.target.value)} /></div>
         <div className="grid grid-cols-2 gap-4">
@@ -147,21 +148,105 @@ const EvaluateBoat = () => {
         <Button className="w-full h-12 text-base" disabled={!canEvaluate} onClick={handleEvaluate}>Evaluate Boat</Button>
       </div>
 
+      {/* Results */}
       {result && (
-        <Card className="mt-8 p-6 text-center animate-fade-in">
-          <p className={`text-6xl font-bold font-display ${result.color}`}>{result.score}</p>
-          <p className={`text-xl font-semibold mt-2 ${result.color}`}>{result.verdict}</p>
+        <div className="mt-8 space-y-4 animate-fade-in">
+          {/* Overall Score */}
+          <Card className="p-6 text-center">
+            <p className={`text-6xl font-bold font-display ${result.color}`}>{result.score}</p>
+            <p className={`text-xl font-semibold mt-1 ${result.color}`}>{result.verdict}</p>
+            <p className="text-sm text-muted-foreground mt-2">{result.priceAssessment}</p>
+          </Card>
 
-          {result.penalties.length > 0 && (
-            <ul className="mt-4 text-sm text-muted-foreground text-left space-y-1">
-              {result.penalties.map((p, i) => <li key={i}>• {p}</li>)}
-            </ul>
+          {/* Category Breakdown */}
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
+              <TrendingDown className="w-4 h-4" /> Score Breakdown
+            </h3>
+            <div className="space-y-4">
+              {result.categories.map((cat) => (
+                <div key={cat.name}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="font-medium">{cat.icon} {cat.name}</span>
+                    <span className="text-muted-foreground">{cat.score}/{cat.maxScore}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${scoreBarColor(cat.score, cat.maxScore)}`}
+                      style={{ width: `${(cat.score / cat.maxScore) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{cat.details}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Estimated Repair Costs */}
+          {result.estimatedRepairCost > 0 && (
+            <Card className="p-5">
+              <h3 className="font-semibold text-primary mb-2 flex items-center gap-2">
+                <Wrench className="w-4 h-4" /> Estimated Repair Costs
+              </h3>
+              <p className="text-2xl font-bold text-destructive">€{result.estimatedRepairCost.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                True cost: €{(Number(price) + result.estimatedRepairCost).toLocaleString()} (price + repairs)
+              </p>
+            </Card>
           )}
 
-          <Button variant="outline" className="mt-6 gap-2" onClick={handleSave}>
+          {/* Recommendations */}
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-3">💡 Recommendations</h3>
+            <ul className="space-y-2">
+              {result.recommendations.map((r, i) => (
+                <li key={i} className="text-sm text-muted-foreground flex gap-2">
+                  <span className="text-accent mt-0.5">•</span>
+                  <span>{r}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          {/* Similar Boats */}
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-3 flex items-center gap-2">
+              <Search className="w-4 h-4" /> Similar Boats for Comparison
+            </h3>
+            {isSearching ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <Loader2 className="w-4 h-4 animate-spin" /> Searching for similar boats…
+              </div>
+            ) : similarBoats.length > 0 ? (
+              <div className="space-y-3">
+                {similarBoats.map((boat, i) => (
+                  <a
+                    key={i}
+                    href={boat.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{boat.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{boat.description}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No similar boats found.</p>
+            )}
+          </Card>
+
+          {/* Save Button */}
+          <Button variant="outline" className="w-full gap-2" onClick={handleSave}>
             <Save className="w-4 h-4" /> Save to My Boats
           </Button>
-        </Card>
+        </div>
       )}
     </div>
   );
