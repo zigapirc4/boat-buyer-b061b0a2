@@ -239,14 +239,14 @@ const Index = () => {
                 <SelectItem value="powerboat">Powerboats</SelectItem>
               </SelectContent>
             </Select>
-            {sources.length > 1 && (
+            {allSources.length > 1 && (
               <Select value={sourceFilter} onValueChange={setSourceFilter}>
                 <SelectTrigger className="w-[150px] h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Sources</SelectItem>
-                  {sources.map(s => <SelectItem key={s!} value={s!}>{s}</SelectItem>)}
+                  {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
