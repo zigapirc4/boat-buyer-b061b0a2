@@ -20,10 +20,10 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    let batchSize = 5;
+    let batchSize = 2;
     try {
       const body = await req.json();
-      if (body.batchSize) batchSize = Math.min(body.batchSize, 10);
+      if (body.batchSize) batchSize = Math.min(body.batchSize, 5);
     } catch {}
 
     // Get listings that need enrichment (no image)
@@ -47,88 +47,70 @@ Deno.serve(async (req) => {
     console.log(`Enriching ${listings.length} listings...`);
     let enriched = 0;
 
-    await Promise.all(listings.map(async (listing: any) => {
+    for (const listing of listings) {
       try {
+        // Use scrape with links format to get images quickly
         const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             url: listing.url,
-            formats: ["extract"],
-            extract: {
-              schema: {
-                type: "object",
-                properties: {
-                  boat_name: { type: "string" },
-                  price_eur: { type: "number" },
-                  year: { type: "number" },
-                  length_feet: { type: "number" },
-                  location: { type: "string" },
-                  images: { type: "array", items: { type: "string" }, description: "URLs of all boat photos on this page" },
-                  engine_info: { type: "string" },
-                  description: { type: "string", description: "Full listing description, max 500 chars" },
-                  hull_material: { type: "string" },
-                  engine_hours: { type: "number" },
-                  cabins: { type: "number" },
-                  fuel_type: { type: "string" },
-                },
-              },
-              prompt: "Extract all boat listing details. Find ALL image URLs showing the boat. Include price, year, length, location, engine details, hull material, cabins.",
-            },
+            formats: ["markdown"],
+            onlyMainContent: true,
+            timeout: 15000,
           }),
         });
 
         if (!res.ok) {
           console.error(`Scrape failed for ${listing.url}: ${res.status}`);
-          return;
+          await patchListing(supabaseUrl, supabaseServiceKey, listing.id, { image_url: "none" });
+          continue;
         }
 
         const data = await res.json();
-        const ext = data?.data?.extract || {};
+        const markdown = data?.data?.markdown || data?.markdown || "";
+        const metadata = data?.data?.metadata || data?.metadata || {};
 
-        const updates: Record<string, any> = {};
-        if (ext.boat_name) updates.title = ext.boat_name.substring(0, 200);
-        if (ext.price_eur && ext.price_eur > 500) updates.price_eur = ext.price_eur;
-        if (ext.year && ext.year > 1950) updates.year = ext.year;
-        if (ext.length_feet && ext.length_feet > 5) updates.length_feet = Math.round(ext.length_feet * 10) / 10;
-        if (ext.location) updates.location = ext.location.substring(0, 100);
-        if (ext.images && ext.images.length > 0) {
-          updates.image_url = ext.images[0];
-          updates.image_urls = ext.images.slice(0, 10);
-        }
-        if (ext.engine_info) updates.engine_info = ext.engine_info.substring(0, 200);
-        if (ext.description) updates.description = ext.description.substring(0, 500);
-        if (ext.hull_material) updates.hull_material = ext.hull_material;
-        if (ext.engine_hours && ext.engine_hours > 0) updates.engine_hours = ext.engine_hours;
-        if (ext.cabins && ext.cabins > 0) updates.cabins = ext.cabins;
-        if (ext.fuel_type) updates.fuel_type = ext.fuel_type;
-
-        // If no images found, set a placeholder to avoid re-processing
-        if (!updates.image_url) updates.image_url = "none";
-
-        if (Object.keys(updates).length > 0) {
-          const patchRes = await fetch(
-            `${supabaseUrl}/rest/v1/cached_listings?id=eq.${listing.id}`,
-            {
-              method: "PATCH",
-              headers: {
-                Authorization: `Bearer ${supabaseServiceKey}`,
-                apikey: supabaseServiceKey,
-                "Content-Type": "application/json",
-                Prefer: "return=minimal",
-              },
-              body: JSON.stringify(updates),
-            }
-          );
-          if (patchRes.ok) {
-            enriched++;
-            console.log(`Enriched: ${listing.url} (${updates.image_url ? 'with image' : 'no image'})`);
+        // Extract image URLs from markdown ![alt](url) patterns
+        const imgRegex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
+        const images: string[] = [];
+        let match;
+        while ((match = imgRegex.exec(markdown)) !== null) {
+          const url = match[1];
+          // Filter out icons, logos, tiny images
+          if (!url.includes("logo") && !url.includes("icon") && !url.includes("avatar") && 
+              !url.includes("favicon") && !url.includes("1x1") && !url.includes("pixel")) {
+            images.push(url);
           }
         }
+
+        // Also check og:image from metadata
+        if (metadata.ogImage && !images.includes(metadata.ogImage)) {
+          images.unshift(metadata.ogImage);
+        }
+
+        const updates: Record<string, any> = {};
+        if (images.length > 0) {
+          updates.image_url = images[0];
+          updates.image_urls = images.slice(0, 10);
+        } else {
+          updates.image_url = "none";
+        }
+
+        // Try to extract description from first paragraph
+        if (!listing.description && markdown) {
+          const firstParagraph = markdown.split("\n").find((l: string) => l.length > 50 && !l.startsWith("#") && !l.startsWith("!"));
+          if (firstParagraph) updates.description = firstParagraph.substring(0, 500);
+        }
+
+        await patchListing(supabaseUrl, supabaseServiceKey, listing.id, updates);
+        enriched++;
+        console.log(`Enriched: ${listing.url} (${images.length} images)`);
       } catch (e) {
         console.error(`Error enriching ${listing.url}:`, e);
+        await patchListing(supabaseUrl, supabaseServiceKey, listing.id, { image_url: "none" });
       }
-    }));
+    }
 
     return new Response(JSON.stringify({ success: true, enriched, total: listings.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -141,3 +123,11 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+async function patchListing(supabaseUrl: string, key: string, id: string, updates: Record<string, any>) {
+  await fetch(`${supabaseUrl}/rest/v1/cached_listings?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(updates),
+  });
+}
