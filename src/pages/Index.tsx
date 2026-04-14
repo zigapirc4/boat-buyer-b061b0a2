@@ -1,12 +1,12 @@
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search, ChevronLeft, ChevronRight, BookOpen, DollarSign, Shield, Compass, Mail } from "lucide-react";
+import { Anchor, Ship, List, Loader2, ExternalLink, MapPin, ArrowRight, Clock, SlidersHorizontal, Calculator, Search, ChevronLeft, ChevronRight, BookOpen, DollarSign, Shield, Compass, Mail, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { getSavedBoats } from "@/lib/boatStore";
+import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 
