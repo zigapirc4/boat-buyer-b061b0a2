@@ -100,6 +100,11 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   const [imgIndex, setImgIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"details" | "evaluate" | "costs">("details");
 
+  // Enriched listing data (merged with fetched data)
+  const [enrichedListing, setEnrichedListing] = useState<CachedListing | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [engineCondition, setEngineCondition] = useState("good");
@@ -121,6 +126,9 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     totalHigh: number;
   } | null>(null);
 
+  // The effective listing (enriched if available, else original)
+  const effective = enrichedListing || listing;
+
   // Reset state when listing changes
   useEffect(() => {
     setImgIndex(0);
@@ -131,7 +139,63 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
     setHullCondition("good");
     setSailsCondition("average");
     setSelectedMarinaId("");
+    setEnrichedListing(null);
+    setFetchError(null);
   }, [listing?.id]);
+
+  // Auto-fetch missing data when evaluate or costs tab needs it
+  const needsFetch = (tab: "evaluate" | "costs") => {
+    if (!effective) return false;
+    if (tab === "evaluate") return !effective.price_eur || !effective.length_feet || !effective.year;
+    if (tab === "costs") return !effective.length_feet;
+    return false;
+  };
+
+  const fetchMissingData = async () => {
+    if (!listing || isFetching) return;
+    setIsFetching(true);
+    setFetchError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
+        body: { url: listing.url },
+      });
+      if (error || !data?.success) {
+        setFetchError("Could not fetch listing details. Try again later.");
+        return;
+      }
+      const d = data.data;
+      setEnrichedListing({
+        ...listing,
+        price_eur: listing.price_eur ?? d.price_eur ?? null,
+        year: listing.year ?? d.year ?? null,
+        length_feet: listing.length_feet ?? d.length_feet ?? null,
+        boat_type: listing.boat_type || d.boat_type || "sailboat",
+        hull_material: listing.hull_material ?? d.hull_material ?? null,
+        engine_hours: listing.engine_hours ?? d.engine_hours ?? null,
+        engine_info: listing.engine_info ?? (d.engine_make ? `${d.engine_make} ${d.engine_model || ""} ${d.engine_hp ? d.engine_hp + "hp" : ""}`.trim() : null),
+        cabins: listing.cabins ?? d.cabins ?? null,
+        fuel_type: listing.fuel_type ?? d.engine_type ?? null,
+        location: listing.location ?? d.location ?? null,
+        description: listing.description ?? d.description_summary ?? null,
+        image_url: listing.image_url ?? (d.images?.[0] || null),
+        image_urls: listing.image_urls?.length ? listing.image_urls : (d.images || null),
+      });
+      // Set conditions from scraped data
+      if (d.engine_condition) setEngineCondition(d.engine_condition);
+      if (d.hull_condition) setHullCondition(d.hull_condition);
+      if (d.sails_condition && d.sails_condition !== "none") setSailsCondition(d.sails_condition);
+    } catch {
+      setFetchError("Failed to fetch listing details.");
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    if ((activeTab === "evaluate" || activeTab === "costs") && needsFetch(activeTab) && !isFetching && !enrichedListing && !fetchError) {
+      fetchMissingData();
+    }
+  }, [activeTab]);
 
   // Load marinas when costs tab is activated
   useEffect(() => {
@@ -151,34 +215,34 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
   if (!listing) return null;
 
   const images: string[] = [];
-  if (listing.image_urls?.length) images.push(...listing.image_urls);
-  else if (listing.image_url) images.push(listing.image_url);
+  if (effective!.image_urls?.length) images.push(...effective!.image_urls);
+  else if (effective!.image_url) images.push(effective!.image_url);
 
   const handlePrev = () => setImgIndex(i => (i > 0 ? i - 1 : images.length - 1));
   const handleNext = () => setImgIndex(i => (i < images.length - 1 ? i + 1 : 0));
 
   const handleEvaluate = () => {
-    if (!listing.price_eur || !listing.length_feet || !listing.year) return;
+    if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
     const result = evaluate({
-      boatType: (listing.boat_type || "sailboat") as BoatType,
-      year: listing.year,
-      price: listing.price_eur,
-      lengthFt: listing.length_feet,
+      boatType: (effective!.boat_type || "sailboat") as BoatType,
+      year: effective!.year,
+      price: effective!.price_eur,
+      lengthFt: effective!.length_feet,
       engine: engineCondition,
       hull: hullCondition,
-      sails: listing.boat_type === "powerboat" ? "none" : sailsCondition,
-      engineHours: listing.engine_hours || undefined,
-      hullMaterial: listing.hull_material || undefined,
+      sails: effective!.boat_type === "powerboat" ? "none" : sailsCondition,
+      engineHours: effective!.engine_hours || undefined,
+      hullMaterial: effective!.hull_material || undefined,
     });
     setEvalResult(result);
   };
 
   const handleCalcCost = () => {
-    if (!listing.length_feet) return;
-    const lengthM = listing.length_feet * 0.3048;
+    if (!effective!.length_feet) return;
+    const lengthM = effective!.length_feet * 0.3048;
     const selectedMarina = marinas.find(m => m.id === selectedMarinaId);
     const marinaCost = selectedMarina ? lengthM * (selectedMarina.price_per_meter_year || 0) : 0;
-    const items = getMaintenanceBreakdown(lengthM, listing.year, listing.boat_type || "sailboat", listing.hull_material, listing.engine_hours || null);
+    const items = getMaintenanceBreakdown(lengthM, effective!.year, effective!.boat_type || "sailboat", effective!.hull_material, effective!.engine_hours || null);
     const applicable = items.filter(i => i.applicable);
 
     let maintenanceLow = 0, maintenanceHigh = 0;
@@ -231,31 +295,31 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
 
         <div className="p-6 space-y-4">
           <DialogHeader>
-            <DialogTitle className="text-xl">{listing.title}</DialogTitle>
+            <DialogTitle className="text-xl">{effective!.title}</DialogTitle>
           </DialogHeader>
 
-          {listing.price_eur && <p className="text-2xl font-bold text-primary">€{Number(listing.price_eur).toLocaleString()}</p>}
+          {effective!.price_eur && <p className="text-2xl font-bold text-primary">€{Number(effective!.price_eur).toLocaleString()}</p>}
 
           {/* Specs */}
           <div className="flex flex-wrap gap-3">
-            {listing.year && <span className="text-sm bg-muted px-3 py-1 rounded-full">Year: {listing.year}</span>}
-            {listing.length_feet && <span className="text-sm bg-muted px-3 py-1 rounded-full">{Number(listing.length_feet)} ft</span>}
-            {listing.boat_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.boat_type}</span>}
-            {listing.hull_material && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.hull_material}</span>}
-            {listing.cabins && <span className="text-sm bg-muted px-3 py-1 rounded-full">{listing.cabins} cabins</span>}
-            {listing.fuel_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{listing.fuel_type}</span>}
-            {listing.engine_hours && <span className="text-sm bg-muted px-3 py-1 rounded-full">{listing.engine_hours}h engine</span>}
+            {effective!.year && <span className="text-sm bg-muted px-3 py-1 rounded-full">Year: {effective!.year}</span>}
+            {effective!.length_feet && <span className="text-sm bg-muted px-3 py-1 rounded-full">{Number(effective!.length_feet)} ft</span>}
+            {effective!.boat_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.boat_type}</span>}
+            {effective!.hull_material && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.hull_material}</span>}
+            {effective!.cabins && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.cabins} cabins</span>}
+            {effective!.fuel_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.fuel_type}</span>}
+            {effective!.engine_hours && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.engine_hours}h engine</span>}
           </div>
 
-          {listing.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {listing.location}</p>}
-          {listing.engine_info && <p className="text-sm text-muted-foreground">⚙️ {listing.engine_info}</p>}
-          {listing.description && (
-            <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{listing.description}</p></div>
+          {effective!.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {effective!.location}</p>}
+          {effective!.engine_info && <p className="text-sm text-muted-foreground">⚙️ {effective!.engine_info}</p>}
+          {effective!.description && (
+            <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
           )}
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground/70 border-t pt-3">
-            <span>{listing.source}</span>
-            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(listing.scraped_at)}</span>
+            <span>{effective!.source}</span>
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(effective!.scraped_at)}</span>
           </div>
 
           {/* Tab buttons */}
@@ -275,7 +339,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
               <Calculator className="w-4 h-4" /> Costs
             </Button>
             <Button variant="outline" className="gap-1.5" asChild>
-              <a href={listing.url} target="_blank" rel="noopener noreferrer">
+              <a href={effective!.url} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="w-4 h-4" /> View
               </a>
             </Button>
@@ -285,7 +349,14 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {activeTab === "evaluate" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
               <h3 className="font-semibold text-primary">Quick Evaluation</h3>
-              {(!listing.price_eur || !listing.length_feet || !listing.year) ? (
+              {isFetching ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
+              ) : fetchError && (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{fetchError}</p>
+                  <Button variant="outline" size="sm" onClick={fetchMissingData}>Retry</Button>
+                </div>
+              ) : (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
                 <p className="text-sm text-muted-foreground">Missing price, length, or year — cannot evaluate this listing.</p>
               ) : (
                 <>
@@ -312,7 +383,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
                         </SelectContent>
                       </Select>
                     </div>
-                    {listing.boat_type === "sailboat" && (
+                    {effective!.boat_type === "sailboat" && (
                       <div>
                         <Label className="text-xs">Sails</Label>
                         <Select value={sailsCondition} onValueChange={setSailsCondition}>
@@ -378,7 +449,14 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo }: BoatDe
           {activeTab === "costs" && (
             <div className="space-y-4 animate-fade-in border-t pt-4">
               <h3 className="font-semibold text-primary">Annual Ownership Cost</h3>
-              {!listing.length_feet ? (
+              {isFetching ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Fetching listing details…</div>
+              ) : fetchError && !effective!.length_feet ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{fetchError}</p>
+                  <Button variant="outline" size="sm" onClick={fetchMissingData}>Retry</Button>
+                </div>
+              ) : !effective!.length_feet ? (
                 <p className="text-sm text-muted-foreground">Missing boat length — cannot calculate costs.</p>
               ) : (
                 <>
