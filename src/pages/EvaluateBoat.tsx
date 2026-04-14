@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, Anchor } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +40,7 @@ interface ImportedExtras {
 
 const EvaluateBoat = () => {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [listingUrl, setListingUrl] = useState("");
   const [isScraping, setIsScraping] = useState(false);
 
@@ -61,15 +62,26 @@ const EvaluateBoat = () => {
 
   const canEvaluate = model && year && price && length && engine && hull && (boatType === "powerboat" || sails);
 
-  const handleScrape = async () => {
-    if (!listingUrl.trim()) return;
+  // Auto-import from URL query param
+  useEffect(() => {
+    const urlParam = searchParams.get("url");
+    if (urlParam) {
+      setListingUrl(urlParam);
+      // Trigger scrape automatically
+      handleScrapeUrl(urlParam);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleScrapeUrl = async (url: string) => {
+    if (!url.trim()) return;
     setIsScraping(true);
     setResult(null);
     setSimilarBoats([]);
 
     try {
       const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
-        body: { url: listingUrl },
+        body: { url },
       });
       if (error) throw error;
       if (data?.success && data.data) {
@@ -112,6 +124,8 @@ const EvaluateBoat = () => {
     }
   };
 
+  const handleScrape = () => handleScrapeUrl(listingUrl);
+
   const handleEvaluate = async () => {
     if (!canEvaluate) return;
     const evalResult = evaluate({
@@ -151,6 +165,14 @@ const EvaluateBoat = () => {
     if (!result) return;
     saveBoat({ model, score: result.score, verdict: result.verdict });
     toast({ title: "Saved!", description: `${model} added to My Boats.` });
+  };
+
+  const handleCompareBoat = (boatUrl: string) => {
+    setListingUrl(boatUrl);
+    setResult(null);
+    setSimilarBoats([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    handleScrapeUrl(boatUrl);
   };
 
   const scoreBarColor = (score: number, max: number) => {
@@ -231,7 +253,6 @@ const EvaluateBoat = () => {
           <div><Label>Engine Year</Label><Input type="number" placeholder="2010" value={engineYear} onChange={e => setEngineYear(e.target.value)} /></div>
         </div>
 
-        {/* Engine info from import */}
         {(extras.engineMake || extras.engineHp) && (
           <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">
             🔧 {[extras.engineMake, extras.engineModel, extras.engineHp && `${extras.engineHp}HP`, extras.engineType].filter(Boolean).join(" · ")}
@@ -252,7 +273,6 @@ const EvaluateBoat = () => {
               <SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="average">Average</SelectItem><SelectItem value="worn">Worn</SelectItem></SelectContent></Select></div>
         )}
 
-        {/* Equipment & Issues from import */}
         {extras.equipmentHighlights && extras.equipmentHighlights.length > 0 && (
           <div>
             <Label className="text-xs">Equipment</Label>
@@ -292,14 +312,12 @@ const EvaluateBoat = () => {
       {/* Results */}
       {result && (
         <div className="mt-8 space-y-4 animate-fade-in">
-          {/* Overall Score */}
           <Card className="p-6 text-center">
             <p className={`text-6xl font-bold font-display ${result.color}`}>{result.score}</p>
             <p className={`text-xl font-semibold mt-1 ${result.color}`}>{result.verdict}</p>
             <p className="text-sm text-muted-foreground mt-2">{result.priceAssessment}</p>
           </Card>
 
-          {/* Category Breakdown */}
           <Card className="p-5">
             <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
               <TrendingDown className="w-4 h-4" /> Score Breakdown
@@ -323,7 +341,6 @@ const EvaluateBoat = () => {
             </div>
           </Card>
 
-          {/* Estimated Repair Costs */}
           {result.estimatedRepairCost > 0 && (
             <Card className="p-5">
               <h3 className="font-semibold text-primary mb-2 flex items-center gap-2">
@@ -336,7 +353,6 @@ const EvaluateBoat = () => {
             </Card>
           )}
 
-          {/* Recommendations */}
           <Card className="p-5">
             <h3 className="font-semibold text-primary mb-3">💡 Recommendations</h3>
             <ul className="space-y-2">
@@ -361,27 +377,21 @@ const EvaluateBoat = () => {
             ) : similarBoats.length > 0 ? (
               <div className="space-y-3">
                 {similarBoats.map((boat, i) => (
-                  <a
+                  <div
                     key={i}
-                    href={boat.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block rounded-lg bg-muted/50 hover:bg-muted transition-colors overflow-hidden"
+                    className="rounded-lg bg-muted/50 overflow-hidden"
                   >
                     <div className="flex">
                       {boat.image_url && (
                         <img
                           src={boat.image_url}
                           alt={boat.title}
-                          className="w-24 h-24 object-cover shrink-0"
+                          className="w-28 h-28 object-cover shrink-0"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                         />
                       )}
                       <div className="p-3 flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-1">
-                          <p className="text-sm font-medium truncate">{boat.title}</p>
-                          <ExternalLink className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
-                        </div>
+                        <p className="text-sm font-medium truncate">{boat.title}</p>
                         {boat.price_eur && (
                           <p className="text-sm font-bold text-accent mt-0.5">€{boat.price_eur.toLocaleString()}</p>
                         )}
@@ -395,14 +405,29 @@ const EvaluateBoat = () => {
                           )}
                         </div>
                         {boat.engine_info && (
-                          <p className="text-xs text-muted-foreground mt-1 truncate">{boat.engine_info}</p>
+                          <p className="text-xs text-muted-foreground mt-1 truncate">⚙️ {boat.engine_info}</p>
                         )}
                         {boat.description && !boat.engine_info && (
                           <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{boat.description}</p>
                         )}
+                        <div className="flex gap-2 mt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1 px-2"
+                            onClick={() => handleCompareBoat(boat.url)}
+                          >
+                            <ArrowRight className="w-3 h-3" /> Compare
+                          </Button>
+                          <a href={boat.url} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
+                              <ExternalLink className="w-3 h-3" /> View
+                            </Button>
+                          </a>
+                        </div>
                       </div>
                     </div>
-                  </a>
+                  </div>
                 ))}
               </div>
             ) : (
@@ -410,7 +435,6 @@ const EvaluateBoat = () => {
             )}
           </Card>
 
-          {/* Save Button */}
           <Button variant="outline" className="w-full gap-2" onClick={handleSave}>
             <Save className="w-4 h-4" /> Save to My Boats
           </Button>
