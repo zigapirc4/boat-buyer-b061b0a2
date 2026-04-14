@@ -412,8 +412,6 @@ const Index = () => {
         listing={selectedListing}
         open={modalOpen}
         onOpenChange={setModalOpen}
-        onCompare={handleCompare}
-        onOwnershipCost={handleOwnershipCost}
         timeAgo={timeAgo}
       />
     </div>
