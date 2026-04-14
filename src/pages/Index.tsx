@@ -257,14 +257,14 @@ const Index = () => {
 
   const actionCards = [
     { to: "/evaluate", icon: Ship, label: "Evaluate", desc: "Rate any boat", gradient: "from-primary to-ocean" },
-    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", gradient: "from-accent to-sky" },
+    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", gradient: "from-ocean to-sky" },
     { to: "/my-boats", icon: List, label: "My Boats", desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist", gradient: "from-coral to-warning", badge: savedCount },
   ];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Hero Banner */}
-      <div className="bg-gradient-to-br from-primary via-ocean to-accent text-primary-foreground">
+      <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
         <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
