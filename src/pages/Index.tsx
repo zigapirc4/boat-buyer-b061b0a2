@@ -298,7 +298,7 @@ const Index = () => {
                         variant="outline"
                         size="sm"
                         className="flex-1 text-xs gap-1"
-                        onClick={() => handleCompare(listing)}
+                        onClick={(e) => { e.stopPropagation(); handleCompare(listing); }}
                       >
                         <ArrowRight className="w-3 h-3" /> Compare
                       </Button>
@@ -306,6 +306,7 @@ const Index = () => {
                         variant="ghost"
                         size="sm"
                         className="flex-1 text-xs gap-1"
+                        onClick={(e) => e.stopPropagation()}
                         asChild
                       >
                         <a href={listing.url} target="_blank" rel="noopener noreferrer">
@@ -322,6 +323,15 @@ const Index = () => {
           <p className="text-sm text-muted-foreground text-center py-4">No listings cached yet. They'll appear after the next daily scrape.</p>
         )}
       </div>
+
+      <BoatDetailModal
+        listing={selectedListing}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onCompare={handleCompare}
+        onOwnershipCost={handleOwnershipCost}
+        timeAgo={timeAgo}
+      />
     </div>
   );
 };
