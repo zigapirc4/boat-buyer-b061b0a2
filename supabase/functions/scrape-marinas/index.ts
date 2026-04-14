@@ -121,7 +121,7 @@ PAGES:
 ${pagesText}`;
 
     // Call Lovable AI Gateway
-    const llmResp = await fetch('https://ai-gateway.lovable.dev/v1/chat/completions', {
+    const llmResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${lovableApiKey}`,
