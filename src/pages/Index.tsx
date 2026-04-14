@@ -274,11 +274,18 @@ const Index = () => {
               <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
               <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
             </div>
-            {locationLabel && (
-              <span className="hidden sm:flex items-center gap-1.5 text-xs bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full ml-auto">
-                <MapPin className="w-3 h-3" /> {locationLabel}
-              </span>
-            )}
+            <div className="hidden sm:flex items-center gap-2 ml-auto">
+              {locationLabel && (
+                <span className="flex items-center gap-1.5 text-xs bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                  <MapPin className="w-3 h-3" /> {locationLabel}
+                </span>
+              )}
+              <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
+                <Button size="sm" className="bg-warning hover:bg-warning/90 text-warning-foreground font-semibold text-xs gap-1.5 rounded-full px-4">
+                  <Heart className="w-3.5 h-3.5" /> Donate
+                </Button>
+              </a>
+            </div>
           </div>
 
           {/* Action Cards */}
@@ -551,6 +558,14 @@ const Index = () => {
                 <Mail className="w-3 h-3" /> pirc.ziga@gmail.com
               </a>
             </div>
+          </div>
+          <p className="text-xs text-muted-foreground text-center mt-4 italic">Made by a boat owner, for boat owners ⛵</p>
+          <div className="mt-4 flex justify-center">
+            <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
+              <Button size="sm" variant="outline" className="text-xs gap-1.5 rounded-full">
+                <Heart className="w-3.5 h-3.5 text-coral" /> Support this project
+              </Button>
+            </a>
           </div>
           <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <p>© {new Date().getFullYear()} BoatBuyer. All rights reserved.</p>
