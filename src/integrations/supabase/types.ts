@@ -17,10 +17,16 @@ export type Database = {
       cached_listings: {
         Row: {
           boat_type: string | null
+          cabins: number | null
           created_at: string
+          description: string | null
+          engine_hours: number | null
           engine_info: string | null
+          fuel_type: string | null
+          hull_material: string | null
           id: string
           image_url: string | null
+          image_urls: string[] | null
           length_feet: number | null
           location: string | null
           price_eur: number | null
@@ -32,10 +38,16 @@ export type Database = {
         }
         Insert: {
           boat_type?: string | null
+          cabins?: number | null
           created_at?: string
+          description?: string | null
+          engine_hours?: number | null
           engine_info?: string | null
+          fuel_type?: string | null
+          hull_material?: string | null
           id?: string
           image_url?: string | null
+          image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
           price_eur?: number | null
@@ -47,10 +59,16 @@ export type Database = {
         }
         Update: {
           boat_type?: string | null
+          cabins?: number | null
           created_at?: string
+          description?: string | null
+          engine_hours?: number | null
           engine_info?: string | null
+          fuel_type?: string | null
+          hull_material?: string | null
           id?: string
           image_url?: string | null
+          image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
           price_eur?: number | null
