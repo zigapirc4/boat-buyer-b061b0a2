@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { model, length_feet, year } = await req.json();
+    const { model, length_feet, year, boat_type } = await req.json();
     if (!model) {
       return new Response(JSON.stringify({ success: false, error: "Model is required" }), {
         status: 400,
@@ -28,14 +28,14 @@ serve(async (req) => {
       });
     }
 
-    // Build a search query for similar boats
-    const baseModel = model.replace(/\d{2,4}\s*(cruiser|sailing|yacht)?$/i, "").trim();
-    const lengthRange = length_feet ? `${Math.round(length_feet - 3)}-${Math.round(length_feet + 3)} feet` : "";
+    const typeLabel = boat_type === "powerboat" ? "powerboat motorboat" : "sailboat";
+    const lengthRange = length_feet ? `${Math.round(length_feet - 4)}-${Math.round(length_feet + 4)} feet` : "";
     const yearRange = year ? `${year - 5}-${year + 5}` : "";
-    const query = `${baseModel} sailboat for sale ${lengthRange} ${yearRange} EUR`.trim();
+    const query = `"${model}" ${typeLabel} for sale ${lengthRange} ${yearRange} price EUR`.trim();
 
     console.log("Searching for similar boats:", query);
 
+    // Search with scrapeOptions to get content from each result
     const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
       method: "POST",
       headers: {
@@ -44,7 +44,26 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         query,
-        limit: 5,
+        limit: 6,
+        scrapeOptions: {
+          formats: ["extract"],
+          extract: {
+            schema: {
+              type: "object",
+              properties: {
+                boat_name: { type: "string", description: "Boat model name" },
+                price_eur: { type: "number", description: "Price in EUR" },
+                year: { type: "number", description: "Year built" },
+                length_feet: { type: "number", description: "Length in feet" },
+                location: { type: "string", description: "Where the boat is located" },
+                image_url: { type: "string", description: "Main photo URL of the boat" },
+                engine_info: { type: "string", description: "Brief engine details (make, HP, hours)" },
+                condition_summary: { type: "string", description: "One-sentence summary of the boat's condition" },
+              },
+            },
+            prompt: "Extract boat listing details. Get the price in EUR, location, and the main boat image URL. Summarize engine and condition briefly.",
+          },
+        },
       }),
     });
 
@@ -58,14 +77,22 @@ serve(async (req) => {
       );
     }
 
-    // Extract useful info from search results
-    const results = (searchData?.data || []).map((r: any) => ({
-      title: r.title || "Unknown listing",
-      url: r.url || "",
-      description: r.description || r.markdown?.slice(0, 200) || "",
-    })).filter((r: any) => r.url);
+    const results = (searchData?.data || []).map((r: any) => {
+      const extract = r.extract || {};
+      return {
+        title: extract.boat_name || r.title || "Unknown listing",
+        url: r.url || "",
+        description: extract.condition_summary || r.description || "",
+        price_eur: extract.price_eur || null,
+        year: extract.year || null,
+        length_feet: extract.length_feet || null,
+        location: extract.location || null,
+        image_url: extract.image_url || null,
+        engine_info: extract.engine_info || null,
+      };
+    }).filter((r: any) => r.url);
 
-    console.log(`Found ${results.length} similar boats`);
+    console.log(`Found ${results.length} similar boats with details`);
 
     return new Response(JSON.stringify({ success: true, data: results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
