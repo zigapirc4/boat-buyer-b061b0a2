@@ -211,6 +211,7 @@ const Index = () => {
         </Button>
         <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/cost"><Calculator className="w-5 h-5" /> Ownership Cost Calculator</Link>
+        </Button>
         <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
           <Link to="/my-boats">
             <List className="w-5 h-5" /> My Boats
