@@ -283,17 +283,48 @@ const Index = () => {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {ARTICLES.map((article, i) => (
-            <Card key={i} className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15">
+            <Card key={i} onClick={() => setSelectedArticle(article)} className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15">
               <div className={`w-9 h-9 rounded-lg ${article.color} flex items-center justify-center mb-3 transition-transform group-hover:scale-110`}>
                 <article.icon className="w-4 h-4" />
               </div>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${article.tagColor}`}>{article.tag}</span>
               <h3 className="text-sm font-semibold mt-2 leading-snug font-sans">{article.title}</h3>
               <p className="text-xs text-muted-foreground mt-1.5 line-clamp-3">{article.summary}</p>
+              <span className="text-xs text-primary font-medium mt-2 inline-block group-hover:underline">Read more →</span>
             </Card>
           ))}
         </div>
       </div>
+
+      {/* Article Modal */}
+      <Dialog open={!!selectedArticle} onOpenChange={(open) => !open && setSelectedArticle(null)}>
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+          {selectedArticle && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3 mb-1">
+                  <div className={`w-10 h-10 rounded-lg ${selectedArticle.color} flex items-center justify-center`}>
+                    <selectedArticle.icon className="w-5 h-5" />
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedArticle.tagColor}`}>{selectedArticle.tag}</span>
+                </div>
+                <DialogTitle className="text-lg font-bold font-heading">{selectedArticle.title}</DialogTitle>
+                <DialogDescription>{selectedArticle.summary}</DialogDescription>
+              </DialogHeader>
+              <div className="prose prose-sm max-w-none text-foreground mt-2">
+                {selectedArticle.body.split('\n\n').map((paragraph, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-muted-foreground mb-3" dangerouslySetInnerHTML={{
+                    __html: paragraph
+                      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-foreground">$1</strong>')
+                      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                      .replace(/\n/g, '<br />')
+                  }} />
+                ))}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Listings Section */}
       <div id="listings" className="max-w-6xl mx-auto px-4 pb-8 w-full flex-1 space-y-4">
