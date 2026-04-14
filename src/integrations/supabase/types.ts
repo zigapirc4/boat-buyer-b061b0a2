@@ -82,10 +82,14 @@ export type Database = {
       }
       marinas: {
         Row: {
+          berth_types: string[] | null
+          boat_length_range: string | null
+          confidence_score: number | null
           country: string
           created_at: string
           currency: string | null
           id: string
+          last_updated: string | null
           name: string
           notes: string | null
           price_per_meter_year: number | null
@@ -95,10 +99,14 @@ export type Database = {
           website: string | null
         }
         Insert: {
+          berth_types?: string[] | null
+          boat_length_range?: string | null
+          confidence_score?: number | null
           country: string
           created_at?: string
           currency?: string | null
           id?: string
+          last_updated?: string | null
           name: string
           notes?: string | null
           price_per_meter_year?: number | null
@@ -108,10 +116,14 @@ export type Database = {
           website?: string | null
         }
         Update: {
+          berth_types?: string[] | null
+          boat_length_range?: string | null
+          confidence_score?: number | null
           country?: string
           created_at?: string
           currency?: string | null
           id?: string
+          last_updated?: string | null
           name?: string
           notes?: string | null
           price_per_meter_year?: number | null
