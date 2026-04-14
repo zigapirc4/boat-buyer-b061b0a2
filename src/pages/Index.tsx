@@ -468,7 +468,7 @@ const Index = () => {
                           <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
                         </span>
                       </div>
-                      <div className="flex gap-2 mt-2 pt-2 border-t">
+                      <div className="flex gap-1.5 mt-2 pt-2 border-t">
                         <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}>
                           <ArrowRight className="w-3 h-3" /> Details
                         </Button>
@@ -476,6 +476,14 @@ const Index = () => {
                           <a href={listing.url} target="_blank" rel="noopener noreferrer">
                             <ExternalLink className="w-3 h-3" /> View
                           </a>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`text-xs gap-1 h-7 w-7 rounded-lg p-0 shrink-0 ${savedIds.has(listing.id) ? 'text-coral' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); toggleSave(listing); }}
+                        >
+                          <Heart className={`w-3.5 h-3.5 ${savedIds.has(listing.id) ? 'fill-coral' : ''}`} />
                         </Button>
                       </div>
                     </div>
