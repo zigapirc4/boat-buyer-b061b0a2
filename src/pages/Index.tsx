@@ -58,7 +58,6 @@ const Index = () => {
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Country coordinates for proximity scoring
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
     greece: [39.07, 21.82], france: [46.60, 1.89], spain: [40.46, -3.75],
@@ -74,8 +73,6 @@ const Index = () => {
   function getLocationScore(location: string | null, userLat: number, userLon: number): number {
     if (!location) return 9999;
     const loc = location.toLowerCase();
-
-    // Try to find a known country/region in the location string
     let bestDist = 9999;
     for (const [name, [lat, lon]] of Object.entries(COUNTRY_COORDS)) {
       if (loc.includes(name)) {
@@ -83,20 +80,13 @@ const Index = () => {
         bestDist = Math.min(bestDist, dist);
       }
     }
-
-    // Also check common location patterns like "City, Country"
     if (bestDist === 9999) {
-      // Check if any nearby country name fragments match
       const nearbyKeywords = ["adriatic", "mediterranean", "baltic", "europe"];
-      if (nearbyKeywords.some(k => loc.includes(k))) {
-        bestDist = 20; // generic European = moderate distance
-      }
+      if (nearbyKeywords.some(k => loc.includes(k))) bestDist = 20;
     }
-
     return bestDist;
   }
 
-  // Detect user location
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -104,16 +94,12 @@ const Index = () => {
           const { latitude, longitude } = pos.coords;
           setUserCoords({ lat: latitude, lon: longitude });
           try {
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=en`
-            );
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=en`);
             const data = await res.json();
             const city = data?.address?.city || data?.address?.town || data?.address?.state;
             const country = data?.address?.country;
             setLocationLabel(city || country || "");
-          } catch {
-            setLocationLabel("");
-          }
+          } catch { setLocationLabel(""); }
         },
         () => {},
         { timeout: 5000 }
@@ -132,19 +118,11 @@ const Index = () => {
           .neq("image_url", "none")
           .order("scraped_at", { ascending: false })
           .limit(10000);
-
-        if (boatTypeFilter !== "all") {
-          query = query.eq("boat_type", boatTypeFilter);
-        }
-        if (sourceFilter !== "all") {
-          query = query.eq("source", sourceFilter);
-        }
-
+        if (boatTypeFilter !== "all") query = query.eq("boat_type", boatTypeFilter);
+        if (sourceFilter !== "all") query = query.eq("source", sourceFilter);
         const { data, error } = await query;
         if (!error && data) {
           let filtered = data as CachedListing[];
-
-          // Sort by geographic proximity
           if (userCoords) {
             filtered.sort((a, b) => {
               const aDist = getLocationScore(a.location, userCoords.lat, userCoords.lon);
@@ -152,19 +130,14 @@ const Index = () => {
               return aDist - bDist;
             });
           }
-
           setListings(filtered);
         }
-      } catch (e) {
-        console.error("Failed to fetch listings:", e);
-      } finally {
-        setIsLoading(false);
-      }
+      } catch (e) { console.error("Failed to fetch listings:", e); }
+      finally { setIsLoading(false); }
     };
     fetchListings();
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
-  // Fetch all distinct sources for the dropdown
   const [allSources, setAllSources] = useState<string[]>([]);
   useEffect(() => {
     const fetchSources = async () => {
@@ -201,214 +174,198 @@ const Index = () => {
     return null;
   };
 
+  const actionCards = [
+    { to: "/evaluate", icon: Ship, label: "Evaluate", desc: "Rate any boat", color: "bg-primary/10 text-primary" },
+    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", color: "bg-accent/10 text-accent" },
+    { to: "/my-boats", icon: List, label: "My Boats", desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist", color: "bg-success/10 text-success", badge: savedCount },
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col items-center p-6">
-      <div className="text-center mb-12 animate-fade-in pt-8">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary mb-6">
-          <Anchor className="w-10 h-10 text-primary-foreground" />
-        </div>
-        <h1 className="text-4xl font-bold text-primary mb-2">BoatBuyer</h1>
-        <p className="text-muted-foreground text-lg">Smart boat purchase decisions</p>
-      </div>
-
-      <div className="w-full max-w-sm space-y-4 animate-fade-in">
-        <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
-          <Link to="/evaluate"><Ship className="w-5 h-5" /> Evaluate a Boat</Link>
-        </Button>
-        <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
-          <Link to="/cost"><Calculator className="w-5 h-5" /> Ownership Cost Calculator</Link>
-        </Button>
-        <Button asChild variant="outline" className="w-full h-14 text-base gap-3" size="lg">
-          <Link to="/my-boats">
-            <List className="w-5 h-5" /> My Boats
-            {savedCount > 0 && (
-              <span className="ml-auto bg-accent text-accent-foreground text-xs font-semibold px-2 py-0.5 rounded-full">
-                {savedCount}
-              </span>
-            )}
-          </Link>
-        </Button>
-      </div>
-
-      {/* Latest Listings Section */}
-      <div className="w-full max-w-4xl mt-16 animate-fade-in">
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full h-10 rounded-lg border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <h2 className="text-xl font-bold text-primary flex items-center gap-2">
-            🔥 {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
-            {searchQuery && <span className="text-sm font-normal text-muted-foreground">({displayListings.length} results)</span>}
-          </h2>
-          {locationLabel && !searchQuery && (
-            <p className="text-xs text-muted-foreground -mt-1">Showing nearby listings first</p>
+    <div className="min-h-screen bg-background">
+      {/* Compact Hero */}
+      <div className="border-b bg-card/50 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto px-4 py-5 flex items-center gap-4">
+          <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-primary shrink-0">
+            <Anchor className="w-5 h-5 text-primary-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-primary leading-tight">BoatBuyer</h1>
+            <p className="text-sm text-muted-foreground">Smart boat purchase decisions</p>
+          </div>
+          {locationLabel && (
+            <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+              <MapPin className="w-3 h-3" /> {locationLabel}
+            </span>
           )}
-          <div className="flex gap-2 flex-wrap">
-            <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
-              <SelectTrigger className="w-[130px] h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="sailboat">Sailboats</SelectItem>
-                <SelectItem value="powerboat">Powerboats</SelectItem>
-              </SelectContent>
-            </Select>
-            {allSources.length > 1 && (
-              <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                <SelectTrigger className="w-[150px] h-8 text-xs">
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {/* Action Cards Row */}
+        <div className="grid grid-cols-3 gap-3 animate-fade-in">
+          {actionCards.map((card) => (
+            <Link key={card.to} to={card.to} className="group">
+              <Card className="p-4 flex flex-col items-center text-center gap-2 hover:shadow-md transition-all hover:-translate-y-0.5 border-transparent hover:border-primary/20">
+                <div className={`w-10 h-10 rounded-xl ${card.color} flex items-center justify-center transition-transform group-hover:scale-110`}>
+                  <card.icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold flex items-center gap-1.5 justify-center">
+                    {card.label}
+                    {card.badge ? (
+                      <span className="bg-accent text-accent-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">{card.badge}</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{card.desc}</p>
+                </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
+
+        {/* Search + Filters */}
+        <div className="space-y-3 animate-fade-in">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full h-11 rounded-xl border bg-card pl-10 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+              {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
+              {!isLoading && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({displayListings.length.toLocaleString()})
+                </span>
+              )}
+            </h2>
+            <div className="flex gap-2 flex-wrap">
+              <Select value={boatTypeFilter} onValueChange={setBoatTypeFilter}>
+                <SelectTrigger className="w-[120px] h-8 text-xs rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Sources</SelectItem>
-                  {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="sailboat">Sailboats</SelectItem>
+                  <SelectItem value="powerboat">Powerboats</SelectItem>
                 </SelectContent>
               </Select>
-            )}
-            <Button
-              variant={showFilters ? "secondary" : "outline"}
-              size="sm"
-              className="h-8 text-xs gap-1"
-              onClick={() => setShowFilters(f => !f)}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
-              {(minPrice || maxPrice || minLength || maxLength) && (
-                <span className="ml-1 w-2 h-2 rounded-full bg-primary" />
+              {allSources.length > 1 && (
+                <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                  <SelectTrigger className="w-[140px] h-8 text-xs rounded-lg">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sources</SelectItem>
+                    {allSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               )}
-            </Button>
+              <Button
+                variant={showFilters ? "secondary" : "outline"}
+                size="sm"
+                className="h-8 text-xs gap-1 rounded-lg"
+                onClick={() => setShowFilters(f => !f)}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
+                {(minPrice || maxPrice || minLength || maxLength) && (
+                  <span className="ml-1 w-2 h-2 rounded-full bg-primary" />
+                )}
+              </Button>
+            </div>
           </div>
+
+          {showFilters && (
+            <div className="flex flex-wrap gap-3 p-3 rounded-xl border bg-card shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Price €</span>
+                <input type="number" placeholder="Min" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
+                <span className="text-xs text-muted-foreground">–</span>
+                <input type="number" placeholder="Max" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="w-24 h-8 rounded-lg border bg-background px-2 text-xs" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Length ft</span>
+                <input type="number" placeholder="Min" value={minLength} onChange={e => setMinLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
+                <span className="text-xs text-muted-foreground">–</span>
+                <input type="number" placeholder="Max" value={maxLength} onChange={e => setMaxLength(e.target.value)} className="w-20 h-8 rounded-lg border bg-background px-2 text-xs" />
+              </div>
+              {(minPrice || maxPrice || minLength || maxLength) && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setMinPrice(""); setMaxPrice(""); setMinLength(""); setMaxLength(""); }}>
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
-        {showFilters && (
-          <div className="flex flex-wrap gap-3 mb-4 p-3 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Price €</span>
-              <input
-                type="number"
-                placeholder="Min"
-                value={minPrice}
-                onChange={e => setMinPrice(e.target.value)}
-                className="w-24 h-8 rounded-md border bg-background px-2 text-xs"
-              />
-              <span className="text-xs text-muted-foreground">–</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={maxPrice}
-                onChange={e => setMaxPrice(e.target.value)}
-                className="w-24 h-8 rounded-md border bg-background px-2 text-xs"
-              />
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Length ft</span>
-              <input
-                type="number"
-                placeholder="Min"
-                value={minLength}
-                onChange={e => setMinLength(e.target.value)}
-                className="w-20 h-8 rounded-md border bg-background px-2 text-xs"
-              />
-              <span className="text-xs text-muted-foreground">–</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={maxLength}
-                onChange={e => setMaxLength(e.target.value)}
-                className="w-20 h-8 rounded-md border bg-background px-2 text-xs"
-              />
-            </div>
-            {(minPrice || maxPrice || minLength || maxLength) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => { setMinPrice(""); setMaxPrice(""); setMinLength(""); setMaxLength(""); }}
-              >
-                Clear
-              </Button>
-            )}
-          </div>
-        )}
-
+        {/* Listings Grid */}
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-16">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading latest boats…
           </div>
         ) : displayListings.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
             {displayListings.map((listing) => {
               const img = getImageUrl(listing);
               return (
-                <Card key={listing.id} className="overflow-hidden hover:shadow-md transition-shadow flex flex-col cursor-pointer" onClick={() => handleCardClick(listing)}>
-                  {img ? (
-                    <img
-                      src={img}
-                      alt={listing.title}
-                      className="w-full h-40 object-cover"
-                      loading="lazy"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                  ) : (
-                    <div className="w-full h-40 bg-muted flex items-center justify-center">
-                      <Ship className="w-12 h-12 text-muted-foreground/30" />
-                    </div>
-                  )}
-                  <div className="p-4 flex-1 flex flex-col">
-                    <p className="font-semibold text-sm truncate">{listing.title}</p>
-                    {listing.price_eur && (
-                      <p className="text-lg font-bold text-primary mt-1">€{Number(listing.price_eur).toLocaleString()}</p>
+                <Card
+                  key={listing.id}
+                  className="overflow-hidden hover:shadow-lg transition-all hover:-translate-y-0.5 flex flex-col cursor-pointer group"
+                  onClick={() => handleCardClick(listing)}
+                >
+                  <div className="relative">
+                    {img ? (
+                      <img
+                        src={img}
+                        alt={listing.title}
+                        className="w-full h-44 object-cover transition-transform group-hover:scale-[1.02]"
+                        loading="lazy"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    ) : (
+                      <div className="w-full h-44 bg-muted flex items-center justify-center">
+                        <Ship className="w-12 h-12 text-muted-foreground/20" />
+                      </div>
                     )}
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                      {listing.year && <span className="text-xs text-muted-foreground">{listing.year}</span>}
-                      {listing.length_feet && <span className="text-xs text-muted-foreground">{Number(listing.length_feet)}ft</span>}
-                      {listing.boat_type && (
-                        <span className="text-xs text-muted-foreground capitalize">{listing.boat_type}</span>
-                      )}
-                      {listing.hull_material && (
-                        <span className="text-xs text-muted-foreground capitalize">{listing.hull_material}</span>
-                      )}
+                    {listing.boat_type && (
+                      <span className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full capitalize">
+                        {listing.boat_type}
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-3.5 flex-1 flex flex-col">
+                    <p className="font-semibold text-sm truncate leading-tight">{listing.title}</p>
+                    {listing.price_eur && (
+                      <p className="text-lg font-bold text-primary mt-0.5">€{Number(listing.price_eur).toLocaleString()}</p>
+                    )}
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
+                      {listing.year && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{listing.year}</span>}
+                      {listing.length_feet && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{Number(listing.length_feet)}ft</span>}
+                      {listing.hull_material && <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded capitalize">{listing.hull_material}</span>}
                     </div>
                     {listing.location && (
-                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> {listing.location}
+                      <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
+                        <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
                       </p>
                     )}
-                    {listing.engine_info && (
-                      <p className="text-xs text-muted-foreground mt-1 truncate">⚙️ {listing.engine_info}</p>
-                    )}
-                    {listing.description && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{listing.description}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-[10px] text-muted-foreground/60">{listing.source}</p>
-                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5">
+                    <div className="flex items-center gap-2 mt-auto pt-2">
+                      <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>
+                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5 shrink-0">
                         <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
                       </span>
                     </div>
 
-                    <div className="flex gap-2 mt-auto pt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 text-xs gap-1"
-                        onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}
-                      >
+                    <div className="flex gap-2 mt-2 pt-2 border-t">
+                      <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}>
                         <ArrowRight className="w-3 h-3" /> Details
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex-1 text-xs gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                        asChild
-                      >
+                      <Button variant="ghost" size="sm" className="flex-1 text-xs gap-1 h-7 rounded-lg" onClick={(e) => e.stopPropagation()} asChild>
                         <a href={listing.url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="w-3 h-3" /> View
                         </a>
@@ -420,16 +377,11 @@ const Index = () => {
             })}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">No listings cached yet. They'll appear after the next daily scrape.</p>
+          <p className="text-sm text-muted-foreground text-center py-8">No listings cached yet. They'll appear after the next daily scrape.</p>
         )}
       </div>
 
-      <BoatDetailModal
-        listing={selectedListing}
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        timeAgo={timeAgo}
-      />
+      <BoatDetailModal listing={selectedListing} open={modalOpen} onOpenChange={setModalOpen} timeAgo={timeAgo} />
     </div>
   );
 };
