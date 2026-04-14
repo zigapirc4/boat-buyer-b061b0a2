@@ -100,6 +100,7 @@ const Index = () => {
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [selectedArticle, setSelectedArticle] = useState<typeof ARTICLES[number] | null>(null);
 
   const COUNTRY_COORDS: Record<string, [number, number]> = {
     slovenia: [46.15, 14.99], croatia: [45.1, 15.2], italy: [41.87, 12.57],
