@@ -232,11 +232,22 @@ const Index = () => {
 
       {/* Latest Listings Section */}
       <div className="w-full max-w-4xl mt-16 animate-fade-in">
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search boats… (e.g. Bavaria 37, Croatia, diesel)"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full h-10 rounded-lg border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h2 className="text-xl font-bold text-primary flex items-center gap-2">
             🔥 {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
+            {searchQuery && <span className="text-sm font-normal text-muted-foreground">({displayListings.length} results)</span>}
           </h2>
-          {locationLabel && (
+          {locationLabel && !searchQuery && (
             <p className="text-xs text-muted-foreground -mt-1">Showing nearby listings first</p>
           )}
           <div className="flex gap-2 flex-wrap">
