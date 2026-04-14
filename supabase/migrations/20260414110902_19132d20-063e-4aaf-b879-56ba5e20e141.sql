@@ -1,0 +1,1 @@
+DELETE FROM cached_listings WHERE title ilike '%boats for sale%' OR title ilike '%yachts for sale%' OR title ilike '%for sale in%' OR source IN ('youtube.com','facebook.com','reddit.com','wikipedia.org','pinterest.com','tiktok.com') OR title ilike '%browse%' OR title ilike '%marketplace%' OR title ilike '%buy and sell%';

@@ -5,126 +5,196 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Massive query list covering many sites, regions, boat types, and sizes
+// Targeted queries that return INDIVIDUAL listings, not search pages
 const SEARCH_QUERIES = [
-  // === SAILBOATS by site ===
-  "sailboat for sale site:yachtworld.com",
-  "sailing yacht for sale site:yachtworld.com",
-  "cruising sailboat for sale site:yachtworld.com",
-  "sailboat for sale site:boat24.com",
-  "segelboot kaufen site:boat24.com",
-  "voilier vente site:boat24.com",
-  "sailboat for sale site:scanboat.com",
-  "sailing yacht site:scanboat.com",
-  "sailboat for sale site:theyachtmarket.com",
-  "sailboat for sale site:sailboatlistings.com",
-  "cruiser sailboat for sale site:sailboatlistings.com",
-  "sailboat for sale site:boats.com",
-  "sailing yacht for sale site:boats.com",
-  "sailboat for sale site:boatshop24.com",
+  // === SAILBOATS - specific listings with details ===
+  "Bavaria 34 sailboat for sale €",
+  "Bavaria 37 cruiser sailboat for sale price",
+  "Beneteau Oceanis 38 for sale EUR",
+  "Beneteau Oceanis 43 for sale price",
+  "Beneteau First 35 for sale €",
+  "Jeanneau Sun Odyssey 36 for sale €",
+  "Jeanneau Sun Odyssey 42 for sale price",
+  "Jeanneau Sun Odyssey 49 for sale EUR",
+  "Hanse 345 sailboat for sale €",
+  "Hanse 385 sailboat for sale price",
+  "Hanse 415 sailboat for sale EUR",
+  "Dufour 382 sailboat for sale €",
+  "Dufour 412 sailboat for sale price",
+  "Elan 340 sailboat for sale €",
+  "Elan Impression 40 sailboat for sale",
+  "Elan E5 sailboat for sale price",
+  "Dehler 34 sailboat for sale €",
+  "Dehler 38 sailboat for sale price",
+  "Hallberg-Rassy 34 for sale €",
+  "Hallberg-Rassy 40 for sale price",
+  "Nauticat 33 sailboat for sale",
+  "X-Yachts X4 for sale €",
+  "Catalina 36 sailboat for sale",
+  "Hunter 36 sailboat for sale price",
+  "Lagoon 380 catamaran for sale €",
+  "Lagoon 42 catamaran for sale price",
+  "Fountaine Pajot catamaran for sale EUR",
+  // Regional sailboat listings
+  "sailboat for sale Croatia site:yachtworld.com",
+  "sailboat for sale Greece site:yachtworld.com",
+  "sailboat for sale Italy site:boat24.com",
+  "segelboot kaufen Kroatien site:boat24.com",
   "jedrilica prodaja site:mornar.net",
-  "jedrilica na prodaj site:mornar.net",
-  "barca a vela vendita site:subito.it",
-  "barca a vela usata site:subito.it",
-  // === SAILBOATS by region ===
-  "sailboat for sale Croatia",
-  "sailboat for sale Greece",
-  "sailboat for sale Italy",
-  "sailboat for sale France Mediterranean",
-  "sailboat for sale Spain",
-  "sailboat for sale Turkey",
-  "sailboat for sale Montenegro",
-  "sailboat for sale Slovenia",
-  "sailboat for sale Germany Baltic",
-  "sailboat for sale Netherlands",
-  "sailboat for sale Denmark",
-  "sailboat for sale Sweden",
-  "sailboat for sale UK",
-  "sailboat for sale Portugal",
-  "sailboat for sale Adriatic",
-  "sailboat for sale Caribbean",
-  "sailboat for sale Florida",
-  // === SAILBOATS by size ===
-  "sailboat 25 30 feet for sale Europe",
-  "sailboat 30 35 feet for sale Europe",
-  "sailboat 35 40 feet for sale Europe",
-  "sailboat 40 45 feet for sale Europe",
-  "sailboat 45 50 feet for sale",
-  "sailboat over 50 feet for sale",
-  "catamaran sailboat for sale Europe",
-  // === POWERBOATS by site ===
-  "powerboat for sale site:yachtworld.com",
-  "motor yacht for sale site:yachtworld.com",
-  "speedboat for sale site:yachtworld.com",
-  "powerboat for sale site:boat24.com",
-  "motorboot kaufen site:boat24.com",
-  "bateau moteur vente site:boat24.com",
-  "powerboat for sale site:scanboat.com",
-  "motor boat for sale site:scanboat.com",
-  "powerboat for sale site:theyachtmarket.com",
-  "powerboat for sale site:boats.com",
-  "motor yacht for sale site:boats.com",
-  "powerboat for sale site:boatshop24.com",
+  "jedrilica Hrvatska site:mornar.net",
+  "barca a vela vendita Croazia site:boat24.com",
+  "sailboat for sale Mediterranean site:scanboat.com",
+  "sailboat for sale Adriatic site:theyachtmarket.com",
+  "sailboat for sale Slovenia site:boat24.com",
+  "sailboat for sale Turkey site:yachtworld.com",
+  "sailboat for sale France site:boat24.com",
+  "sailboat for sale Spain site:yachtworld.com",
+  "sailboat 30ft for sale site:sailboatlistings.com",
+  "sailboat 35ft for sale site:sailboatlistings.com",
+  "sailboat 40ft for sale site:sailboatlistings.com",
+  // === POWERBOATS - specific listings with details ===
+  "Bavaria Sport 29 for sale €",
+  "Beneteau Antares 8 for sale price",
+  "Beneteau Antares 9 for sale EUR",
+  "Jeanneau Cap Camarat 7.5 for sale €",
+  "Jeanneau Merry Fisher 795 for sale price",
+  "Fairline Targa 38 for sale €",
+  "Fairline Squadron 42 for sale price",
+  "Princess V39 for sale EUR",
+  "Princess V50 for sale price",
+  "Azimut 42 for sale €",
+  "Azimut 55 for sale price",
+  "Sunseeker Manhattan 52 for sale",
+  "Sunseeker Predator 57 for sale price",
+  "Cranchi Endurance 30 for sale €",
+  "Cranchi Z35 for sale price",
+  "Sessa C35 for sale €",
+  "Sessa C38 for sale price",
+  "Quicksilver Activ 755 for sale €",
+  "Quicksilver Activ 875 for sale price",
+  "Nimbus 305 for sale €",
+  "Nimbus 365 for sale price",
+  "Galeon 325 for sale €",
+  "Galeon 430 for sale price",
+  "Sea Ray Sundancer 320 for sale €",
+  "Boston Whaler 280 for sale price",
+  "Prestige 420 for sale EUR",
+  "Prestige 520 for sale price",
+  "Absolute 40 for sale €",
+  "Absolute 50 for sale price",
+  // Regional powerboat listings
+  "powerboat for sale Croatia site:yachtworld.com",
+  "powerboat for sale Greece site:yachtworld.com",
+  "powerboat for sale Italy site:boat24.com",
+  "motorboot kaufen Kroatien site:boat24.com",
   "motorna brodica prodaja site:mornar.net",
   "gliser prodaja site:mornar.net",
-  "barca a motore vendita site:subito.it",
-  "barca a motore usata site:subito.it",
-  "gommone vendita site:subito.it",
-  // === POWERBOATS by region ===
-  "powerboat for sale Croatia",
-  "powerboat for sale Greece",
-  "powerboat for sale Italy",
-  "powerboat for sale France",
-  "powerboat for sale Spain",
-  "powerboat for sale Turkey",
-  "powerboat for sale Montenegro",
-  "powerboat for sale Slovenia",
-  "powerboat for sale Germany",
-  "powerboat for sale Netherlands",
-  "powerboat for sale UK",
-  "powerboat for sale Florida",
-  "powerboat for sale Adriatic",
-  // === POWERBOATS by size/type ===
-  "center console boat for sale Europe",
-  "cabin cruiser for sale Europe",
-  "flybridge motor yacht for sale",
-  "RIB rigid inflatable boat for sale Europe",
-  "fishing boat for sale Mediterranean",
-  "sport fishing boat for sale Europe",
-  "trawler yacht for sale Europe",
-  "motor yacht 30 40 feet for sale",
-  "motor yacht 40 50 feet for sale",
-  "motor yacht over 50 feet for sale",
-  // === BRANDS ===
-  "Bavaria sailboat for sale",
-  "Beneteau sailboat for sale",
-  "Jeanneau sailboat for sale",
-  "Hanse sailboat for sale",
-  "Dufour sailboat for sale",
-  "Elan sailboat for sale",
-  "Bavaria motorboat for sale",
-  "Beneteau powerboat for sale",
-  "Fairline boat for sale",
-  "Princess yacht for sale",
-  "Azimut yacht for sale",
-  "Sunseeker yacht for sale",
-  "Cranchi boat for sale",
-  "Sessa boat for sale",
-  "Quicksilver boat for sale",
-  "Jeanneau powerboat for sale",
+  "barca a motore vendita site:boat24.com",
+  "gommone vendita Croazia site:boat24.com",
+  "powerboat for sale Mediterranean site:scanboat.com",
+  "powerboat for sale Adriatic site:theyachtmarket.com",
+  "powerboat for sale Slovenia site:boat24.com",
+  "powerboat for sale Turkey site:yachtworld.com",
+  "motorboat for sale France site:boat24.com",
+  "motorboat for sale Spain site:yachtworld.com",
+  "center console for sale site:boats.com Mediterranean",
+  "cabin cruiser for sale site:boats.com Europe",
+  "RIB inflatable for sale site:boat24.com",
+  "fishing boat for sale site:yachtworld.com Mediterranean",
+  "trawler for sale site:yachtworld.com Europe",
 ];
 
-const SAILBOAT_QUERY_COUNT = 43; // queries 0-42 are sailboats
+const SAILBOAT_QUERY_COUNT = 44; // queries 0-43 are sailboats
+
+// Patterns that indicate a search/category/aggregation page, NOT an individual listing
+const REJECT_URL_PATTERNS = [
+  "/search", "/results", "/category", "/login", "/register",
+  "/about", "/contact", "/faq", "/privacy", "/terms",
+  "/boats-for-sale/make-", "/boats-for-sale/manufacturer-",
+  "/boats-for-sale/type-", "/boats-for-sale/?",
+  "/boats/make-", "/boats/manufacturer-",
+  "/boats/type-", "/boats/?",
+  "/dealer", "/broker", "/brand",
+  "/blog", "/news", "/article", "/guide",
+  "/compare", "/review",
+  "youtube.com", "facebook.com", "instagram.com", "twitter.com",
+  "reddit.com", "wikipedia.org", "pinterest.com", "tiktok.com",
+  "/home/product-range", "/model-range",
+  "?make=", "&make=", "/make/",
+  "/worldregion-", "/country-",
+  "/used-", "yacht-sales/", "/pre-owned",
+  "/yachts-for-sale/", "/boats-for-sale/",
+  "listings-by-brand", "/groups/",
+  "boattrader.com/boats/", "boats.com/boats-for-sale",
+  "yachtworld.com/boats-for-sale/make-",
+  "rightboat.com/boats-for-sale/",
+  "boatshop24.com/us/boats-for-sale/",
+  "topboats.com/boats/",
+  "boatshowavenue.com/boats-for-sale/",
+  "boatzon.com/make/",
+  "botentekoop.com/boats/",
+  "denisonyachtsales.com/yachts-for-sale",
+  "unitedyacht.com/Used-Yachts",
+  "galatiyachts.com/used-",
+  "curtisstokes.net/yacht-sales/",
+  "flagleryachts.com/used-",
+  "jbys.com/listings-by-brand/",
+  "bonitaboatcenter.com/boats-for-sale",
+];
+
+// Patterns that suggest an individual listing page
+const LISTING_URL_INDICATORS = [
+  /\/boat\/\d/i,
+  /\/listing[s]?\/\d/i,
+  /\/ad\/\d/i,
+  /\/oglas\/\d/i,        // mornar.net style
+  /\/annonce\/\d/i,
+  /\/yacht\/\d/i,
+  /\/detail[s]?\/\d/i,
+  /\/offer\/\d/i,
+  /\/\d{4,}[-/]/,        // numeric IDs in path
+  /[-/]\d{5,}/,          // long numeric IDs
+  /\/boats?\/.+\/.+\d/i, // e.g. /boat/brand/model-12345
+  /\.html$/i,
+  /\/inserzione\/\d/i,   // subito.it
+];
+
+function isLikelyListingUrl(url: string): boolean {
+  const urlLower = url.toLowerCase();
+
+  // Reject known non-listing patterns
+  if (REJECT_URL_PATTERNS.some(p => urlLower.includes(p.toLowerCase()))) return false;
+
+  // Accept if URL matches listing indicators
+  if (LISTING_URL_INDICATORS.some(r => r.test(url))) return true;
+
+  // Accept URLs with specific boat model names in path (e.g. /bavaria-34-cruiser-123)
+  const path = urlLower.split("?")[0];
+  const segments = path.split("/").filter(Boolean);
+  const lastSegment = segments[segments.length - 1] || "";
+
+  // Listing URLs typically have longer, specific last segments with numbers
+  if (lastSegment.length > 15 && /\d/.test(lastSegment)) return true;
+
+  // If we can't tell, reject to avoid junk
+  return false;
+}
 
 function parseListingFromSearch(item: any, queryIndex: number): any | null {
   if (!item.url) return null;
-
-  const skipPatterns = ["/search", "/results", "/category", "/login", "/register", "/about", "/contact", "/faq", "/privacy", "/terms"];
-  const urlLower = item.url.toLowerCase();
-  if (skipPatterns.some(p => urlLower.includes(p))) return null;
+  if (!isLikelyListingUrl(item.url)) return null;
 
   const text = `${item.title || ""} ${item.description || ""}`;
   const isSailboat = queryIndex < SAILBOAT_QUERY_COUNT;
+
+  // Reject titles that are clearly category pages
+  const titleLower = (item.title || "").toLowerCase();
+  const categoryPhrases = [
+    "boats for sale", "yachts for sale", "for sale in", "find your",
+    "browse", "search results", "listings", "used boats",
+    "new and used", "buy and sell", "marketplace",
+  ];
+  if (categoryPhrases.some(p => titleLower.includes(p)) && !titleLower.match(/\d{4}/)) return null;
 
   // Parse price
   let price: number | null = null;
@@ -161,6 +231,9 @@ function parseListingFromSearch(item: any, queryIndex: number): any | null {
   else if (mMatch) lengthFeet = Math.round(parseFloat(mMatch[1].replace(",", ".")) * 3.281 * 10) / 10;
   if (lengthFeet && (lengthFeet < 10 || lengthFeet > 500)) lengthFeet = null;
 
+  // Require at least price OR (year AND length) to consider it a real listing
+  if (!price && !(year && lengthFeet)) return null;
+
   const locations = text.match(/(?:in|at|located?\s+in|port|marina|,)\s+([A-Z][a-záéíóúàèìòùäëïöüçñ]+(?:\s+[A-Z][a-záéíóúàèìòùäëïöüçñ]+){0,2})/g);
   let location: string | null = null;
   if (locations && locations.length > 0) {
@@ -176,7 +249,6 @@ function parseListingFromSearch(item: any, queryIndex: number): any | null {
 
   const description: string | null = item.description?.substring(0, 500) || null;
 
-  // Try to extract image from search result
   let imageUrl: string | null = null;
   let imageUrls: string[] | null = null;
   if (item.image) {
@@ -221,7 +293,6 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Allow passing a subset of queries to split across multiple invocations
     let startIdx = 0;
     let endIdx = SEARCH_QUERIES.length;
     let skipEnrich = false;
@@ -235,7 +306,7 @@ Deno.serve(async (req) => {
     const queries = SEARCH_QUERIES.slice(startIdx, endIdx);
     console.log(`Starting scrape: queries ${startIdx}-${endIdx} (${queries.length} queries)...`);
 
-    // Phase 1: Search with higher limits
+    // Phase 1: Search
     const BATCH_SIZE = 5;
     const allListings: any[] = [];
 
@@ -277,10 +348,10 @@ Deno.serve(async (req) => {
       return true;
     });
 
-    console.log(`Phase 1 done: ${allListings.length} raw, ${uniqueListings.length} unique`);
+    console.log(`Phase 1 done: ${allListings.length} raw, ${uniqueListings.length} unique (after quality filter)`);
 
-    // Phase 2: Enrich listings that have a price (up to 30) unless skipped
-    const toEnrich = skipEnrich ? [] : uniqueListings.filter(l => l.price_eur).slice(0, 30);
+    // Phase 2: Enrich top listings via scrape+extract
+    const toEnrich = skipEnrich ? [] : uniqueListings.slice(0, 10);
     console.log(`Phase 2: Enriching ${toEnrich.length} listings${skipEnrich ? " (skipped)" : ""}...`);
 
     const ENRICH_BATCH = 5;
@@ -372,11 +443,11 @@ Deno.serve(async (req) => {
 
     console.log(`Done! ${upserted} listings upserted.`);
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      total: allListings.length, 
-      unique: uniqueListings.length, 
-      enriched: toEnrich.length, 
+    return new Response(JSON.stringify({
+      success: true,
+      total: allListings.length,
+      unique: uniqueListings.length,
+      enriched: toEnrich.length,
       upserted,
       queryRange: `${startIdx}-${endIdx}`,
     }), {

@@ -1,0 +1,1 @@
+DELETE FROM cached_listings WHERE source IN ('instagram.com','fairline.com','sunseeker.com','bavariayachts.com','beneteau.com');
