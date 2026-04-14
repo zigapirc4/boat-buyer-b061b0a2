@@ -382,9 +382,9 @@ const Index = () => {
                         variant="outline"
                         size="sm"
                         className="flex-1 text-xs gap-1"
-                        onClick={(e) => { e.stopPropagation(); handleCompare(listing); }}
+                        onClick={(e) => { e.stopPropagation(); handleCardClick(listing); }}
                       >
-                        <ArrowRight className="w-3 h-3" /> Compare
+                        <ArrowRight className="w-3 h-3" /> Details
                       </Button>
                       <Button
                         variant="ghost"
