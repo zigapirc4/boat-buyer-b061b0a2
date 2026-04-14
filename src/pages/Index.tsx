@@ -154,10 +154,22 @@ const Index = () => {
       }
     };
     fetchListings();
-  }, [boatTypeFilter, userCoords]);
+  }, [boatTypeFilter, sourceFilter, userCoords]);
 
-  const sources = [...new Set(listings.map(l => l.source).filter(Boolean))].sort();
-  const displayListings = sourceFilter !== "all" ? listings.filter(l => l.source === sourceFilter) : listings;
+  // Fetch all distinct sources for the dropdown
+  const [allSources, setAllSources] = useState<string[]>([]);
+  useEffect(() => {
+    const fetchSources = async () => {
+      const { data } = await supabase.from("cached_listings").select("source");
+      if (data) {
+        const s = [...new Set(data.map((d: any) => d.source).filter(Boolean))].sort() as string[];
+        setAllSources(s);
+      }
+    };
+    fetchSources();
+  }, []);
+
+  const displayListings = listings;
 
   const handleCompare = (listing: CachedListing) => {
     navigate(`/evaluate?url=${encodeURIComponent(listing.url)}`);
