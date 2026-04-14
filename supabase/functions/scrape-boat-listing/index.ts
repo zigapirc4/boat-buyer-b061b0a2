@@ -14,7 +14,7 @@ serve(async (req) => {
   try {
     const { url } = await req.json();
     if (!url) {
-      return new Response(JSON.stringify({ error: "URL is required" }), {
+      return new Response(JSON.stringify({ success: false, error: "URL is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -22,7 +22,7 @@ serve(async (req) => {
 
     const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "Firecrawl not configured" }), {
+      return new Response(JSON.stringify({ success: false, error: "Firecrawl not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -33,7 +33,8 @@ serve(async (req) => {
       formattedUrl = `https://${formattedUrl}`;
     }
 
-    // Scrape the listing page
+    console.log("Scraping URL:", formattedUrl);
+
     const scrapeRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
       method: "POST",
       headers: {
@@ -42,38 +43,36 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         url: formattedUrl,
-        formats: [
-          {
-            type: "json",
-            schema: {
-              type: "object",
-              properties: {
-                boat_model: { type: "string", description: "The boat model name, e.g. 'Bavaria 37 Cruiser'" },
-                year: { type: "number", description: "Year the boat was built" },
-                price_eur: { type: "number", description: "Price in EUR (convert if in other currency)" },
-                length_feet: { type: "number", description: "Length of the boat in feet" },
-                engine_condition: {
-                  type: "string",
-                  enum: ["good", "average", "bad"],
-                  description: "Engine condition: good, average, or bad. Infer from description if not explicit.",
-                },
-                hull_condition: {
-                  type: "string",
-                  enum: ["good", "osmosis", "damaged"],
-                  description: "Hull condition. Look for mentions of osmosis, blistering, damage.",
-                },
-                sails_condition: {
-                  type: "string",
-                  enum: ["new", "average", "worn"],
-                  description: "Sails condition. Infer from age/description if not explicit.",
-                },
+        formats: ["extract"],
+        extract: {
+          schema: {
+            type: "object",
+            properties: {
+              boat_model: { type: "string", description: "The boat model name, e.g. 'Bavaria 37 Cruiser'" },
+              year: { type: "number", description: "Year the boat was built" },
+              price_eur: { type: "number", description: "Price in EUR (convert if in other currency)" },
+              length_feet: { type: "number", description: "Length of the boat in feet" },
+              engine_condition: {
+                type: "string",
+                enum: ["good", "average", "bad"],
+                description: "Engine condition. Infer from description if not explicit. Default to average.",
               },
-              required: ["boat_model"],
+              hull_condition: {
+                type: "string",
+                enum: ["good", "osmosis", "damaged"],
+                description: "Hull condition. Look for mentions of osmosis, blistering, damage. Default to good.",
+              },
+              sails_condition: {
+                type: "string",
+                enum: ["new", "average", "worn"],
+                description: "Sails condition. Infer from age/description if not explicit. Default to average.",
+              },
             },
-            prompt:
-              "Extract the sailboat listing details. If a field is not explicitly mentioned, make a reasonable inference based on the boat's age, price, and description. For conditions, default to 'average'/'good' if no negative indicators are found.",
+            required: ["boat_model"],
           },
-        ],
+          prompt:
+            "Extract the sailboat listing details. If a field is not explicitly mentioned, make a reasonable inference based on the boat's age, price, and description. For conditions, default to 'average'/'good' if no negative indicators are found.",
+        },
         onlyMainContent: true,
       }),
     });
@@ -83,13 +82,13 @@ serve(async (req) => {
     if (!scrapeRes.ok) {
       console.error("Firecrawl error:", scrapeData);
       return new Response(
-        JSON.stringify({ error: scrapeData.error || "Failed to scrape listing" }),
+        JSON.stringify({ success: false, error: scrapeData.error || "Failed to scrape listing" }),
         { status: scrapeRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Extract the JSON data from the response
-    const extracted = scrapeData?.data?.json || scrapeData?.json || {};
+    const extracted = scrapeData?.data?.extract || scrapeData?.extract || {};
+    console.log("Extracted data:", JSON.stringify(extracted));
 
     return new Response(JSON.stringify({ success: true, data: extracted }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -97,7 +96,7 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
