@@ -279,9 +279,9 @@ Deno.serve(async (req) => {
 
     console.log(`Phase 1 done: ${allListings.length} raw, ${uniqueListings.length} unique`);
 
-    // Phase 2: Enrich listings that have a price (up to 30)
-    const toEnrich = uniqueListings.filter(l => l.price_eur).slice(0, 30);
-    console.log(`Phase 2: Enriching ${toEnrich.length} listings...`);
+    // Phase 2: Enrich listings that have a price (up to 30) unless skipped
+    const toEnrich = skipEnrich ? [] : uniqueListings.filter(l => l.price_eur).slice(0, 30);
+    console.log(`Phase 2: Enriching ${toEnrich.length} listings${skipEnrich ? " (skipped)" : ""}...`);
 
     const ENRICH_BATCH = 5;
     for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
