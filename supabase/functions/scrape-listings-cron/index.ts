@@ -361,7 +361,10 @@ Deno.serve(async (req) => {
             return [];
           }
           const data = await res.json();
-          console.log(`Query "${q.query}": ${(data?.data || []).length} results`);
+          const keys = Object.keys(data || {});
+          console.log(`Query "${q.query}": keys=${keys.join(",")}, data=${(data?.data || []).length}, results=${(data?.results || []).length}`);
+          const items = data?.data || data?.results || [];
+          return items.map((item: any) => parseListing(item)).filter(Boolean);
           return (data?.data || []).map((item: any) => parseListing(item)).filter(Boolean);
         } catch (e) { console.error(`Search error:`, e); return []; }
       }));
