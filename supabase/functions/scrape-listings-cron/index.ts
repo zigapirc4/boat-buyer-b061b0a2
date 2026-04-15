@@ -356,17 +356,13 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ query: q.query, limit: 20 }),
           });
           if (!res.ok) {
-            const errText = await res.text().catch(() => "");
-            console.error(`Search API ${res.status} for "${q.query}": ${errText.substring(0, 200)}`);
+            console.error(`Search API ${res.status} for "${q.query}"`);
             return [];
           }
           const data = await res.json();
           // v2 search returns { data: { web: [...] } }
           const items = data?.data?.web || data?.data || [];
-          const parsed = (Array.isArray(items) ? items : []).map((item: any) => parseListing(item)).filter(Boolean);
-          console.log(`Query "${q.query}": ${items.length || 0} results, ${parsed.length} valid`);
-          return parsed;
-          return (data?.data || []).map((item: any) => parseListing(item)).filter(Boolean);
+          return (Array.isArray(items) ? items : []).map((item: any) => parseListing(item)).filter(Boolean);
         } catch (e) { console.error(`Search error:`, e); return []; }
       }));
 
