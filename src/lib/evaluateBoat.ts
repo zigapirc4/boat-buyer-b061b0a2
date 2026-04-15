@@ -38,7 +38,7 @@ export interface BoatData {
 }
 
 export function evaluate(data: BoatData): EvalResult {
-  const { boatType, year, price, lengthFt, engine, hull, sails, engineHours, engineYear, engineHp, hullMaterial, knownIssues, recentWork } = data;
+  const { boatType, year, price, lengthFt, engine, hull, sails, engineHours, engineYear, engineHp, hullMaterial, knownIssues, recentWork, comparables } = data;
   const age = currentYear - year;
   const categories: EvalCategory[] = [];
   const recommendations: string[] = [];
