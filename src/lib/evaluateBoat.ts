@@ -34,6 +34,7 @@ export interface BoatData {
   hullMaterial?: string;
   knownIssues?: string[];
   recentWork?: string[];
+  comparables?: { price_eur: number; length_feet: number }[];
 }
 
 export function evaluate(data: BoatData): EvalResult {
