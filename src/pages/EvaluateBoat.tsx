@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { saveBoat } from "@/lib/boatStore";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
+import { fetchComparables } from "@/lib/fetchComparables";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -128,6 +129,7 @@ const EvaluateBoat = () => {
 
   const handleEvaluate = async () => {
     if (!canEvaluate) return;
+    const comparables = await fetchComparables(boatType, Number(year));
     const evalResult = evaluate({
       boatType,
       year: Number(year),
@@ -142,6 +144,7 @@ const EvaluateBoat = () => {
       hullMaterial: extras.hullMaterial,
       knownIssues: extras.knownIssues,
       recentWork: extras.recentWork,
+      comparables,
     });
     setResult(evalResult);
     setSimilarBoats([]);

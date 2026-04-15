@@ -34,10 +34,11 @@ export interface BoatData {
   hullMaterial?: string;
   knownIssues?: string[];
   recentWork?: string[];
+  comparables?: { price_eur: number; length_feet: number }[];
 }
 
 export function evaluate(data: BoatData): EvalResult {
-  const { boatType, year, price, lengthFt, engine, hull, sails, engineHours, engineYear, engineHp, hullMaterial, knownIssues, recentWork } = data;
+  const { boatType, year, price, lengthFt, engine, hull, sails, engineHours, engineYear, engineHp, hullMaterial, knownIssues, recentWork, comparables } = data;
   const age = currentYear - year;
   const categories: EvalCategory[] = [];
   const recommendations: string[] = [];
@@ -108,10 +109,17 @@ export function evaluate(data: BoatData): EvalResult {
   let valueScore = 25;
   let valueDetail = "";
 
-  // Market rate analysis based on age and type
-  const expectedPpf = boatType === "powerboat"
-    ? (age <= 5 ? 4000 : age <= 10 ? 2800 : age <= 20 ? 1800 : age <= 30 ? 1000 : 600)
-    : (age <= 5 ? 3500 : age <= 10 ? 2500 : age <= 20 ? 1500 : age <= 30 ? 800 : 400);
+  // Market rate analysis — prefer real comparable listings (same type, ±2 years)
+  let expectedPpf: number;
+  if (comparables && comparables.length >= 3) {
+    const ppfs = comparables.map(c => c.price_eur / c.length_feet);
+    expectedPpf = ppfs.reduce((a, b) => a + b, 0) / ppfs.length;
+  } else {
+    // Fallback to hardcoded estimates
+    expectedPpf = boatType === "powerboat"
+      ? (age <= 5 ? 4000 : age <= 10 ? 2800 : age <= 20 ? 1800 : age <= 30 ? 1000 : 600)
+      : (age <= 5 ? 3500 : age <= 10 ? 2500 : age <= 20 ? 1500 : age <= 30 ? 800 : 400);
+  }
 
   const priceRatio = pricePerFoot / expectedPpf;
 

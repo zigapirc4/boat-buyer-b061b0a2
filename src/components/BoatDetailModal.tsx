@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
+import { fetchComparables } from "@/lib/fetchComparables";
 import { supabase } from "@/integrations/supabase/client";
 
 interface CachedListing {
@@ -273,13 +274,15 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
   const handlePrev = () => setImgIndex(i => (i > 0 ? i - 1 : images.length - 1));
   const handleNext = () => setImgIndex(i => (i < images.length - 1 ? i + 1 : 0));
 
-  const runEvaluation = () => {
+  const runEvaluation = async () => {
     if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
     
     // Infer conditions from listing data
     const engine = enrichedExtras.engineCondition || inferEngineCondition(effective!.engine_hours, effective!.year, effective!.engine_info);
     const hull = enrichedExtras.hullCondition || inferHullCondition(effective!.hull_material, effective!.year, effective!.description);
     const sails = effective!.boat_type === "powerboat" ? "none" : (enrichedExtras.sailsCondition || inferSailsCondition(effective!.year, effective!.description));
+
+    const comparables = await fetchComparables(effective!.boat_type || "sailboat", effective!.year);
 
     const result = evaluate({
       boatType: (effective!.boat_type || "sailboat") as BoatType,
@@ -293,6 +296,7 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
       hullMaterial: effective!.hull_material || undefined,
       knownIssues: enrichedExtras.knownIssues,
       recentWork: enrichedExtras.recentWork,
+      comparables,
     });
     setEvalResult(result);
   };
