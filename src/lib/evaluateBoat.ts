@@ -38,7 +38,22 @@ export interface BoatData {
 }
 
 export function evaluate(data: BoatData): EvalResult {
-  const { boatType, year, price, lengthFt, engine, hull, sails, engineHours, engineYear, engineHp, hullMaterial, knownIssues, recentWork, comparables } = data;
+  const {
+    boatType,
+    year,
+    price,
+    lengthFt,
+    engine,
+    hull,
+    sails,
+    engineHours,
+    engineYear,
+    engineHp,
+    hullMaterial,
+    knownIssues,
+    recentWork,
+    comparables,
+  } = data;
   const age = currentYear - year;
   const categories: EvalCategory[] = [];
   const recommendations: string[] = [];
@@ -47,13 +62,38 @@ export function evaluate(data: BoatData): EvalResult {
   // 1. Age & Depreciation (max 20)
   let ageScore = 20;
   let ageDetail = "";
-  if (age <= 3) { ageScore = 20; ageDetail = "Nearly new — minimal depreciation, modern systems"; }
-  else if (age <= 7) { ageScore = 18; ageDetail = "Young boat in prime condition, low maintenance expected"; }
-  else if (age <= 12) { ageScore = 15; ageDetail = "Proven design, some wear items may need attention"; }
-  else if (age <= 18) { ageScore = 11; ageDetail = "Mid-life — standing rigging, electronics, upholstery aging"; recommendations.push("Check standing rigging age — replacement due every 10–15 years"); }
-  else if (age <= 25) { ageScore = 7; ageDetail = "Aging — expect deferred maintenance, possible refit needed"; recommendations.push("Commission a full marine survey before purchase"); recommendations.push("Budget for electronics upgrade (€2,000–5,000)"); estimatedRepairCost += 3000; }
-  else if (age <= 35) { ageScore = 4; ageDetail = "Old — significant systems likely need overhaul"; recommendations.push("Full marine survey essential — structural concerns likely"); recommendations.push("Budget for extensive refit (€15,000–40,000+)"); estimatedRepairCost += 20000; }
-  else { ageScore = 1; ageDetail = "Very old — likely needs complete refit, may be uninsurable"; recommendations.push("Insurance may be difficult to obtain for boats 35+ years old"); recommendations.push("Budget for complete refit (€25,000–60,000+)"); estimatedRepairCost += 35000; }
+  if (age <= 3) {
+    ageScore = 20;
+    ageDetail = "Nearly new — minimal depreciation, modern systems";
+  } else if (age <= 7) {
+    ageScore = 18;
+    ageDetail = "Young boat in prime condition, low maintenance expected";
+  } else if (age <= 12) {
+    ageScore = 15;
+    ageDetail = "Proven design, some wear items may need attention";
+  } else if (age <= 18) {
+    ageScore = 11;
+    ageDetail = "Mid-life — standing rigging, electronics, upholstery aging";
+    recommendations.push("Check standing rigging age — replacement due every 10–15 years");
+  } else if (age <= 25) {
+    ageScore = 7;
+    ageDetail = "Aging — expect deferred maintenance, possible refit needed";
+    recommendations.push("Commission a full marine survey before purchase");
+    recommendations.push("Budget for electronics upgrade (€2,000–5,000)");
+    estimatedRepairCost += 3000;
+  } else if (age <= 35) {
+    ageScore = 4;
+    ageDetail = "Old — significant systems likely need overhaul";
+    recommendations.push("Full marine survey essential — structural concerns likely");
+    recommendations.push("Budget for extensive refit (€15,000–40,000+)");
+    estimatedRepairCost += 20000;
+  } else {
+    ageScore = 1;
+    ageDetail = "Very old — likely needs complete refit, may be uninsurable";
+    recommendations.push("Insurance may be difficult to obtain for boats 35+ years old");
+    recommendations.push("Budget for complete refit (€25,000–60,000+)");
+    estimatedRepairCost += 35000;
+  }
   categories.push({ name: "Age & Depreciation", score: ageScore, maxScore: 20, details: ageDetail, icon: "⏳" });
 
   // 2. Engine (max 25 sail / 35 power)
@@ -61,8 +101,12 @@ export function evaluate(data: BoatData): EvalResult {
   let engineScore = engineMax;
   let engineDetail = "";
 
-  const effectiveEngineCondition = engine === "good" && engineHours && engineHours > 3000 ? "average" :
-    engine === "good" && engineHours && engineHours > 5000 ? "bad" : engine;
+  const effectiveEngineCondition =
+    engine === "good" && engineHours && engineHours > 3000
+      ? "average"
+      : engine === "good" && engineHours && engineHours > 5000
+        ? "bad"
+        : engine;
 
   if (effectiveEngineCondition === "good") {
     engineScore = engineMax;
@@ -88,7 +132,7 @@ export function evaluate(data: BoatData): EvalResult {
     estimatedRepairCost += boatType === "powerboat" ? 15000 : 10000;
   }
 
-  if (engineYear && (currentYear - engineYear) > 15) {
+  if (engineYear && currentYear - engineYear > 15) {
     engineScore = Math.max(0, engineScore - 3);
     engineDetail += ` — engine is ${currentYear - engineYear} years old`;
     recommendations.push("Consider engine age when budgeting — parts availability may be limited");
@@ -112,13 +156,30 @@ export function evaluate(data: BoatData): EvalResult {
   // Market rate analysis — prefer real comparable listings (same type, ±2 years)
   let expectedPpf: number;
   if (comparables && comparables.length >= 3) {
-    const ppfs = comparables.map(c => c.price_eur / c.length_feet);
+    const ppfs = comparables.map((c) => c.price_eur / c.length_feet);
     expectedPpf = ppfs.reduce((a, b) => a + b, 0) / ppfs.length;
   } else {
     // Fallback to hardcoded estimates
-    expectedPpf = boatType === "powerboat"
-      ? (age <= 5 ? 4000 : age <= 10 ? 2800 : age <= 20 ? 1800 : age <= 30 ? 1000 : 600)
-      : (age <= 5 ? 3500 : age <= 10 ? 2500 : age <= 20 ? 1500 : age <= 30 ? 800 : 400);
+    expectedPpf =
+      boatType === "powerboat"
+        ? age <= 5
+          ? 4000
+          : age <= 10
+            ? 2800
+            : age <= 20
+              ? 1800
+              : age <= 30
+                ? 1000
+                : 600
+        : age <= 5
+          ? 3500
+          : age <= 10
+            ? 2500
+            : age <= 20
+              ? 1500
+              : age <= 30
+                ? 800
+                : 400;
   }
 
   const priceRatio = pricePerFoot / expectedPpf;
@@ -149,15 +210,17 @@ export function evaluate(data: BoatData): EvalResult {
     valueScore = Math.max(0, valueScore - 5);
     recommendations.push("High price for an older boat — ensure condition justifies it");
   }
-
-  categories.push({ name: "Value for Money", score: valueScore, maxScore: 25, details: valueDetail, icon: "💰" });
-
+  if (comparables.length >= 3) {
+    categories.push({ name: "Value for Money", score: valueScore, maxScore: 25, details: valueDetail, icon: "💰" });
+  }
   // 4. Sails/Drive (max 20 for sailboats, max 15 for powerboats)
   if (boatType === "sailboat") {
     let sailsScore = 20;
     let sailsDetail = "";
-    if (sails === "new") { sailsScore = 20; sailsDetail = "Sails are new or recently replaced"; }
-    else if (sails === "average" || sails === "none") {
+    if (sails === "new") {
+      sailsScore = 20;
+      sailsDetail = "Sails are new or recently replaced";
+    } else if (sails === "average" || sails === "none") {
       sailsScore = 13;
       sailsDetail = "Sails serviceable but aging";
       recommendations.push("Plan for new sails in 2–4 years (€2,000–6,000 for a cruising set)");
@@ -183,9 +246,20 @@ export function evaluate(data: BoatData): EvalResult {
   } else {
     let driveScore = 15;
     let driveDetail = "";
-    if (engine === "good") { driveScore = 15; driveDetail = "Drive system and propellers in good shape"; }
-    else if (engine === "average") { driveScore = 9; driveDetail = "Drive system showing wear"; recommendations.push("Budget for outdrive/propeller service (€1,000–3,000)"); estimatedRepairCost += 1500; }
-    else { driveScore = 4; driveDetail = "Drive system needs attention"; recommendations.push("Full drive system overhaul may be needed (€3,000–8,000)"); estimatedRepairCost += 5000; }
+    if (engine === "good") {
+      driveScore = 15;
+      driveDetail = "Drive system and propellers in good shape";
+    } else if (engine === "average") {
+      driveScore = 9;
+      driveDetail = "Drive system showing wear";
+      recommendations.push("Budget for outdrive/propeller service (€1,000–3,000)");
+      estimatedRepairCost += 1500;
+    } else {
+      driveScore = 4;
+      driveDetail = "Drive system needs attention";
+      recommendations.push("Full drive system overhaul may be needed (€3,000–8,000)");
+      estimatedRepairCost += 5000;
+    }
     categories.push({ name: "Drive & Propulsion", score: driveScore, maxScore: 15, details: driveDetail, icon: "🔧" });
   }
 
@@ -209,7 +283,13 @@ export function evaluate(data: BoatData): EvalResult {
     recommendations.push("Get a hull survey ASAP; repair costs €5,000–20,000+");
     estimatedRepairCost += 12000;
   }
-  categories.push({ name: "Overall Condition", score: conditionScore, maxScore: 10, details: conditionDetail, icon: "🔍" });
+  categories.push({
+    name: "Overall Condition",
+    score: conditionScore,
+    maxScore: 10,
+    details: conditionDetail,
+    icon: "🔍",
+  });
 
   // 6. Known Issues penalty
   if (knownIssues && knownIssues.length > 0) {
@@ -250,7 +330,16 @@ export function evaluate(data: BoatData): EvalResult {
   }
 
   totalScore = Math.max(0, Math.min(100, totalScore));
-  const verdict = totalScore >= 80 ? "Great Deal" : totalScore >= 65 ? "Good Deal" : totalScore >= 50 ? "Fair Deal" : totalScore >= 35 ? "Below Average" : "Risky Purchase";
+  const verdict =
+    totalScore >= 80
+      ? "Great Deal"
+      : totalScore >= 65
+        ? "Good Deal"
+        : totalScore >= 50
+          ? "Fair Deal"
+          : totalScore >= 35
+            ? "Below Average"
+            : "Risky Purchase";
   const color = totalScore >= 65 ? "text-success" : totalScore >= 50 ? "text-warning" : "text-destructive";
 
   if (recommendations.length === 0) {
@@ -258,7 +347,7 @@ export function evaluate(data: BoatData): EvalResult {
   }
 
   // Always add survey recommendation for boats over €20k
-  if (price > 20000 && !recommendations.some(r => r.toLowerCase().includes("survey"))) {
+  if (price > 20000 && !recommendations.some((r) => r.toLowerCase().includes("survey"))) {
     recommendations.push("Always get an independent marine survey for boats over €20,000");
   }
 
