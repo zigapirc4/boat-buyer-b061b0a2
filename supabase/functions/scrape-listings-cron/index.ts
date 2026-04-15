@@ -170,7 +170,7 @@ function parseListing(item: any): any | null {
 
 async function enrichListing(listing: any, apiKey: string): Promise<void> {
   try {
-    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ url: listing.url, formats: ["markdown"], onlyMainContent: true }),
@@ -262,7 +262,7 @@ Deno.serve(async (req) => {
       for (const s of sites) {
         console.log(`Mapping ${s.url}...`);
         try {
-          const res = await fetch("https://api.firecrawl.dev/v1/map", {
+          const res = await fetch("https://api.firecrawl.dev/v2/map", {
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({ url: s.url, search: s.search, limit: 5000, includeSubdomains: true }),
@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
       let upserted = 0;
       for (let i = 0; i < valid.length; i += CHUNK) {
         const chunk = valid.slice(i, i + CHUNK);
-        const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
+        const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
@@ -350,15 +350,20 @@ Deno.serve(async (req) => {
 
       const results = await Promise.all(batch.map(async (q) => {
         try {
-          const res = await fetch("https://api.firecrawl.dev/v1/search", {
+          const res = await fetch("https://api.firecrawl.dev/v2/search", {
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({ query: q.query, limit: 20 }),
           });
-          if (!res.ok) return [];
+          if (!res.ok) {
+            console.error(`Search API ${res.status} for "${q.query}"`);
+            return [];
+          }
           const data = await res.json();
-          return (data?.data || []).map((item: any) => parseListing(item)).filter(Boolean);
-        } catch { return []; }
+          // v2 search returns { data: { web: [...] } }
+          const items = data?.data?.web || data?.data || [];
+          return (Array.isArray(items) ? items : []).map((item: any) => parseListing(item)).filter(Boolean);
+        } catch (e) { console.error(`Search error:`, e); return []; }
       }));
 
       allListings.push(...results.flat());
@@ -388,7 +393,7 @@ Deno.serve(async (req) => {
     let upserted = 0;
     for (let i = 0; i < withImages.length; i += CHUNK) {
       const chunk = withImages.slice(i, i + CHUNK);
-      const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
+      const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
