@@ -355,10 +355,15 @@ Deno.serve(async (req) => {
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({ query: q.query, limit: 20 }),
           });
-          if (!res.ok) return [];
+          if (!res.ok) {
+            const errText = await res.text().catch(() => "");
+            console.error(`Search API ${res.status} for "${q.query}": ${errText.substring(0, 200)}`);
+            return [];
+          }
           const data = await res.json();
+          console.log(`Query "${q.query}": ${(data?.data || []).length} results`);
           return (data?.data || []).map((item: any) => parseListing(item)).filter(Boolean);
-        } catch { return []; }
+        } catch (e) { console.error(`Search error:`, e); return []; }
       }));
 
       allListings.push(...results.flat());
