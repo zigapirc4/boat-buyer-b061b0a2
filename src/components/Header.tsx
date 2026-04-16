@@ -1,10 +1,19 @@
-import { Link } from "react-router-dom";
-import { Anchor, Heart, MapPin } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { Anchor, Heart, MapPin, Home, Ship, Calculator, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
+
+const NAV_ITEMS = [
+  { to: "/", icon: Home, label: "Home" },
+  { to: "/evaluate", icon: Ship, label: "Evaluate" },
+  { to: "/cost", icon: Calculator, label: "Costs" },
+  { to: "/my-boats", icon: List, label: "My Boats" },
+];
 
 export const Header = () => {
   const [locationLabel, setLocationLabel] = useState("");
+  const location = useLocation();
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -26,15 +35,15 @@ export const Header = () => {
 
   return (
     <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
-      <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
+      <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
               <Anchor className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold leading-tight text-white">BoatBuyer</h1>
-              <p className="text-white/75 text-xs">Smart boat purchase decisions</p>
+              <p className="text-xl sm:text-2xl font-bold leading-tight text-white">BoatBuyer</p>
+              <p className="text-white/75 text-[10px] sm:text-xs">Smart boat purchase decisions</p>
             </div>
           </Link>
           <div className="hidden sm:flex items-center gap-2 ml-auto">
@@ -50,6 +59,28 @@ export const Header = () => {
             </a>
           </div>
         </div>
+
+        {/* Navigation */}
+        <nav className="flex gap-1 mt-4">
+          {NAV_ITEMS.map((item) => {
+            const isActive = location.pathname === item.to;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl text-[10px] sm:text-xs font-medium transition-all",
+                  isActive
+                    ? "bg-white/25 text-white"
+                    : "bg-white/5 text-white/60 hover:bg-white/15 hover:text-white/90"
+                )}
+              >
+                <item.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );
