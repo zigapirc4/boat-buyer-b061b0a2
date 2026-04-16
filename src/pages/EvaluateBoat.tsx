@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight } from "lucide-react";
+import { Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight } from "lucide-react";
+import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -186,11 +188,9 @@ const EvaluateBoat = () => {
   };
 
   return (
-    <div className="min-h-screen p-4 pb-8 max-w-lg mx-auto">
-      <Link to="/" className="inline-flex items-center gap-1 text-muted-foreground mb-6 text-sm">
-        <ArrowLeft className="w-4 h-4" /> Back
-      </Link>
-
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header />
+      <div className="flex-1 p-4 pb-8 max-w-lg mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-6">Evaluate a Boat</h1>
 
       {/* URL Import */}
@@ -443,6 +443,8 @@ const EvaluateBoat = () => {
           </Button>
         </div>
       )}
+      </div>
+      <Footer />
     </div>
   );
 };

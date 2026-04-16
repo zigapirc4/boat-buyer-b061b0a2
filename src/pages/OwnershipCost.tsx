@@ -1,7 +1,9 @@
 
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, LinkIcon, Loader2, Anchor, MapPin, Wrench, DollarSign, Ship } from "lucide-react";
+import { LinkIcon, Loader2, Anchor, MapPin, Wrench, DollarSign, Ship } from "lucide-react";
+import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -218,10 +220,9 @@ const OwnershipCost = () => {
   const categories = result ? [...new Set(result.maintenanceItems.map(i => i.category))] : [];
 
   return (
-    <div className="min-h-screen p-4 pb-8 max-w-2xl mx-auto">
-      <Link to="/" className="inline-flex items-center gap-1 text-muted-foreground mb-6 text-sm">
-        <ArrowLeft className="w-4 h-4" /> Back
-      </Link>
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header />
+      <div className="flex-1 p-4 pb-8 max-w-2xl mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-2">Ownership Cost Calculator</h1>
       <p className="text-muted-foreground text-sm mb-6">Paste a listing link and select a marina to get a full annual cost breakdown.</p>
 
@@ -379,6 +380,8 @@ const OwnershipCost = () => {
           </Card>
         </div>
       )}
+      </div>
+      <Footer />
     </div>
   );
 };

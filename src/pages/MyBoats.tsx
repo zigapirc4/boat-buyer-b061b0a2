@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Trash2, ExternalLink, Heart, MapPin } from "lucide-react";
+import { Trash2, ExternalLink, Heart, MapPin } from "lucide-react";
+import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getSavedBoats, deleteBoat, getSavedListings, removeListing, type SavedBoat, type SavedListing } from "@/lib/boatStore";
@@ -24,10 +26,9 @@ const MyBoats = () => {
   const hasContent = boats.length > 0 || listings.length > 0;
 
   return (
-    <div className="min-h-screen p-4 pb-8 max-w-2xl mx-auto">
-      <Link to="/" className="inline-flex items-center gap-1 text-muted-foreground mb-6 text-sm">
-        <ArrowLeft className="w-4 h-4" /> Back
-      </Link>
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header />
+      <div className="flex-1 p-4 pb-8 max-w-2xl mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-6">My Boats</h1>
 
       {!hasContent ? (
@@ -96,6 +97,8 @@ const MyBoats = () => {
           )}
         </div>
       )}
+      </div>
+      <Footer />
     </div>
   );
 };
