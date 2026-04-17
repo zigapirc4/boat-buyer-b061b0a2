@@ -5,33 +5,53 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ALLOWED_DOMAINS = ["boat24.com", "mornar.net", "subito.it"];
+const ALLOWED_DOMAINS = [
+  "boat24.com", "mornar.net", "subito.it",
+  "yachtall.com", "scanboat.com", "2yachts.com",
+  "theyachtmarket.com", "devalk.nl", "yachtworld.com",
+  "rightboat.com", "bandofboats.com",
+];
 
 // ===== SEARCH QUERIES - site scoped =====
 const SEARCH_QUERIES: { query: string; site: string }[] = [];
 
-// Brands for boat24 and mornar
+// Brands for boat24, mornar, yachtall, scanboat, 2yachts, theyachtmarket
 const BRANDS = [
-  "Bavaria 34", "Bavaria 37", "Bavaria 40", "Bavaria 46",
-  "Beneteau Oceanis 38", "Beneteau Oceanis 43", "Beneteau Oceanis 46",
-  "Beneteau First 35", "Jeanneau Sun Odyssey 36", "Jeanneau Sun Odyssey 39",
-  "Jeanneau Sun Odyssey 42", "Jeanneau Sun Odyssey 49",
-  "Hanse 345", "Hanse 385", "Hanse 415", "Hanse 455",
-  "Dufour 382", "Dufour 412", "Dufour 460",
-  "Elan 340", "Elan Impression 40", "Elan Impression 45", "Elan 350",
-  "Dehler 34", "Dehler 38", "Hallberg-Rassy 34", "Hallberg-Rassy 40",
-  "Lagoon 380", "Lagoon 42", "Lagoon 450",
-  "Grand Soleil 39", "Grand Soleil 46",
-  "Azimut 42", "Azimut 50", "Fairline Targa 38", "Princess V39",
-  "Sessa C35", "Sessa C38", "Cranchi Z35", "Galeon 325", "Galeon 430",
-  "Prestige 420", "Prestige 520", "Quicksilver 755", "Nimbus 305",
-  "Axopar 28", "Axopar 37", "Saxdor 320",
-  "Sea Ray 320", "Sea Ray 350", "Parker 850",
+  "Bavaria 32", "Bavaria 34", "Bavaria 37", "Bavaria 40", "Bavaria 46", "Bavaria 50", "Bavaria Cruiser 41",
+  "Beneteau Oceanis 31", "Beneteau Oceanis 35", "Beneteau Oceanis 38", "Beneteau Oceanis 41",
+  "Beneteau Oceanis 43", "Beneteau Oceanis 46", "Beneteau Oceanis 51",
+  "Beneteau First 35", "Beneteau First 40",
+  "Jeanneau Sun Odyssey 32", "Jeanneau Sun Odyssey 36", "Jeanneau Sun Odyssey 39",
+  "Jeanneau Sun Odyssey 42", "Jeanneau Sun Odyssey 45", "Jeanneau Sun Odyssey 49",
+  "Hanse 315", "Hanse 345", "Hanse 385", "Hanse 415", "Hanse 455", "Hanse 505",
+  "Dufour 360", "Dufour 382", "Dufour 412", "Dufour 460", "Dufour 530",
+  "Elan 340", "Elan 350", "Elan 444", "Elan Impression 40", "Elan Impression 45", "Elan Impression 50",
+  "Dehler 34", "Dehler 38", "Dehler 41",
+  "Hallberg-Rassy 34", "Hallberg-Rassy 40", "Hallberg-Rassy 42",
+  "Lagoon 380", "Lagoon 42", "Lagoon 450", "Lagoon 46", "Lagoon 50",
+  "Fountaine Pajot Lucia 40", "Fountaine Pajot Saona 47",
+  "Grand Soleil 39", "Grand Soleil 43", "Grand Soleil 46",
+  "X-Yachts X4", "Salona 41", "Salona 44",
+  "Azimut 42", "Azimut 50", "Azimut 55", "Azimut 60",
+  "Fairline Targa 38", "Fairline Squadron 50",
+  "Princess V39", "Princess V50", "Princess F45",
+  "Sessa C35", "Sessa C38", "Sessa Marine Key Largo",
+  "Cranchi Z35", "Cranchi Endurance 39",
+  "Galeon 325", "Galeon 430", "Galeon 470",
+  "Prestige 420", "Prestige 460", "Prestige 520",
+  "Quicksilver 755", "Quicksilver Activ 605",
+  "Nimbus 305", "Nimbus 365",
+  "Axopar 28", "Axopar 37", "Saxdor 320", "Saxdor 270",
+  "Sea Ray 320", "Sea Ray 350", "Sea Ray Sundancer 400",
+  "Parker 850", "Parker 750",
+  "Bayliner Element", "Sunseeker Manhattan 50",
 ];
 
+const BRAND_SITES = ["boat24.com", "mornar.net", "yachtall.com", "scanboat.com", "2yachts.com", "theyachtmarket.com"];
 for (const brand of BRANDS) {
-  SEARCH_QUERIES.push({ query: `${brand} site:boat24.com`, site: "boat24.com" });
-  SEARCH_QUERIES.push({ query: `${brand} site:mornar.net`, site: "mornar.net" });
+  for (const site of BRAND_SITES) {
+    SEARCH_QUERIES.push({ query: `${brand} site:${site}`, site });
+  }
 }
 
 // Generic terms per site
