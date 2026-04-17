@@ -401,7 +401,7 @@ Deno.serve(async (req) => {
       const listings = unique.map(u => ({
         title: u.url.split("/").filter(Boolean).pop()?.replace(/-/g, " ") || "Unknown",
         url: u.url,
-        boat_type: "sailboat",
+        boat_type: detectBoatType(u.url.split("/").filter(Boolean).pop()?.replace(/-/g, " ") || "", u.url),
         price_eur: null,
         year: null,
         length_feet: null,
