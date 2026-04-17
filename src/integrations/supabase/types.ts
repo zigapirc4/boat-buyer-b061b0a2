@@ -134,6 +134,24 @@ export type Database = {
         }
         Relationships: []
       }
+      scrape_cron_state: {
+        Row: {
+          id: number
+          last_run_at: string | null
+          next_start_idx: number
+        }
+        Insert: {
+          id?: number
+          last_run_at?: string | null
+          next_start_idx?: number
+        }
+        Update: {
+          id?: number
+          last_run_at?: string | null
+          next_start_idx?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
