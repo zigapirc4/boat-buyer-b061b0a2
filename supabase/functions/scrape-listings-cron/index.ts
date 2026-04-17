@@ -220,9 +220,6 @@ function parseListing(item: any): any | null {
   else if (mMatch) lengthFeet = Math.round(parseFloat(mMatch[1].replace(",", ".")) * 3.281 * 10) / 10;
   if (lengthFeet && (lengthFeet < 10 || lengthFeet > 500)) lengthFeet = null;
 
-  let source = "";
-  try { source = new URL(item.url).hostname.replace("www.", "").replace("www2.", ""); } catch {}
-
   let engineInfo: string | null = null;
   const engineMatch = text.match(/(?:engine|motor|hp|cv|kw|ps)[:\s]*([^,.]{5,50})/i);
   if (engineMatch) engineInfo = engineMatch[1].trim().substring(0, 200);
