@@ -95,6 +95,45 @@ for (const t of BOAT24_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boat24.com
 for (const t of MORNAR_TERMS) SEARCH_QUERIES.push({ query: `${t} site:mornar.net`, site: "mornar.net" });
 for (const t of SUBITO_TERMS) SEARCH_QUERIES.push({ query: `${t} site:subito.it`, site: "subito.it" });
 
+// Yachtall (German, big EU inventory)
+const YACHTALL_TERMS = [
+  "segelboot", "motorboot", "segelyacht", "katamaran",
+  "sailboat", "motor yacht", "yacht for sale",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Elan", "Dehler",
+  "yacht Kroatien", "yacht Italien", "yacht Griechenland",
+];
+for (const t of YACHTALL_TERMS) SEARCH_QUERIES.push({ query: `${t} site:yachtall.com`, site: "yachtall.com" });
+
+// Scanboat (Nordic, EU)
+const SCANBOAT_TERMS = [
+  "sailboat", "motorboat", "yacht", "catamaran",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Elan",
+  "sailboat Mediterranean", "yacht Croatia", "yacht Greece",
+];
+for (const t of SCANBOAT_TERMS) SEARCH_QUERIES.push({ query: `${t} site:scanboat.com`, site: "scanboat.com" });
+
+// 2yachts (EU listings)
+const TWOYACHTS_TERMS = [
+  "sailboat for sale", "motor yacht for sale", "catamaran for sale",
+  "yacht Croatia", "yacht Italy", "yacht Greece", "yacht Spain", "yacht Turkey",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Lagoon", "Elan",
+];
+for (const t of TWOYACHTS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:2yachts.com`, site: "2yachts.com" });
+
+// theyachtmarket (UK/EU)
+const TYM_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran",
+  "yacht Mediterranean", "yacht Croatia", "yacht Italy", "yacht Greece",
+  "Bavaria yacht", "Beneteau yacht", "Jeanneau yacht", "Hanse yacht",
+];
+for (const t of TYM_TERMS) SEARCH_QUERIES.push({ query: `${t} site:theyachtmarket.com`, site: "theyachtmarket.com" });
+
+// De Valk (Netherlands, premium EU)
+const DEVALK_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of DEVALK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:devalk.nl`, site: "devalk.nl" });
+
 // Strict URL validation
 function isValidListingUrl(url: string): boolean {
   let hostname = "";
@@ -102,11 +141,22 @@ function isValidListingUrl(url: string): boolean {
   if (!ALLOWED_DOMAINS.some(d => hostname.includes(d))) return false;
 
   if (hostname.includes("boat24.com")) return /\/detail\/\d+/i.test(url);
-  if (hostname.includes("mornar.net")) return /\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url);
-  if (hostname.includes("subito.it")) {
-    if (/\/annunci[/-]/i.test(url) && !/\.htm/i.test(url)) return false;
-    return /\d{5,}/.test(url) && !/\/annunci-\w+\/vendita\//i.test(url);
+  if (hostname.includes("mornar.net")) {
+    return (/\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url)) || /\/oglas[a-z\-]*\/\d+/i.test(url);
   }
+  if (hostname.includes("subito.it")) {
+    if (!/\.htm/i.test(url)) return false;
+    if (/\/annunci-\w+\/vendita\/[^/]+\/?$/i.test(url)) return false; // category page
+    return /\d{6,}\.htm/i.test(url);
+  }
+  if (hostname.includes("yachtall.com")) return /\/(en|de)\/yacht\/\d+/i.test(url) || /\/boat-\d+/i.test(url);
+  if (hostname.includes("scanboat.com")) return /\/(en|da|de)\/[^/]+\/\d{5,}/i.test(url) || /boat-for-sale\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("2yachts.com")) return /\/yacht\/\d+/i.test(url) || /\/boat\/\d+/i.test(url);
+  if (hostname.includes("theyachtmarket.com")) return /\/boats-for-sale\/[^/]+\/[^/]+\/\d+\//i.test(url);
+  if (hostname.includes("devalk.nl")) return /\/yachts-for-sale\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("yachtworld.com")) return /\/yacht\/[^/]+\/\d{5,}/i.test(url) || /\/boats-for-sale\/[^/]+\/\d{5,}/i.test(url);
+  if (hostname.includes("rightboat.com")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("bandofboats.com")) return /\/boat\/[^/]+\/\d+/i.test(url) || /\/used-boat\/\d+/i.test(url);
   return false;
 }
 
