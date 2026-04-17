@@ -166,8 +166,45 @@ function isValidListingUrl(url: string): boolean {
   return false;
 }
 
-const SAILBOAT_KW = ["sailboat","sailing","sloop","ketch","cutter","catamaran","trimaran","jedrilica","barca a vela","segelboot","voilier","velero","oceanis","sun odyssey","hanse ","dehler","hallberg","bavaria cruiser","dufour","elan impression","grand soleil","najad","x-yachts","catalina","hunter ","lagoon","fountaine pajot","nautitech","oyster","contest","swan ","feeling","moody","deriva","vela"];
-const POWERBOAT_KW = ["powerboat","motorboat","motor yacht","flybridge","express cruiser","center console","cabin cruiser","sport boat","gliser","motorna","motorboot","barca a motore","bateau moteur","motoscafo","antares","merry fisher","cap camarat","fairline","princess v","azimut","sunseeker","cranchi","sessa","quicksilver","nimbus","galeon","sea ray","boston whaler","prestige","absolute","saxdor","axopar","gommone","cabinato","open","fisherman","gozzo","natante","ferretti","riva","pershing"];
+const SAILBOAT_KW = ["sailboat","sailing yacht","sailing boat","sloop","ketch","cutter","catamaran","trimaran","jedrilica","barca a vela","segelboot","segelyacht","voilier","velero","oceanis","sun odyssey","hanse ","dehler","hallberg","bavaria cruiser","dufour","elan impression","grand soleil","najad","x-yachts","catalina","hunter ","lagoon","fountaine pajot","nautitech","oyster","contest","swan ","feeling","moody","deriva","vela","jedra","jedrenjak"];
+const POWERBOAT_KW = ["powerboat","motorboat","motor yacht","motoryacht","flybridge","express cruiser","center console","cabin cruiser","sport boat","gliser","motorna","motorboot","motorboote","barca a motore","bateau moteur","motoscafo","antares","merry fisher","cap camarat","princess v","sunseeker","quicksilver","nimbus","galeon","sea ray","boston whaler","absolute","saxdor","axopar","gommone","cabinato","fisherman","gozzo","natante","riva ","pershing","flybridge","outboard","inboard","stern drive"];
+
+// Brand-based detection (very high signal — these brands make ONLY powerboats or ONLY sailboats)
+const POWERBOAT_BRANDS = ["azimut","ferretti","sunseeker","princess","fairline","cranchi","sessa","galeon","prestige","sea ray","bayliner","saxdor","axopar","nimbus","quicksilver","parker","boston whaler","pershing","riva","absolute","sealine","jeanneau merry fisher","jeanneau cap camarat","jeanneau leader","beneteau antares","beneteau gran turismo","beneteau flyer","beneteau swift trawler","beneteau monte carlo","fountaine pajot motor","lagoon sixty","linssen","sasga","nordhavn","pardo","invictus","fjord","wally"];
+const SAILBOAT_BRANDS = ["beneteau oceanis","beneteau first","jeanneau sun odyssey","jeanneau sun fast","bavaria cruiser","bavaria c","hanse","dehler","dufour","elan impression","elan gt","hallberg-rassy","hallberg rassy","grand soleil","x-yachts","najad","contest yacht","oyster yacht","swan yacht","najad","amel","catana","outremer","lagoon 3","lagoon 4","lagoon 5","fountaine pajot lucia","fountaine pajot saona","fountaine pajot saba","fountaine pajot astrea","nautitech","leopard catamaran","seawind"];
+
+// URL-based detection (most reliable — site categorizes the listing for us)
+function detectBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
+  const u = url.toLowerCase();
+  // boat24.com path segments
+  if (/\/(sailingboats|sailboats|segelboote|barcheavela|purjeveneet|sejlbade|jedrilice|voiliers|veleros)\//.test(u)) return "sailboat";
+  if (/\/(powerboats|motorboats|motorboote|barcheamotore|motoryachts|motornaplovila|gliseri|moottoriveneet|motorbade)\//.test(u)) return "powerboat";
+  // mornar.net often has type in slug
+  if (/\/jedrilic[ae]\//.test(u)) return "sailboat";
+  if (/\/(motorn[ae]|gliser)\//.test(u)) return "powerboat";
+  return null;
+}
+
+function detectBoatType(text: string, url: string): "sailboat" | "powerboat" {
+  // 1. URL is most reliable
+  const fromUrl = detectBoatTypeFromUrl(url);
+  if (fromUrl) return fromUrl;
+
+  const t = text.toLowerCase();
+
+  // 2. Brand-based (strong signal)
+  if (POWERBOAT_BRANDS.some(b => t.includes(b))) return "powerboat";
+  if (SAILBOAT_BRANDS.some(b => t.includes(b))) return "sailboat";
+
+  // 3. Keyword-based
+  const isSail = SAILBOAT_KW.some(k => t.includes(k));
+  const isPower = POWERBOAT_KW.some(k => t.includes(k));
+  if (isPower && !isSail) return "powerboat";
+  if (isSail && !isPower) return "sailboat";
+
+  // 4. Default to sailboat (majority of inventory)
+  return "sailboat";
+}
 
 function parsePrice(text: string): number | null {
   const eurMatch = text.match(/€\s*([\d.,\s]+)/i) || text.match(/([\d.,\s]+)\s*€/i) || text.match(/EUR\s*([\d.,\s]+)/i);
