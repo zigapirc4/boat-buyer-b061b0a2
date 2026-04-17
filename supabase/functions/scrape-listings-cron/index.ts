@@ -5,33 +5,53 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ALLOWED_DOMAINS = ["boat24.com", "mornar.net", "subito.it"];
+const ALLOWED_DOMAINS = [
+  "boat24.com", "mornar.net", "subito.it",
+  "yachtall.com", "scanboat.com", "2yachts.com",
+  "theyachtmarket.com", "devalk.nl", "yachtworld.com",
+  "rightboat.com", "bandofboats.com",
+];
 
 // ===== SEARCH QUERIES - site scoped =====
 const SEARCH_QUERIES: { query: string; site: string }[] = [];
 
-// Brands for boat24 and mornar
+// Brands for boat24, mornar, yachtall, scanboat, 2yachts, theyachtmarket
 const BRANDS = [
-  "Bavaria 34", "Bavaria 37", "Bavaria 40", "Bavaria 46",
-  "Beneteau Oceanis 38", "Beneteau Oceanis 43", "Beneteau Oceanis 46",
-  "Beneteau First 35", "Jeanneau Sun Odyssey 36", "Jeanneau Sun Odyssey 39",
-  "Jeanneau Sun Odyssey 42", "Jeanneau Sun Odyssey 49",
-  "Hanse 345", "Hanse 385", "Hanse 415", "Hanse 455",
-  "Dufour 382", "Dufour 412", "Dufour 460",
-  "Elan 340", "Elan Impression 40", "Elan Impression 45", "Elan 350",
-  "Dehler 34", "Dehler 38", "Hallberg-Rassy 34", "Hallberg-Rassy 40",
-  "Lagoon 380", "Lagoon 42", "Lagoon 450",
-  "Grand Soleil 39", "Grand Soleil 46",
-  "Azimut 42", "Azimut 50", "Fairline Targa 38", "Princess V39",
-  "Sessa C35", "Sessa C38", "Cranchi Z35", "Galeon 325", "Galeon 430",
-  "Prestige 420", "Prestige 520", "Quicksilver 755", "Nimbus 305",
-  "Axopar 28", "Axopar 37", "Saxdor 320",
-  "Sea Ray 320", "Sea Ray 350", "Parker 850",
+  "Bavaria 32", "Bavaria 34", "Bavaria 37", "Bavaria 40", "Bavaria 46", "Bavaria 50", "Bavaria Cruiser 41",
+  "Beneteau Oceanis 31", "Beneteau Oceanis 35", "Beneteau Oceanis 38", "Beneteau Oceanis 41",
+  "Beneteau Oceanis 43", "Beneteau Oceanis 46", "Beneteau Oceanis 51",
+  "Beneteau First 35", "Beneteau First 40",
+  "Jeanneau Sun Odyssey 32", "Jeanneau Sun Odyssey 36", "Jeanneau Sun Odyssey 39",
+  "Jeanneau Sun Odyssey 42", "Jeanneau Sun Odyssey 45", "Jeanneau Sun Odyssey 49",
+  "Hanse 315", "Hanse 345", "Hanse 385", "Hanse 415", "Hanse 455", "Hanse 505",
+  "Dufour 360", "Dufour 382", "Dufour 412", "Dufour 460", "Dufour 530",
+  "Elan 340", "Elan 350", "Elan 444", "Elan Impression 40", "Elan Impression 45", "Elan Impression 50",
+  "Dehler 34", "Dehler 38", "Dehler 41",
+  "Hallberg-Rassy 34", "Hallberg-Rassy 40", "Hallberg-Rassy 42",
+  "Lagoon 380", "Lagoon 42", "Lagoon 450", "Lagoon 46", "Lagoon 50",
+  "Fountaine Pajot Lucia 40", "Fountaine Pajot Saona 47",
+  "Grand Soleil 39", "Grand Soleil 43", "Grand Soleil 46",
+  "X-Yachts X4", "Salona 41", "Salona 44",
+  "Azimut 42", "Azimut 50", "Azimut 55", "Azimut 60",
+  "Fairline Targa 38", "Fairline Squadron 50",
+  "Princess V39", "Princess V50", "Princess F45",
+  "Sessa C35", "Sessa C38", "Sessa Marine Key Largo",
+  "Cranchi Z35", "Cranchi Endurance 39",
+  "Galeon 325", "Galeon 430", "Galeon 470",
+  "Prestige 420", "Prestige 460", "Prestige 520",
+  "Quicksilver 755", "Quicksilver Activ 605",
+  "Nimbus 305", "Nimbus 365",
+  "Axopar 28", "Axopar 37", "Saxdor 320", "Saxdor 270",
+  "Sea Ray 320", "Sea Ray 350", "Sea Ray Sundancer 400",
+  "Parker 850", "Parker 750",
+  "Bayliner Element", "Sunseeker Manhattan 50",
 ];
 
+const BRAND_SITES = ["boat24.com", "mornar.net", "yachtall.com", "scanboat.com", "2yachts.com", "theyachtmarket.com"];
 for (const brand of BRANDS) {
-  SEARCH_QUERIES.push({ query: `${brand} site:boat24.com`, site: "boat24.com" });
-  SEARCH_QUERIES.push({ query: `${brand} site:mornar.net`, site: "mornar.net" });
+  for (const site of BRAND_SITES) {
+    SEARCH_QUERIES.push({ query: `${brand} site:${site}`, site });
+  }
 }
 
 // Generic terms per site
@@ -75,6 +95,45 @@ for (const t of BOAT24_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boat24.com
 for (const t of MORNAR_TERMS) SEARCH_QUERIES.push({ query: `${t} site:mornar.net`, site: "mornar.net" });
 for (const t of SUBITO_TERMS) SEARCH_QUERIES.push({ query: `${t} site:subito.it`, site: "subito.it" });
 
+// Yachtall (German, big EU inventory)
+const YACHTALL_TERMS = [
+  "segelboot", "motorboot", "segelyacht", "katamaran",
+  "sailboat", "motor yacht", "yacht for sale",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Elan", "Dehler",
+  "yacht Kroatien", "yacht Italien", "yacht Griechenland",
+];
+for (const t of YACHTALL_TERMS) SEARCH_QUERIES.push({ query: `${t} site:yachtall.com`, site: "yachtall.com" });
+
+// Scanboat (Nordic, EU)
+const SCANBOAT_TERMS = [
+  "sailboat", "motorboat", "yacht", "catamaran",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Elan",
+  "sailboat Mediterranean", "yacht Croatia", "yacht Greece",
+];
+for (const t of SCANBOAT_TERMS) SEARCH_QUERIES.push({ query: `${t} site:scanboat.com`, site: "scanboat.com" });
+
+// 2yachts (EU listings)
+const TWOYACHTS_TERMS = [
+  "sailboat for sale", "motor yacht for sale", "catamaran for sale",
+  "yacht Croatia", "yacht Italy", "yacht Greece", "yacht Spain", "yacht Turkey",
+  "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "Lagoon", "Elan",
+];
+for (const t of TWOYACHTS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:2yachts.com`, site: "2yachts.com" });
+
+// theyachtmarket (UK/EU)
+const TYM_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran",
+  "yacht Mediterranean", "yacht Croatia", "yacht Italy", "yacht Greece",
+  "Bavaria yacht", "Beneteau yacht", "Jeanneau yacht", "Hanse yacht",
+];
+for (const t of TYM_TERMS) SEARCH_QUERIES.push({ query: `${t} site:theyachtmarket.com`, site: "theyachtmarket.com" });
+
+// De Valk (Netherlands, premium EU)
+const DEVALK_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of DEVALK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:devalk.nl`, site: "devalk.nl" });
+
 // Strict URL validation
 function isValidListingUrl(url: string): boolean {
   let hostname = "";
@@ -82,11 +141,28 @@ function isValidListingUrl(url: string): boolean {
   if (!ALLOWED_DOMAINS.some(d => hostname.includes(d))) return false;
 
   if (hostname.includes("boat24.com")) return /\/detail\/\d+/i.test(url);
-  if (hostname.includes("mornar.net")) return /\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url);
-  if (hostname.includes("subito.it")) {
-    if (/\/annunci[/-]/i.test(url) && !/\.htm/i.test(url)) return false;
-    return /\d{5,}/.test(url) && !/\/annunci-\w+\/vendita\//i.test(url);
+  if (hostname.includes("mornar.net")) {
+    return (/\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url)) || /\/oglas[a-z\-]*\/\d+/i.test(url);
   }
+  if (hostname.includes("subito.it")) {
+    if (!/\.htm/i.test(url)) return false;
+    if (/\/annunci-\w+\/vendita\/[^/]+\/?$/i.test(url)) return false; // category page
+    return /\d{6,}\.htm/i.test(url);
+  }
+  if (hostname.includes("yachtall.com")) {
+    // Real listings: /en/boat/<slug>-s<id> or /de/boot/<slug>-s<id>
+    return /\/(en|de)\/(boat|boot|boat-transport)\/[a-z0-9\-]+-s\d+/i.test(url);
+  }
+  if (hostname.includes("scanboat.com")) {
+    // Only true detail pages (skip /video/ and /boat-market/boats?...)
+    return /\/(en|de|da|sv|no)\/boat\/[a-z0-9\-]+\/\d+/i.test(url) || /\/(en|de|da|sv|no)\/used-boat\/[a-z0-9\-]+\/\d+/i.test(url);
+  }
+  if (hostname.includes("2yachts.com")) return /\/(yacht|boat)\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
+  if (hostname.includes("theyachtmarket.com")) return /\/boats-for-sale\/[^/]+\/[^/]+\/\d+\//i.test(url);
+  if (hostname.includes("devalk.nl")) return /\/yachtbrokerage\/\d{5,}\//i.test(url);
+  if (hostname.includes("yachtworld.com")) return /\/yacht\/[^/]+\/\d{5,}/i.test(url) || /\/boats-for-sale\/[^/]+\/\d{5,}/i.test(url);
+  if (hostname.includes("rightboat.com")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("bandofboats.com")) return /\/boat\/[^/]+\/\d+/i.test(url) || /\/used-boat\/\d+/i.test(url);
   return false;
 }
 
@@ -128,7 +204,11 @@ function parseListing(item: any): any | null {
   const boatType = (isPower && !isSail) ? "powerboat" : "sailboat";
 
   const price = parsePrice(text);
-  if (!price) return null; // Must have price
+  // boat24 always has price in title — strict gate keeps quality.
+  // Other sites often hide price in body — let them through to enrichment, where price is extracted from page markdown. Final upsert filter still requires price+image.
+  let source = "";
+  try { source = new URL(item.url).hostname.replace("www.", "").replace("www2.", ""); } catch {}
+  if (!price && source.includes("boat24.com")) return null;
 
   const yearMatch = text.match(/\b(19[6-9]\d|20[0-2]\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1]) : null;
@@ -139,9 +219,6 @@ function parseListing(item: any): any | null {
   if (ftMatch) lengthFeet = parseFloat(ftMatch[1]);
   else if (mMatch) lengthFeet = Math.round(parseFloat(mMatch[1].replace(",", ".")) * 3.281 * 10) / 10;
   if (lengthFeet && (lengthFeet < 10 || lengthFeet > 500)) lengthFeet = null;
-
-  let source = "";
-  try { source = new URL(item.url).hostname.replace("www.", "").replace("www2.", ""); } catch {}
 
   let engineInfo: string | null = null;
   const engineMatch = text.match(/(?:engine|motor|hp|cv|kw|ps)[:\s]*([^,.]{5,50})/i);
@@ -353,7 +430,7 @@ Deno.serve(async (req) => {
           const res = await fetch("https://api.firecrawl.dev/v2/search", {
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ query: q.query, limit: 20 }),
+            body: JSON.stringify({ query: q.query, limit: 30 }),
           });
           if (!res.ok) {
             console.error(`Search API ${res.status} for "${q.query}"`);
@@ -375,10 +452,10 @@ Deno.serve(async (req) => {
 
     console.log(`Search done: ${allListings.length} raw, ${uniqueListings.length} unique`);
 
-    // Enrich those without images
-    const needsEnrich = uniqueListings.filter(l => !l.image_url);
+    // Enrich those without images OR without price (non-boat24 listings often need enrichment for price)
+    const needsEnrich = uniqueListings.filter(l => !l.image_url || !l.price_eur);
     const toEnrich = skipEnrich ? [] : needsEnrich.slice(0, enrichCount);
-    console.log(`Enriching ${toEnrich.length}/${needsEnrich.length} without images...`);
+    console.log(`Enriching ${toEnrich.length}/${needsEnrich.length} listings (missing image or price)...`);
 
     const ENRICH_BATCH = 5;
     for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
@@ -386,13 +463,14 @@ Deno.serve(async (req) => {
       if (i + ENRICH_BATCH < toEnrich.length) await new Promise(r => setTimeout(r, 300));
     }
 
-    const withImages = uniqueListings.filter(l => l.image_url);
-    console.log(`${withImages.length}/${uniqueListings.length} have images. Upserting...`);
+    // STRICT quality gate: must have BOTH image AND price
+    const valid = uniqueListings.filter(l => l.image_url && l.price_eur);
+    console.log(`${valid.length}/${uniqueListings.length} have image+price. Upserting...`);
 
     const CHUNK = 50;
     let upserted = 0;
-    for (let i = 0; i < withImages.length; i += CHUNK) {
-      const chunk = withImages.slice(i, i + CHUNK);
+    for (let i = 0; i < valid.length; i += CHUNK) {
+      const chunk = valid.slice(i, i + CHUNK);
       const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
         method: "POST",
         headers: {
@@ -407,7 +485,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true, mode: "search", total: allListings.length, unique: uniqueListings.length,
-      withImages: withImages.length, enriched: toEnrich.length, upserted,
+      valid: valid.length, enriched: toEnrich.length, upserted,
       queryRange: `${startIdx}-${endIdx}`, totalQueries: SEARCH_QUERIES.length,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
