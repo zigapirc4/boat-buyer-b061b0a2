@@ -452,10 +452,10 @@ Deno.serve(async (req) => {
 
     console.log(`Search done: ${allListings.length} raw, ${uniqueListings.length} unique`);
 
-    // Enrich those without images
-    const needsEnrich = uniqueListings.filter(l => !l.image_url);
+    // Enrich those without images OR without price (non-boat24 listings often need enrichment for price)
+    const needsEnrich = uniqueListings.filter(l => !l.image_url || !l.price_eur);
     const toEnrich = skipEnrich ? [] : needsEnrich.slice(0, enrichCount);
-    console.log(`Enriching ${toEnrich.length}/${needsEnrich.length} without images...`);
+    console.log(`Enriching ${toEnrich.length}/${needsEnrich.length} listings (missing image or price)...`);
 
     const ENRICH_BATCH = 5;
     for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
@@ -463,8 +463,9 @@ Deno.serve(async (req) => {
       if (i + ENRICH_BATCH < toEnrich.length) await new Promise(r => setTimeout(r, 300));
     }
 
-    const withImages = uniqueListings.filter(l => l.image_url);
-    console.log(`${withImages.length}/${uniqueListings.length} have images. Upserting...`);
+    // STRICT quality gate: must have BOTH image AND price
+    const valid = uniqueListings.filter(l => l.image_url && l.price_eur);
+    console.log(`${valid.length}/${uniqueListings.length} have image+price. Upserting...`);
 
     const CHUNK = 50;
     let upserted = 0;
