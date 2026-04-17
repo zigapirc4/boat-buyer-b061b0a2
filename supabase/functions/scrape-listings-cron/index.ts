@@ -204,7 +204,11 @@ function parseListing(item: any): any | null {
   const boatType = (isPower && !isSail) ? "powerboat" : "sailboat";
 
   const price = parsePrice(text);
-  if (!price) return null; // Must have price
+  // boat24 always has price in title — strict gate keeps quality.
+  // Other sites often hide price in body — let them through to enrichment, where price is extracted from page markdown. Final upsert filter still requires price+image.
+  let source = "";
+  try { source = new URL(item.url).hostname.replace("www.", "").replace("www2.", ""); } catch {}
+  if (!price && source.includes("boat24.com")) return null;
 
   const yearMatch = text.match(/\b(19[6-9]\d|20[0-2]\d)\b/);
   const year = yearMatch ? parseInt(yearMatch[1]) : null;
