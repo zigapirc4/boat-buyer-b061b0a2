@@ -149,11 +149,17 @@ function isValidListingUrl(url: string): boolean {
     if (/\/annunci-\w+\/vendita\/[^/]+\/?$/i.test(url)) return false; // category page
     return /\d{6,}\.htm/i.test(url);
   }
-  if (hostname.includes("yachtall.com")) return /\/(en|de)\/yacht\/\d+/i.test(url) || /\/boat-\d+/i.test(url);
-  if (hostname.includes("scanboat.com")) return /\/(en|da|de)\/[^/]+\/\d{5,}/i.test(url) || /boat-for-sale\/[^/]+\/\d+/i.test(url);
-  if (hostname.includes("2yachts.com")) return /\/yacht\/\d+/i.test(url) || /\/boat\/\d+/i.test(url);
+  if (hostname.includes("yachtall.com")) {
+    // Real listings: /en/boat/<slug>-s<id> or /de/boot/<slug>-s<id>
+    return /\/(en|de)\/(boat|boot|boat-transport)\/[a-z0-9\-]+-s\d+/i.test(url);
+  }
+  if (hostname.includes("scanboat.com")) {
+    // Only true detail pages (skip /video/ and /boat-market/boats?...)
+    return /\/(en|de|da|sv|no)\/boat\/[a-z0-9\-]+\/\d+/i.test(url) || /\/(en|de|da|sv|no)\/used-boat\/[a-z0-9\-]+\/\d+/i.test(url);
+  }
+  if (hostname.includes("2yachts.com")) return /\/(yacht|boat)\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
   if (hostname.includes("theyachtmarket.com")) return /\/boats-for-sale\/[^/]+\/[^/]+\/\d+\//i.test(url);
-  if (hostname.includes("devalk.nl")) return /\/yachts-for-sale\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("devalk.nl")) return /\/yachtbrokerage\/\d{5,}\//i.test(url);
   if (hostname.includes("yachtworld.com")) return /\/yacht\/[^/]+\/\d{5,}/i.test(url) || /\/boats-for-sale\/[^/]+\/\d{5,}/i.test(url);
   if (hostname.includes("rightboat.com")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url);
   if (hostname.includes("bandofboats.com")) return /\/boat\/[^/]+\/\d+/i.test(url) || /\/used-boat\/\d+/i.test(url);
