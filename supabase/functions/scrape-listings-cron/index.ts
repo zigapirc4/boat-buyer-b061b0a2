@@ -236,9 +236,7 @@ function parseListing(item: any): any | null {
   const titleLower = (item.title || "").toLowerCase();
   if (["boats for sale","yachts for sale","browse","search results","listings","marketplace","annunci","risultati","cerca"].some(p => titleLower.includes(p)) && !titleLower.match(/\d{4}/)) return null;
 
-  const isSail = SAILBOAT_KW.some(k => textLower.includes(k));
-  const isPower = POWERBOAT_KW.some(k => textLower.includes(k));
-  const boatType = (isPower && !isSail) ? "powerboat" : "sailboat";
+  const boatType = detectBoatType(text, item.url);
 
   const price = parsePrice(text);
   // boat24 always has price in title — strict gate keeps quality.
