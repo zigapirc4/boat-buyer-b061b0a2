@@ -331,6 +331,10 @@ async function enrichListing(listing: any, apiKey: string): Promise<void> {
       const lines = md.split("\n").filter(l => l.length > 30 && l.length < 500 && !l.startsWith("#") && !l.startsWith("|"));
       if (lines.length > 0) listing.description = lines.slice(0, 3).join(" ").substring(0, 500);
     }
+
+    // Re-detect boat_type with full markdown context (more accurate than search snippet)
+    const fullText = `${listing.title || ""} ${listing.description || ""} ${md.substring(0, 5000)}`;
+    listing.boat_type = detectBoatType(fullText, listing.url);
   } catch (e) {
     console.error(`Enrich failed for ${listing.url}:`, e);
   }
