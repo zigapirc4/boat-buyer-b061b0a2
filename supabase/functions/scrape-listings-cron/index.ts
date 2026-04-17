@@ -423,7 +423,7 @@ Deno.serve(async (req) => {
           const res = await fetch("https://api.firecrawl.dev/v2/search", {
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ query: q.query, limit: 20 }),
+            body: JSON.stringify({ query: q.query, limit: 30 }),
           });
           if (!res.ok) {
             console.error(`Search API ${res.status} for "${q.query}"`);
