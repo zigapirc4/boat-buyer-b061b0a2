@@ -469,8 +469,8 @@ Deno.serve(async (req) => {
 
     const CHUNK = 50;
     let upserted = 0;
-    for (let i = 0; i < withImages.length; i += CHUNK) {
-      const chunk = withImages.slice(i, i + CHUNK);
+    for (let i = 0; i < valid.length; i += CHUNK) {
+      const chunk = valid.slice(i, i + CHUNK);
       const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
         method: "POST",
         headers: {
@@ -485,7 +485,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true, mode: "search", total: allListings.length, unique: uniqueListings.length,
-      withImages: withImages.length, enriched: toEnrich.length, upserted,
+      valid: valid.length, enriched: toEnrich.length, upserted,
       queryRange: `${startIdx}-${endIdx}`, totalQueries: SEARCH_QUERIES.length,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
