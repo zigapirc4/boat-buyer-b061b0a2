@@ -230,6 +230,15 @@ function isValidListingUrl(url: string): boolean {
   if (hostname.includes("yachtworld.com")) return /\/yacht\/[^/]+\/\d{5,}/i.test(url) || /\/boats-for-sale\/[^/]+\/\d{5,}/i.test(url);
   if (hostname.includes("rightboat.com")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url);
   if (hostname.includes("bandofboats.com")) return /\/boat\/[^/]+\/\d+/i.test(url) || /\/used-boat\/\d+/i.test(url);
+  if (hostname.includes("boatshop24.com")) return /\/(en|de|fr|es|it)\/[^/]+\/\d{5,}/i.test(url) || /\/boat\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("apolloduck.com")) return /\/boat\/[^/]+\/\d{4,}/i.test(url) || /\/[a-z\-]+\/\d{5,}/i.test(url);
+  if (hostname.includes("nautilia.gr")) return /\/(boat|skafos|sailing|motor)\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
+  if (hostname.includes("inautia.com")) return /\/(barco|boat)\/[^/]+\/\d+/i.test(url) || /\/anuncio\/\d+/i.test(url);
+  if (hostname.includes("cosasdebarcos.com")) return /\/(barco|anuncio)\/[^/]+\/\d+/i.test(url) || /\/embarcacion\/\d+/i.test(url);
+  if (hostname.includes("annoncesbateau.com")) return /\/(annonce|bateau)\/[^/]+\/\d+/i.test(url) || /\/voilier\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("boatsandoutboards.co.uk")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
+  if (hostname.includes("yachtfocus.com")) return /\/(boot|yacht|sailingyacht|motoryacht)\/[^/]+\/\d+/i.test(url) || /\/aanbod\/\d+/i.test(url);
+  if (hostname.includes("boatshed.com")) return /\/[a-z_]+\/boats_for_sale\/[^/]+\/\d+/i.test(url) || /\/boat\/\d+/i.test(url);
   return false;
 }
 
