@@ -613,7 +613,9 @@ Deno.serve(async (req) => {
 
     const ENRICH_BATCH = 5;
     for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
-      await Promise.all(toEnrich.slice(i, i + ENRICH_BATCH).map(l => enrichListing(l, apiKey)));
+      await Promise.all(toEnrich.slice(i, i + ENRICH_BATCH).map(async (l) => {
+        try { await enrichListing(l, apiKey); } catch (e) { console.error(`Enrich error:`, e); }
+      }));
       if (i + ENRICH_BATCH < toEnrich.length) await new Promise(r => setTimeout(r, 300));
     }
 
@@ -623,24 +625,31 @@ Deno.serve(async (req) => {
 
     const CHUNK = 50;
     let upserted = 0;
+    let upsertErrors = 0;
     for (let i = 0; i < valid.length; i += CHUNK) {
       const chunk = valid.slice(i, i + CHUNK);
-      const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
-          "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(chunk),
-      });
-      if (resp.ok) upserted += chunk.length;
-      else console.error(`Upsert error:`, await resp.text());
+      try {
+        const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
+            "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
+          },
+          body: JSON.stringify(chunk),
+        });
+        if (resp.ok) upserted += chunk.length;
+        else { upsertErrors++; console.error(`Upsert error:`, await resp.text()); }
+      } catch (e) {
+        upsertErrors++;
+        console.error(`Upsert exception:`, e);
+      }
     }
 
     return new Response(JSON.stringify({
       success: true, mode: "search", total: allListings.length, unique: uniqueListings.length,
-      valid: valid.length, enriched: toEnrich.length, upserted,
+      valid: valid.length, enriched: toEnrich.length, upserted, upsertErrors,
       queryRange: `${startIdx}-${endIdx}`, totalQueries: SEARCH_QUERIES.length,
+      queryErrors: totalErrors, skippedSites: [...skippedSites], creditsExhausted,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Scrape error:", error);
