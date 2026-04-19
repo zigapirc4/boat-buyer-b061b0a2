@@ -10,6 +10,11 @@ const ALLOWED_DOMAINS = [
   "yachtall.com", "scanboat.com", "2yachts.com",
   "theyachtmarket.com", "devalk.nl", "yachtworld.com",
   "rightboat.com", "bandofboats.com",
+  // New sources
+  "boatshop24.com", "apolloduck.com", "nautilia.gr",
+  "inautia.com", "cosasdebarcos.com", "boatsandoutboards.co.uk",
+  "yatch4less.com", "yachtfocus.com", "boatshed.com",
+  "annoncesbateau.com", "leboncoin.fr",
 ];
 
 // ===== SEARCH QUERIES - site scoped =====
@@ -47,7 +52,11 @@ const BRANDS = [
   "Bayliner Element", "Sunseeker Manhattan 50",
 ];
 
-const BRAND_SITES = ["boat24.com", "mornar.net", "yachtall.com", "scanboat.com", "2yachts.com", "theyachtmarket.com"];
+const BRAND_SITES = [
+  "boat24.com", "mornar.net", "yachtall.com", "scanboat.com",
+  "2yachts.com", "theyachtmarket.com", "boatshop24.com",
+  "apolloduck.com", "rightboat.com", "bandofboats.com",
+];
 for (const brand of BRANDS) {
   for (const site of BRAND_SITES) {
     SEARCH_QUERIES.push({ query: `${brand} site:${site}`, site });
@@ -134,6 +143,64 @@ const DEVALK_TERMS = [
 ];
 for (const t of DEVALK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:devalk.nl`, site: "devalk.nl" });
 
+// Boatshop24 (UK/EU multi-language)
+const BOATSHOP24_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+  "yacht Mediterranean", "yacht Croatia", "yacht Italy", "yacht Greece",
+];
+for (const t of BOATSHOP24_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatshop24.com`, site: "boatshop24.com" });
+
+// Apollo Duck (global, big inventory)
+const APOLLODUCK_TERMS = [
+  "yachts for sale", "sailing boats for sale", "motor boats for sale",
+  "catamarans for sale", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+  "Dufour", "Lagoon", "Elan", "yacht Mediterranean",
+];
+for (const t of APOLLODUCK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:apolloduck.com`, site: "apolloduck.com" });
+
+// Nautilia (Greece)
+const NAUTILIA_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran", "Bavaria", "Beneteau", "Jeanneau", "Lagoon",
+];
+for (const t of NAUTILIA_TERMS) SEARCH_QUERIES.push({ query: `${t} site:nautilia.gr`, site: "nautilia.gr" });
+
+// Inautia (Spain)
+const INAUTIA_TERMS = [
+  "velero segunda mano", "barco motor", "yate vela", "yate motor",
+  "catamarán", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of INAUTIA_TERMS) SEARCH_QUERIES.push({ query: `${t} site:inautia.com`, site: "inautia.com" });
+
+// Cosas de Barcos (Spain)
+const COSAS_TERMS = [
+  "velero", "barco motor", "yate", "catamarán", "Bavaria", "Beneteau", "Jeanneau",
+];
+for (const t of COSAS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:cosasdebarcos.com`, site: "cosasdebarcos.com" });
+
+// Annonces Bateau (France)
+const ANNONCES_TERMS = [
+  "voilier occasion", "bateau moteur", "yacht voile", "catamaran", "Bavaria", "Beneteau", "Jeanneau",
+];
+for (const t of ANNONCES_TERMS) SEARCH_QUERIES.push({ query: `${t} site:annoncesbateau.com`, site: "annoncesbateau.com" });
+
+// Boats and Outboards (UK)
+const BANDO_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour",
+];
+for (const t of BANDO_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatsandoutboards.co.uk`, site: "boatsandoutboards.co.uk" });
+
+// YachtFocus (Netherlands)
+const YACHTFOCUS_TERMS = [
+  "sailing yacht", "motor yacht", "zeiljacht", "motorjacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of YACHTFOCUS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:yachtfocus.com`, site: "yachtfocus.com" });
+
+// Boatshed (UK, global)
+const BOATSHED_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "catamaran",
+];
+for (const t of BOATSHED_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatshed.com`, site: "boatshed.com" });
+
 // Strict URL validation
 function isValidListingUrl(url: string): boolean {
   let hostname = "";
@@ -163,6 +230,15 @@ function isValidListingUrl(url: string): boolean {
   if (hostname.includes("yachtworld.com")) return /\/yacht\/[^/]+\/\d{5,}/i.test(url) || /\/boats-for-sale\/[^/]+\/\d{5,}/i.test(url);
   if (hostname.includes("rightboat.com")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url);
   if (hostname.includes("bandofboats.com")) return /\/boat\/[^/]+\/\d+/i.test(url) || /\/used-boat\/\d+/i.test(url);
+  if (hostname.includes("boatshop24.com")) return /\/(en|de|fr|es|it)\/[^/]+\/\d{5,}/i.test(url) || /\/boat\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("apolloduck.com")) return /\/boat\/[^/]+\/\d{4,}/i.test(url) || /\/[a-z\-]+\/\d{5,}/i.test(url);
+  if (hostname.includes("nautilia.gr")) return /\/(boat|skafos|sailing|motor)\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
+  if (hostname.includes("inautia.com")) return /\/(barco|boat)\/[^/]+\/\d+/i.test(url) || /\/anuncio\/\d+/i.test(url);
+  if (hostname.includes("cosasdebarcos.com")) return /\/(barco|anuncio)\/[^/]+\/\d+/i.test(url) || /\/embarcacion\/\d+/i.test(url);
+  if (hostname.includes("annoncesbateau.com")) return /\/(annonce|bateau)\/[^/]+\/\d+/i.test(url) || /\/voilier\/[^/]+\/\d+/i.test(url);
+  if (hostname.includes("boatsandoutboards.co.uk")) return /\/boats-for-sale\/[^/]+\/\d+/i.test(url) || /\/listing\/\d+/i.test(url);
+  if (hostname.includes("yachtfocus.com")) return /\/(boot|yacht|sailingyacht|motoryacht)\/[^/]+\/\d+/i.test(url) || /\/aanbod\/\d+/i.test(url);
+  if (hostname.includes("boatshed.com")) return /\/[a-z_]+\/boats_for_sale\/[^/]+\/\d+/i.test(url) || /\/boat\/\d+/i.test(url);
   return false;
 }
 
@@ -460,11 +536,23 @@ Deno.serve(async (req) => {
     const BATCH_SIZE = 5;
     const allListings: any[] = [];
 
+    // Resilience: track per-site failures + global rate-limit/credit short-circuit
+    const siteFailures: Record<string, number> = {};
+    const skippedSites = new Set<string>();
+    let creditsExhausted = false;
+    const SITE_FAILURE_THRESHOLD = 4;
+    let totalErrors = 0;
+
     for (let i = 0; i < queries.length; i += BATCH_SIZE) {
+      if (creditsExhausted) {
+        console.warn(`Credits exhausted. Stopping at batch ${Math.floor(i / BATCH_SIZE) + 1}.`);
+        break;
+      }
       const batch = queries.slice(i, i + BATCH_SIZE);
       console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(queries.length / BATCH_SIZE)}`);
 
       const results = await Promise.all(batch.map(async (q) => {
+        if (skippedSites.has(q.site)) return [];
         try {
           const res = await fetch("https://api.firecrawl.dev/v2/search", {
             method: "POST",
@@ -472,19 +560,46 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ query: q.query, limit: 30 }),
           });
           if (!res.ok) {
-            console.error(`Search API ${res.status} for "${q.query}"`);
+            totalErrors++;
+            siteFailures[q.site] = (siteFailures[q.site] || 0) + 1;
+            if (res.status === 402) {
+              console.error(`Credits exhausted (402) on "${q.query}". Aborting run.`);
+              creditsExhausted = true;
+              return [];
+            }
+            if (res.status === 429) {
+              siteFailures[q.site] += 2;
+              await new Promise(r => setTimeout(r, 1500));
+            }
+            console.error(`Search API ${res.status} for "${q.query}" (site failures: ${siteFailures[q.site]})`);
+            if (siteFailures[q.site] >= SITE_FAILURE_THRESHOLD) {
+              skippedSites.add(q.site);
+              console.warn(`Skipping all further queries for ${q.site} this run.`);
+            }
             return [];
           }
+          siteFailures[q.site] = 0;
           const data = await res.json();
-          // v2 search returns { data: { web: [...] } }
           const items = data?.data?.web || data?.data || [];
-          return (Array.isArray(items) ? items : []).map((item: any) => parseListing(item)).filter(Boolean);
-        } catch (e) { console.error(`Search error:`, e); return []; }
+          const parsed = (Array.isArray(items) ? items : [])
+            .map((item: any) => { try { return parseListing(item); } catch { return null; } })
+            .filter(Boolean);
+          return parsed;
+        } catch (e) {
+          totalErrors++;
+          console.error(`Search error for "${q.query}":`, e);
+          return [];
+        }
       }));
 
       allListings.push(...results.flat());
       if (i + BATCH_SIZE < queries.length) await new Promise(r => setTimeout(r, 400));
     }
+
+    if (skippedSites.size > 0) {
+      console.warn(`Sites skipped due to repeated failures: ${[...skippedSites].join(", ")}`);
+    }
+    console.log(`Total query errors: ${totalErrors}/${queries.length}`);
 
     const seen = new Set<string>();
     const uniqueListings = allListings.filter((l: any) => { if (seen.has(l.url)) return false; seen.add(l.url); return true; });
@@ -498,7 +613,9 @@ Deno.serve(async (req) => {
 
     const ENRICH_BATCH = 5;
     for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
-      await Promise.all(toEnrich.slice(i, i + ENRICH_BATCH).map(l => enrichListing(l, apiKey)));
+      await Promise.all(toEnrich.slice(i, i + ENRICH_BATCH).map(async (l) => {
+        try { await enrichListing(l, apiKey); } catch (e) { console.error(`Enrich error:`, e); }
+      }));
       if (i + ENRICH_BATCH < toEnrich.length) await new Promise(r => setTimeout(r, 300));
     }
 
@@ -508,24 +625,31 @@ Deno.serve(async (req) => {
 
     const CHUNK = 50;
     let upserted = 0;
+    let upsertErrors = 0;
     for (let i = 0; i < valid.length; i += CHUNK) {
       const chunk = valid.slice(i, i + CHUNK);
-      const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
-          "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(chunk),
-      });
-      if (resp.ok) upserted += chunk.length;
-      else console.error(`Upsert error:`, await resp.text());
+      try {
+        const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
+            "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
+          },
+          body: JSON.stringify(chunk),
+        });
+        if (resp.ok) upserted += chunk.length;
+        else { upsertErrors++; console.error(`Upsert error:`, await resp.text()); }
+      } catch (e) {
+        upsertErrors++;
+        console.error(`Upsert exception:`, e);
+      }
     }
 
     return new Response(JSON.stringify({
       success: true, mode: "search", total: allListings.length, unique: uniqueListings.length,
-      valid: valid.length, enriched: toEnrich.length, upserted,
+      valid: valid.length, enriched: toEnrich.length, upserted, upsertErrors,
       queryRange: `${startIdx}-${endIdx}`, totalQueries: SEARCH_QUERIES.length,
+      queryErrors: totalErrors, skippedSites: [...skippedSites], creditsExhausted,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Scrape error:", error);
