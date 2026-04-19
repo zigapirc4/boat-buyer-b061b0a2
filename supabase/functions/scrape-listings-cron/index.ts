@@ -143,6 +143,64 @@ const DEVALK_TERMS = [
 ];
 for (const t of DEVALK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:devalk.nl`, site: "devalk.nl" });
 
+// Boatshop24 (UK/EU multi-language)
+const BOATSHOP24_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+  "yacht Mediterranean", "yacht Croatia", "yacht Italy", "yacht Greece",
+];
+for (const t of BOATSHOP24_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatshop24.com`, site: "boatshop24.com" });
+
+// Apollo Duck (global, big inventory)
+const APOLLODUCK_TERMS = [
+  "yachts for sale", "sailing boats for sale", "motor boats for sale",
+  "catamarans for sale", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+  "Dufour", "Lagoon", "Elan", "yacht Mediterranean",
+];
+for (const t of APOLLODUCK_TERMS) SEARCH_QUERIES.push({ query: `${t} site:apolloduck.com`, site: "apolloduck.com" });
+
+// Nautilia (Greece)
+const NAUTILIA_TERMS = [
+  "sailing yacht", "motor yacht", "catamaran", "Bavaria", "Beneteau", "Jeanneau", "Lagoon",
+];
+for (const t of NAUTILIA_TERMS) SEARCH_QUERIES.push({ query: `${t} site:nautilia.gr`, site: "nautilia.gr" });
+
+// Inautia (Spain)
+const INAUTIA_TERMS = [
+  "velero segunda mano", "barco motor", "yate vela", "yate motor",
+  "catamarán", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of INAUTIA_TERMS) SEARCH_QUERIES.push({ query: `${t} site:inautia.com`, site: "inautia.com" });
+
+// Cosas de Barcos (Spain)
+const COSAS_TERMS = [
+  "velero", "barco motor", "yate", "catamarán", "Bavaria", "Beneteau", "Jeanneau",
+];
+for (const t of COSAS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:cosasdebarcos.com`, site: "cosasdebarcos.com" });
+
+// Annonces Bateau (France)
+const ANNONCES_TERMS = [
+  "voilier occasion", "bateau moteur", "yacht voile", "catamaran", "Bavaria", "Beneteau", "Jeanneau",
+];
+for (const t of ANNONCES_TERMS) SEARCH_QUERIES.push({ query: `${t} site:annoncesbateau.com`, site: "annoncesbateau.com" });
+
+// Boats and Outboards (UK)
+const BANDO_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour",
+];
+for (const t of BANDO_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatsandoutboards.co.uk`, site: "boatsandoutboards.co.uk" });
+
+// YachtFocus (Netherlands)
+const YACHTFOCUS_TERMS = [
+  "sailing yacht", "motor yacht", "zeiljacht", "motorjacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse",
+];
+for (const t of YACHTFOCUS_TERMS) SEARCH_QUERIES.push({ query: `${t} site:yachtfocus.com`, site: "yachtfocus.com" });
+
+// Boatshed (UK, global)
+const BOATSHED_TERMS = [
+  "sailing yacht", "motor yacht", "Bavaria", "Beneteau", "Jeanneau", "Hanse", "Dufour", "catamaran",
+];
+for (const t of BOATSHED_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatshed.com`, site: "boatshed.com" });
+
 // Strict URL validation
 function isValidListingUrl(url: string): boolean {
   let hostname = "";
