@@ -52,7 +52,11 @@ const BRANDS = [
   "Bayliner Element", "Sunseeker Manhattan 50",
 ];
 
-const BRAND_SITES = ["boat24.com", "mornar.net", "yachtall.com", "scanboat.com", "2yachts.com", "theyachtmarket.com"];
+const BRAND_SITES = [
+  "boat24.com", "mornar.net", "yachtall.com", "scanboat.com",
+  "2yachts.com", "theyachtmarket.com", "boatshop24.com",
+  "apolloduck.com", "rightboat.com", "bandofboats.com",
+];
 for (const brand of BRANDS) {
   for (const site of BRAND_SITES) {
     SEARCH_QUERIES.push({ query: `${brand} site:${site}`, site });
