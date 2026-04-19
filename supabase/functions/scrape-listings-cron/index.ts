@@ -10,6 +10,11 @@ const ALLOWED_DOMAINS = [
   "yachtall.com", "scanboat.com", "2yachts.com",
   "theyachtmarket.com", "devalk.nl", "yachtworld.com",
   "rightboat.com", "bandofboats.com",
+  // New sources
+  "boatshop24.com", "apolloduck.com", "nautilia.gr",
+  "inautia.com", "cosasdebarcos.com", "boatsandoutboards.co.uk",
+  "yatch4less.com", "yachtfocus.com", "boatshed.com",
+  "annoncesbateau.com", "leboncoin.fr",
 ];
 
 // ===== SEARCH QUERIES - site scoped =====
