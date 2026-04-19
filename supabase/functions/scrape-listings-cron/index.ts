@@ -536,11 +536,23 @@ Deno.serve(async (req) => {
     const BATCH_SIZE = 5;
     const allListings: any[] = [];
 
+    // Resilience: track per-site failures + global rate-limit/credit short-circuit
+    const siteFailures: Record<string, number> = {};
+    const skippedSites = new Set<string>();
+    let creditsExhausted = false;
+    const SITE_FAILURE_THRESHOLD = 4;
+    let totalErrors = 0;
+
     for (let i = 0; i < queries.length; i += BATCH_SIZE) {
+      if (creditsExhausted) {
+        console.warn(`Credits exhausted. Stopping at batch ${Math.floor(i / BATCH_SIZE) + 1}.`);
+        break;
+      }
       const batch = queries.slice(i, i + BATCH_SIZE);
       console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(queries.length / BATCH_SIZE)}`);
 
       const results = await Promise.all(batch.map(async (q) => {
+        if (skippedSites.has(q.site)) return [];
         try {
           const res = await fetch("https://api.firecrawl.dev/v2/search", {
             method: "POST",
@@ -548,19 +560,46 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ query: q.query, limit: 30 }),
           });
           if (!res.ok) {
-            console.error(`Search API ${res.status} for "${q.query}"`);
+            totalErrors++;
+            siteFailures[q.site] = (siteFailures[q.site] || 0) + 1;
+            if (res.status === 402) {
+              console.error(`Credits exhausted (402) on "${q.query}". Aborting run.`);
+              creditsExhausted = true;
+              return [];
+            }
+            if (res.status === 429) {
+              siteFailures[q.site] += 2;
+              await new Promise(r => setTimeout(r, 1500));
+            }
+            console.error(`Search API ${res.status} for "${q.query}" (site failures: ${siteFailures[q.site]})`);
+            if (siteFailures[q.site] >= SITE_FAILURE_THRESHOLD) {
+              skippedSites.add(q.site);
+              console.warn(`Skipping all further queries for ${q.site} this run.`);
+            }
             return [];
           }
+          siteFailures[q.site] = 0;
           const data = await res.json();
-          // v2 search returns { data: { web: [...] } }
           const items = data?.data?.web || data?.data || [];
-          return (Array.isArray(items) ? items : []).map((item: any) => parseListing(item)).filter(Boolean);
-        } catch (e) { console.error(`Search error:`, e); return []; }
+          const parsed = (Array.isArray(items) ? items : [])
+            .map((item: any) => { try { return parseListing(item); } catch { return null; } })
+            .filter(Boolean);
+          return parsed;
+        } catch (e) {
+          totalErrors++;
+          console.error(`Search error for "${q.query}":`, e);
+          return [];
+        }
       }));
 
       allListings.push(...results.flat());
       if (i + BATCH_SIZE < queries.length) await new Promise(r => setTimeout(r, 400));
     }
+
+    if (skippedSites.size > 0) {
+      console.warn(`Sites skipped due to repeated failures: ${[...skippedSites].join(", ")}`);
+    }
+    console.log(`Total query errors: ${totalErrors}/${queries.length}`);
 
     const seen = new Set<string>();
     const uniqueListings = allListings.filter((l: any) => { if (seen.has(l.url)) return false; seen.add(l.url); return true; });
