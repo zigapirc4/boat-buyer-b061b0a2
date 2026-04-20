@@ -414,28 +414,55 @@ async function enrichListing(listing: any, apiKey: string): Promise<void> {
     const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url: listing.url, formats: ["markdown"], onlyMainContent: true }),
+      body: JSON.stringify({ url: listing.url, formats: ["markdown", "html"], onlyMainContent: false }),
     });
     if (!res.ok) return;
     const data = await res.json();
-    const md = data?.data?.markdown || "";
+    const md: string = data?.data?.markdown || "";
+    const html: string = data?.data?.html || data?.data?.rawHtml || "";
 
-    // Extract images
+    // Build origin for resolving relative image URLs (e.g., mornar.net "Slike/...")
+    let origin = "";
+    try { const u = new URL(listing.url); origin = `${u.protocol}//${u.host}`; } catch {}
+    const resolveUrl = (raw: string): string | null => {
+      if (!raw) return null;
+      if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+      if (raw.startsWith("//")) return `https:${raw}`;
+      if (!origin) return null;
+      if (raw.startsWith("/")) return origin + raw;
+      // Build base directory of the listing URL for site-relative paths like "Slike/..."
+      try {
+        const u = new URL(listing.url);
+        const basePath = u.pathname.replace(/[^/]*$/, "");
+        return `${u.protocol}//${u.host}${basePath}${raw}`;
+      } catch { return `${origin}/${raw}`; }
+    };
+
     const imgs: string[] = [];
-    const imgRegex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
-    let m;
-    while ((m = imgRegex.exec(md)) !== null) {
-      if (!m[1].includes("logo") && !m[1].includes("icon") && !m[1].includes("favicon")) imgs.push(m[1]);
-    }
-    const imgTag = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi;
-    while ((m = imgTag.exec(md)) !== null) {
-      if (!m[1].includes("logo") && !m[1].includes("icon")) imgs.push(m[1]);
-    }
-    // Also look for direct image URLs in markdown (common in boat24)
-    const directImg = /https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp)/gi;
-    while ((m = directImg.exec(md)) !== null) {
-      if (!m[0].includes("logo") && !m[0].includes("icon") && !m[0].includes("favicon")) imgs.push(m[0]);
-    }
+    const pushIfImg = (raw: string) => {
+      const resolved = resolveUrl(raw);
+      if (!resolved) return;
+      const low = resolved.toLowerCase();
+      if (low.includes("logo") || low.includes("icon") || low.includes("favicon") || low.includes("sprite") || low.includes("placeholder")) return;
+      if (!/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(low)) return;
+      imgs.push(resolved);
+    };
+
+    let m: RegExpExecArray | null;
+    // Markdown: ![alt](url)
+    const mdImgRe = /!\[[^\]]*\]\(([^)\s]+)/g;
+    while ((m = mdImgRe.exec(md)) !== null) pushIfImg(m[1]);
+    // HTML <img src=...> in either md (rare) or html
+    const imgTagRe = /<img[^>]+src=["']([^"']+)["']/gi;
+    while ((m = imgTagRe.exec(md)) !== null) pushIfImg(m[1]);
+    while ((m = imgTagRe.exec(html)) !== null) pushIfImg(m[1]);
+    // <img data-src=...> (lazy load)
+    const lazyRe = /<img[^>]+data-src=["']([^"']+)["']/gi;
+    while ((m = lazyRe.exec(html)) !== null) pushIfImg(m[1]);
+    // Direct image URLs in markdown text
+    const directImgRe = /https?:\/\/[^\s")<>]+\.(?:jpg|jpeg|png|webp)/gi;
+    while ((m = directImgRe.exec(md)) !== null) pushIfImg(m[0]);
+    while ((m = directImgRe.exec(html)) !== null) pushIfImg(m[0]);
 
     const uniqueImgs = [...new Set(imgs)];
     if (uniqueImgs.length > 0) {
@@ -445,13 +472,13 @@ async function enrichListing(listing: any, apiKey: string): Promise<void> {
 
     // Extract price if missing
     if (!listing.price_eur) {
-      const p = parsePrice(md);
+      const p = parsePrice(md) || parsePrice(html);
       if (p) listing.price_eur = p;
     }
 
     // Extract location
     if (!listing.location) {
-      const locMatch = md.match(/(?:location|porto|luogo|standort|lokacija|lage)[:\s]*([^\n]{3,50})/i);
+      const locMatch = md.match(/(?:location|porto|luogo|standort|lokacija|lage|mjesto|lokalitet)[:\s]*([^\n]{3,50})/i);
       if (locMatch) listing.location = locMatch[1].trim().substring(0, 100);
     }
 
@@ -461,7 +488,7 @@ async function enrichListing(listing: any, apiKey: string): Promise<void> {
       if (lines.length > 0) listing.description = lines.slice(0, 3).join(" ").substring(0, 500);
     }
 
-    // Re-detect boat_type with full markdown context (more accurate than search snippet)
+    // Re-detect boat_type with full markdown context
     const fullText = `${listing.title || ""} ${listing.description || ""} ${md.substring(0, 5000)}`;
     listing.boat_type = detectBoatType(fullText, listing.url);
   } catch (e) {
