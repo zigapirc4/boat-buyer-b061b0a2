@@ -483,7 +483,9 @@ Deno.serve(async (req) => {
     let endIdx = SEARCH_QUERIES.length;
     let skipEnrich = false;
     let enrichCount = 30;
-    let mode = "search"; // "search" or "map"
+    let mode = "search"; // "search" | "map" | "category"
+    let categoryStart = 0;
+    let categoryEnd = CATEGORY_PAGES.length;
     try {
       const body = await req.json();
       if (body.startIdx !== undefined) startIdx = body.startIdx;
@@ -491,18 +493,15 @@ Deno.serve(async (req) => {
       if (body.skipEnrich) skipEnrich = true;
       if (body.enrichCount) enrichCount = body.enrichCount;
       if (body.mode) mode = body.mode;
+      if (body.categoryStart !== undefined) categoryStart = body.categoryStart;
+      if (body.categoryEnd !== undefined) categoryEnd = body.categoryEnd;
     } catch {}
 
     if (mode === "category") {
       // CATEGORY mode: scrape direct category/search pages with pagination.
       let creditsExhausted = false;
       const collected: { url: string; site: string; boatType: "sailboat" | "powerboat" | "auto"; title: string }[] = [];
-
-      let bodyClone: any = {};
-      try { bodyClone = await req.clone().json(); } catch {}
-      const catStart = bodyClone.categoryStart ?? 0;
-      const catEnd = bodyClone.categoryEnd ?? CATEGORY_PAGES.length;
-      const cats = CATEGORY_PAGES.slice(catStart, catEnd);
+      const cats = CATEGORY_PAGES.slice(categoryStart, categoryEnd);
 
       for (const cat of cats) {
         if (creditsExhausted) break;
