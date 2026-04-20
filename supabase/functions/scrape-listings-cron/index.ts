@@ -201,6 +201,59 @@ const BOATSHED_TERMS = [
 ];
 for (const t of BOATSHED_TERMS) SEARCH_QUERIES.push({ query: `${t} site:boatshed.com`, site: "boatshed.com" });
 
+// ===== CATEGORY PAGES (direct site scraping with pagination) =====
+// These bypass Firecrawl search and scrape category listing pages directly.
+// Each entry yields N pages via &stran=/&o= pagination.
+type CategoryPage = {
+  site: string;
+  buildUrl: (page: number) => string;
+  boatType: "sailboat" | "powerboat" | "auto"; // auto = detect per-listing
+  pages: number;
+  // Optional: keyword filter applied to listing title/snippet (used for mixed-content sites like subito)
+  titleFilter?: (title: string) => boolean;
+};
+
+const SUBITO_BOAT_KEYWORDS = [
+  "barca", "vela", "yacht", "gommone", "cabinato", "gozzo", "natante",
+  "motoscafo", "veliero", "catamarano", "bavaria", "beneteau", "jeanneau",
+  "hanse", "dufour", "elan", "azimut", "sessa", "cranchi", "sea ray",
+  "quicksilver", "fairline", "princess", "sunseeker", "lagoon",
+  "fountaine pajot", "saxdor", "axopar", "nimbus", "galeon", "prestige",
+  "merry fisher", "antares", "oceanis", "sun odyssey", "first ", "hallberg",
+];
+const isLikelyBoatTitle = (title: string): boolean => {
+  const t = title.toLowerCase();
+  return SUBITO_BOAT_KEYWORDS.some(k => t.includes(k));
+};
+
+const CATEGORY_PAGES: CategoryPage[] = [
+  // mornar.net — direct category URLs, paginated via &stran=
+  // rubrika=2 = sailboats, rubrika=1 = powerboats
+  {
+    site: "mornar.net",
+    buildUrl: (page) => `https://www.mornar.net/Show/results.asp?boatmake=&rubrika=2&stran=${page}`,
+    boatType: "sailboat",
+    pages: 8,
+  },
+  {
+    site: "mornar.net",
+    buildUrl: (page) => `https://www.mornar.net/Show/results.asp?boatmake=&rubrika=1&stran=${page}`,
+    boatType: "powerboat",
+    pages: 8,
+  },
+  // subito.it — generic boat search, must filter (mixed content)
+  {
+    site: "subito.it",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.subito.it/annunci-italia/vendita/nautica/?q=barca`
+        : `https://www.subito.it/annunci-italia/vendita/nautica/?q=barca&o=${page}`,
+    boatType: "auto",
+    pages: 10,
+    titleFilter: isLikelyBoatTitle,
+  },
+];
+
 // Strict URL validation
 function isValidListingUrl(url: string): boolean {
   let hostname = "";
