@@ -493,6 +493,136 @@ Deno.serve(async (req) => {
       if (body.mode) mode = body.mode;
     } catch {}
 
+    if (mode === "category") {
+      // CATEGORY mode: scrape direct category/search pages with pagination.
+      let creditsExhausted = false;
+      const collected: { url: string; site: string; boatType: "sailboat" | "powerboat" | "auto"; title: string }[] = [];
+
+      let bodyClone: any = {};
+      try { bodyClone = await req.clone().json(); } catch {}
+      const catStart = bodyClone.categoryStart ?? 0;
+      const catEnd = bodyClone.categoryEnd ?? CATEGORY_PAGES.length;
+      const cats = CATEGORY_PAGES.slice(catStart, catEnd);
+
+      for (const cat of cats) {
+        if (creditsExhausted) break;
+        for (let page = 1; page <= cat.pages; page++) {
+          if (creditsExhausted) break;
+          const pageUrl = cat.buildUrl(page);
+          console.log(`Category scrape: ${pageUrl}`);
+          try {
+            const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url: pageUrl,
+                formats: ["links", "markdown"],
+                onlyMainContent: false,
+                waitFor: 1500,
+              }),
+            });
+            if (!res.ok) {
+              if (res.status === 402) {
+                console.error(`Credits exhausted (402) on ${pageUrl}. Aborting.`);
+                creditsExhausted = true;
+                break;
+              }
+              console.error(`Category scrape ${res.status} for ${pageUrl}`);
+              continue;
+            }
+            const data = await res.json();
+            const links: string[] = data?.data?.links || data?.links || [];
+            const md: string = data?.data?.markdown || data?.markdown || "";
+
+            const validLinks = links.filter(u => {
+              try { return new URL(u).hostname.includes(cat.site) && isValidListingUrl(u); }
+              catch { return false; }
+            });
+
+            for (const u of validLinks) {
+              const escaped = u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const titleMatch = md.match(new RegExp(`\\[([^\\]]{3,200})\\]\\(${escaped}\\)`));
+              const title = titleMatch
+                ? titleMatch[1].trim()
+                : (u.split("/").pop() || "Boat").replace(/[-_+]/g, " ").replace(/\.\w+$/, "");
+
+              if (cat.titleFilter && !cat.titleFilter(title)) continue;
+              collected.push({ url: u, site: cat.site, boatType: cat.boatType, title });
+            }
+            console.log(`  -> ${validLinks.length} valid URLs (page ${page})`);
+          } catch (e) {
+            console.error(`Category scrape error ${pageUrl}:`, e);
+          }
+          await new Promise(r => setTimeout(r, 600));
+        }
+      }
+
+      const seen = new Set<string>();
+      const unique = collected.filter(c => { if (seen.has(c.url)) return false; seen.add(c.url); return true; });
+      console.log(`Category mode: ${collected.length} raw, ${unique.length} unique listing URLs`);
+
+      const listings = unique.map(c => ({
+        title: c.title.substring(0, 200),
+        url: c.url,
+        boat_type: c.boatType === "auto" ? detectBoatType(c.title, c.url) : c.boatType,
+        price_eur: null as number | null,
+        year: null as number | null,
+        length_feet: null as number | null,
+        location: null as string | null,
+        image_url: null as string | null,
+        image_urls: null as string[] | null,
+        engine_info: null as string | null,
+        source: c.site,
+        scraped_at: new Date().toISOString(),
+        description: null as string | null,
+        hull_material: null,
+        engine_hours: null,
+        cabins: null,
+        fuel_type: null,
+      }));
+
+      const toEnrich = listings.slice(0, enrichCount);
+      console.log(`Enriching ${toEnrich.length} category listings...`);
+      const ENRICH_BATCH = 5;
+      for (let i = 0; i < toEnrich.length; i += ENRICH_BATCH) {
+        if (creditsExhausted) break;
+        await Promise.all(toEnrich.slice(i, i + ENRICH_BATCH).map(async (l) => {
+          try { await enrichListing(l, apiKey); } catch (e) { console.error(`Enrich error:`, e); }
+        }));
+        if (i + ENRICH_BATCH < toEnrich.length) await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Require image; price is preferred but optional for category mode
+      const validList = toEnrich.filter(l => l.image_url);
+      console.log(`${validList.length}/${toEnrich.length} category listings have image. Upserting...`);
+
+      const CHUNK = 50;
+      let upserted = 0;
+      let upsertErrors = 0;
+      for (let i = 0; i < validList.length; i += CHUNK) {
+        const chunk = validList.slice(i, i + CHUNK);
+        try {
+          const resp = await fetch(`${supabaseUrl}/rest/v1/cached_listings?on_conflict=url`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${supabaseServiceKey}`, apikey: supabaseServiceKey,
+              "Content-Type": "application/json", Prefer: "resolution=merge-duplicates",
+            },
+            body: JSON.stringify(chunk),
+          });
+          if (resp.ok) upserted += chunk.length;
+          else { upsertErrors++; console.error(`Upsert error:`, await resp.text()); }
+        } catch (e) { upsertErrors++; console.error(`Upsert exception:`, e); }
+      }
+
+      return new Response(JSON.stringify({
+        success: true, mode: "category", categories: cats.length,
+        rawUrls: collected.length, uniqueUrls: unique.length,
+        enriched: toEnrich.length, valid: validList.length, upserted, upsertErrors,
+        creditsExhausted,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (mode === "map") {
       // MAP mode: discover URLs from site sitemaps
       const sites = [
