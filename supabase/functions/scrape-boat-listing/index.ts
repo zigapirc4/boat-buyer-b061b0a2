@@ -459,7 +459,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, data: extracted, source: "html-parse" }),
+      JSON.stringify({ success: true, data: extracted, source: usedProxy ? "html-parse-proxy" : "html-parse" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
