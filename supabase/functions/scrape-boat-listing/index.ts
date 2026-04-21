@@ -327,39 +327,65 @@ serve(async (req) => {
       }
     }
 
-    // ZERO-COST PATH 2: direct HTML fetch + regex/JSON-LD parsing (no Firecrawl, no AI)
-    console.log("Cache miss — fetching HTML directly:", formattedUrl);
+    // ZERO-COST PATH 2: fetch HTML directly. If the site blocks us (most do via Cloudflare),
+    // fall back to r.jina.ai — a free read-only proxy that returns markdown for any public URL.
+    console.log("Cache miss — fetching HTML:", formattedUrl);
+
+    const browserHeaders = {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
+      "Accept-Encoding": "gzip, deflate",
+      "Cache-Control": "no-cache",
+    };
 
     let html = "";
+    let usedProxy = false;
     try {
-      const htmlRes = await fetch(formattedUrl, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-        },
-        redirect: "follow",
-      });
-      if (!htmlRes.ok) {
+      const directRes = await fetch(formattedUrl, { headers: browserHeaders, redirect: "follow" });
+      if (directRes.ok) {
+        html = await directRes.text();
+      } else {
+        console.log(`Direct fetch returned ${directRes.status}, trying r.jina.ai proxy`);
+      }
+    } catch (e) {
+      console.log("Direct fetch threw, trying r.jina.ai proxy:", e);
+    }
+
+    if (!html || html.length < 500) {
+      // Fallback: free read-only proxy. Returns markdown + extracted metadata.
+      try {
+        const proxyUrl = `https://r.jina.ai/${formattedUrl}`;
+        const proxyRes = await fetch(proxyUrl, {
+          headers: {
+            "User-Agent": browserHeaders["User-Agent"],
+            "X-Return-Format": "html",
+          },
+        });
+        if (proxyRes.ok) {
+          html = await proxyRes.text();
+          usedProxy = true;
+          console.log(`Proxy fetch ok (${html.length} bytes)`);
+        } else {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Could not load this listing (proxy returned ${proxyRes.status}). Please fill the form manually.`,
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (e) {
+        console.error("Proxy fetch failed:", e);
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Listing site returned ${htmlRes.status}. Some sites block direct scrapers — please fill the form manually.`,
+            error: "Could not load the listing page. Please fill the form manually.",
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      html = await htmlRes.text();
-    } catch (e) {
-      console.error("Direct fetch failed:", e);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Could not load the listing page. Please fill the form manually.",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     const extracted = parseListingHtml(html, formattedUrl);
