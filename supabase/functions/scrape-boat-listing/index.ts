@@ -20,14 +20,6 @@ serve(async (req) => {
       });
     }
 
-    const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
-    if (!apiKey) {
-      return new Response(JSON.stringify({ success: false, error: "Firecrawl not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -36,7 +28,63 @@ serve(async (req) => {
       formattedUrl = `https://${formattedUrl}`;
     }
 
-    console.log("Scraping URL:", formattedUrl);
+    console.log("Checking cache for URL:", formattedUrl);
+
+    // ZERO-COST PATH: check if we already have this listing in cached_listings
+    const cacheRes = await fetch(
+      `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(formattedUrl)}&select=*&limit=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${supabaseKey}`,
+          apikey: supabaseKey,
+        },
+      }
+    );
+
+    if (cacheRes.ok) {
+      const cacheRows = await cacheRes.json();
+      if (Array.isArray(cacheRows) && cacheRows.length > 0) {
+        const row = cacheRows[0];
+        // Need at least the essentials to skip Firecrawl
+        if (row.price_eur && row.length_feet && row.year) {
+          console.log("Cache hit — returning DB row, no Firecrawl call made");
+          const cachedExtract = {
+            boat_model: row.title,
+            boat_type: row.boat_type || "sailboat",
+            year: row.year,
+            price_eur: Number(row.price_eur),
+            length_feet: Number(row.length_feet),
+            location: row.location,
+            images: row.image_urls || (row.image_url ? [row.image_url] : []),
+            engine_make: row.engine_info ? String(row.engine_info).split(" ")[0] : undefined,
+            engine_model: row.engine_info,
+            engine_hours: row.engine_hours,
+            engine_type: row.fuel_type,
+            engine_condition: row.engine_hours && row.engine_hours > 3000 ? "average" : "good",
+            hull_material: row.hull_material,
+            hull_condition: "good",
+            sails_condition: row.boat_type === "powerboat" ? "none" : "average",
+            cabins: row.cabins,
+            description_summary: row.description,
+          };
+          return new Response(
+            JSON.stringify({ success: true, data: cachedExtract, source: "cache" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    }
+
+    // Cache miss — fall back to Firecrawl
+    const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
+    if (!apiKey) {
+      return new Response(JSON.stringify({ success: false, error: "Firecrawl not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Cache miss — scraping URL:", formattedUrl);
 
     const scrapeRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
       method: "POST",
