@@ -252,6 +252,19 @@ const CATEGORY_PAGES: CategoryPage[] = [
     pages: 10,
     titleFilter: isLikelyBoatTitle,
   },
+  // boat24.com — category listing pages, paginated via ?page=
+  {
+    site: "boat24.com",
+    buildUrl: (page) => `https://www.boat24.com/en/sailboats/?page=${page}`,
+    boatType: "sailboat",
+    pages: 10,
+  },
+  {
+    site: "boat24.com",
+    buildUrl: (page) => `https://www.boat24.com/en/powerboats/?page=${page}`,
+    boatType: "powerboat",
+    pages: 10,
+  },
 ];
 
 // Strict URL validation
