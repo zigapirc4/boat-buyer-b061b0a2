@@ -413,7 +413,7 @@ const Index = () => {
           <button
             type="button"
             onClick={() => setStoryImageOpen(true)}
-            className="shrink-0 w-32 sm:w-32 rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg hover:scale-[1.02] transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40 self-center sm:self-start"
+            className="shrink-0 w-32 sm:w-100 rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg hover:scale-[1.02] transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40 self-center sm:self-start"
             aria-label="View full size photo"
           >
             <img
