@@ -210,6 +210,7 @@ const Index = () => {
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
   const [allSources, setAllSources] = useState<string[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   useEffect(() => {
     const fetchSources = async () => {
       const { data } = await supabase.from("cached_listings").select("source").limit(100000);
@@ -218,7 +219,14 @@ const Index = () => {
         setAllSources(s);
       }
     };
+    const fetchTotal = async () => {
+      const { count } = await supabase
+        .from("cached_listings")
+        .select("*", { count: "exact", head: true });
+      if (typeof count === "number") setTotalCount(count);
+    };
     fetchSources();
+    fetchTotal();
   }, []);
 
   // Reset page when filters change
@@ -376,8 +384,13 @@ const Index = () => {
 
         {/* Header + Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2 flex-wrap">
             ⛵ {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
+            {totalCount !== null && (
+              <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                {totalCount.toLocaleString()} total
+              </span>
+            )}
             {!isLoading && (
               <span className="text-sm font-normal text-muted-foreground">
                 ({displayListings.length.toLocaleString()})
