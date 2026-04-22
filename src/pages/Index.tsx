@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
+import myStoryImage from "@/assets/my-story-vivacity.jpg";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -380,6 +381,46 @@ const Index = () => {
           </div>
         </div>
       </div>
+
+      {/* My Story Section */}
+      <section className="max-w-6xl mx-auto px-4 py-10 w-full">
+        <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+          <Heart className="w-5 h-5 text-coral" /> My Story
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+          <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed order-2 md:order-1">
+            <p>
+              That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
+              and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
+              timeless, almost stubborn charm. Built in an era when boats were made to last and to be lived with, not
+              just owned, she carries that old-school character in every line of her hull.
+            </p>
+            <p>
+              Back then, I wasn't thinking about costs, marinas, or long-term value. I was thinking about what it feels
+              like to be out there, away from routine, with a sense of complete freedom. That changed quite quickly. On
+              our first serious trip, we learned in a rather unpleasant way that the engine had reached the end of its
+              life — it failed at sea, and it became clear that a full replacement wasn't a choice, but a necessity.
+            </p>
+            <p>
+              Later, I realized that owning a boat isn't just about the romance — it's also about decisions, costs, and
+              a lot of unknowns. That experience made it very real, very fast. It's exactly why I started building this
+              project. To make the journey from "I like this boat" to "I know this is a smart decision" much easier.
+              This isn't just an app. It's something I wish I had the first time I stepped aboard that little Vivacity,
+              full of character and quiet promises of the sea.
+            </p>
+          </div>
+          <div className="order-1 md:order-2">
+            <div className="rounded-xl overflow-hidden shadow-lg border border-border/40">
+              <img
+                src={myStoryImage}
+                alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+                className="w-full h-auto object-cover"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Articles Section */}
       <div className="max-w-6xl mx-auto px-4 py-8 w-full">
