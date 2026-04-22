@@ -126,6 +126,7 @@ const Index = () => {
   const [page, setPage] = useState(1);
   const [selectedArticle, setSelectedArticle] = useState<(typeof ARTICLES)[number] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [storyImageOpen, setStoryImageOpen] = useState(false);
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -387,8 +388,8 @@ const Index = () => {
         <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
           <Heart className="w-5 h-5 text-coral" /> My Story
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-          <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed order-2 md:order-1">
+        <div className="flex flex-col sm:flex-row gap-6 items-start">
+          <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed flex-1 min-w-0">
             <p>
               That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
               and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
@@ -409,18 +410,35 @@ const Index = () => {
               full of character and quiet promises of the sea.
             </p>
           </div>
-          <div className="order-1 md:order-2">
-            <div className="rounded-xl overflow-hidden shadow-lg border border-border/40">
-              <img
-                src={myStoryImage}
-                alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
-                className="w-full h-auto object-cover"
-                loading="lazy"
-              />
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setStoryImageOpen(true)}
+            className="shrink-0 w-32 sm:w-40 rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg hover:scale-[1.02] transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40 self-center sm:self-start"
+            aria-label="View full size photo"
+          >
+            <img
+              src={myStoryImage}
+              alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+              className="w-full h-auto object-cover block"
+              loading="lazy"
+            />
+          </button>
         </div>
       </section>
+
+      <Dialog open={storyImageOpen} onOpenChange={setStoryImageOpen}>
+        <DialogContent className="max-w-4xl p-2 sm:p-4 bg-background">
+          <DialogHeader className="sr-only">
+            <DialogTitle>My Story — Vivacity 20</DialogTitle>
+            <DialogDescription>Full size photo of a 1975 Vivacity 20 sailboat</DialogDescription>
+          </DialogHeader>
+          <img
+            src={myStoryImage}
+            alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+            className="w-full h-auto max-h-[85vh] object-contain rounded-md"
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Articles Section */}
       <div className="max-w-6xl mx-auto px-4 py-8 w-full">
