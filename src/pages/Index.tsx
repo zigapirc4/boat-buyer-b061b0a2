@@ -188,7 +188,7 @@ const Index = () => {
           .not("image_url", "is", null)
           .neq("image_url", "none")
           .order("scraped_at", { ascending: false })
-          .limit(10000);
+          .limit(100000);
         if (boatTypeFilter !== "all") query = query.eq("boat_type", boatTypeFilter);
         if (sourceFilter !== "all") query = query.eq("source", sourceFilter);
         const { data, error } = await query;
@@ -212,7 +212,7 @@ const Index = () => {
   const [allSources, setAllSources] = useState<string[]>([]);
   useEffect(() => {
     const fetchSources = async () => {
-      const { data } = await supabase.from("cached_listings").select("source");
+      const { data } = await supabase.from("cached_listings").select("source").limit(100000);
       if (data) {
         const s = [...new Set(data.map((d: any) => d.source).filter(Boolean))].sort() as string[];
         setAllSources(s);
