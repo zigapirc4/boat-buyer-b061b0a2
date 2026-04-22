@@ -210,6 +210,7 @@ const Index = () => {
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
   const [allSources, setAllSources] = useState<string[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   useEffect(() => {
     const fetchSources = async () => {
       const { data } = await supabase.from("cached_listings").select("source").limit(100000);
@@ -218,7 +219,14 @@ const Index = () => {
         setAllSources(s);
       }
     };
+    const fetchTotal = async () => {
+      const { count } = await supabase
+        .from("cached_listings")
+        .select("*", { count: "exact", head: true });
+      if (typeof count === "number") setTotalCount(count);
+    };
     fetchSources();
+    fetchTotal();
   }, []);
 
   // Reset page when filters change
