@@ -59,13 +59,20 @@ const CATEGORY_PAGES: CategoryPage[] = [
   },
   {
     site: "boat24.com",
-    buildUrl: (page) => `https://www.boat24.com/en/sailboats/?page=${page}`,
+    // boat24 uses offset pagination: page 2 = ?page=20, page 3 = ?page=40, page 8 = ?page=140
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.boat24.com/en/sailboats/`
+        : `https://www.boat24.com/en/sailboats/?page=${(page - 1) * 20}`,
     boatType: "sailboat",
     pages: 10,
   },
   {
     site: "boat24.com",
-    buildUrl: (page) => `https://www.boat24.com/en/powerboats/?page=${page}`,
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.boat24.com/en/powerboats/`
+        : `https://www.boat24.com/en/powerboats/?page=${(page - 1) * 20}`,
     boatType: "powerboat",
     pages: 10,
   },
