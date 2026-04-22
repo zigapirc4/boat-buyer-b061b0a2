@@ -204,19 +204,28 @@ function resolveUrl(src: string, base: string): string {
   } catch { return src; }
 }
 
-function extractImages(html: string, baseUrl: string, max = 5): string[] {
-  const out = new Set<string>();
+function extractImages(html: string, baseUrl: string, max = 5, site?: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => { if (!seen.has(u)) { seen.add(u); out.push(u); } };
+
   const og = extractMeta(html, "og:image");
-  if (og) out.add(resolveUrl(og, baseUrl));
+  if (og) push(resolveUrl(og, baseUrl));
   const re = /<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp))(?:\?[^"']*)?["']/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     const u = resolveUrl(m[1], baseUrl);
     if (/\b(logo|icon|sprite|placeholder|pixel|tracking|favicon|avatar)\b/i.test(u)) continue;
-    out.add(u);
-    if (out.size >= max + 5) break;
+    push(u);
+    if (out.length >= max + 5) break;
   }
-  return Array.from(out).slice(0, max);
+
+  // mornar.net: first image on listing pages is the site header logo banner — drop it.
+  let result = out;
+  if (site === "mornar.net" && result.length > 1) {
+    result = result.slice(1);
+  }
+  return result.slice(0, max);
 }
 
 // ---------- Fetch with proxy fallback ----------
@@ -307,7 +316,7 @@ function parseListing(html: string, url: string, site: string, hintType: "sailbo
 
   const year = parseYear(text);
   const length_feet = parseLengthFeet(text);
-  const images = extractImages(html, url);
+  const images = extractImages(html, url, 5, site);
   const boat_type = detectBoatType(text, url, hintType);
 
   // Location heuristics per site
