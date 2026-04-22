@@ -14,16 +14,47 @@ const corsHeaders = {
 // ---------- Sources (same rules as scrape-listings-cron CATEGORY_PAGES) ----------
 
 const SUBITO_BOAT_KEYWORDS = [
-  "barca", "vela", "yacht", "gommone", "cabinato", "gozzo", "natante",
-  "motoscafo", "veliero", "catamarano", "bavaria", "beneteau", "jeanneau",
-  "hanse", "dufour", "elan", "azimut", "sessa", "cranchi", "sea ray",
-  "quicksilver", "fairline", "princess", "sunseeker", "lagoon",
-  "fountaine pajot", "saxdor", "axopar", "nimbus", "galeon", "prestige",
-  "merry fisher", "antares", "oceanis", "sun odyssey", "first ", "hallberg",
+  "barca",
+  "vela",
+  "yacht",
+  "gommone",
+  "cabinato",
+  "gozzo",
+  "natante",
+  "motoscafo",
+  "veliero",
+  "catamarano",
+  "bavaria",
+  "beneteau",
+  "jeanneau",
+  "hanse",
+  "dufour",
+  "elan",
+  "azimut",
+  "sessa",
+  "cranchi",
+  "sea ray",
+  "quicksilver",
+  "fairline",
+  "princess",
+  "sunseeker",
+  "lagoon",
+  "fountaine pajot",
+  "saxdor",
+  "axopar",
+  "nimbus",
+  "galeon",
+  "prestige",
+  "merry fisher",
+  "antares",
+  "oceanis",
+  "sun odyssey",
+  "first ",
+  "hallberg",
 ];
 const isLikelyBoatTitle = (title: string): boolean => {
   const t = title.toLowerCase();
-  return SUBITO_BOAT_KEYWORDS.some(k => t.includes(k));
+  return SUBITO_BOAT_KEYWORDS.some((k) => t.includes(k));
 };
 
 type CategoryPage = {
@@ -71,8 +102,8 @@ const CATEGORY_PAGES: CategoryPage[] = [
     site: "boat24.com",
     buildUrl: (page) =>
       page === 1
-        ? `https://www.boat24.com/en/powerboats/`
-        : `https://www.boat24.com/en/powerboats/?page=${(page - 1) * 20}`,
+        ? `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc`
+        : `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc?page=${(page - 1) * 20}`,
     boatType: "powerboat",
     pages: 10,
   },
@@ -82,7 +113,11 @@ const CATEGORY_PAGES: CategoryPage[] = [
 
 function isValidListingUrl(url: string, site: string): boolean {
   let hostname = "";
-  try { hostname = new URL(url).hostname.replace("www.", "").replace("www2.", ""); } catch { return false; }
+  try {
+    hostname = new URL(url).hostname.replace("www.", "").replace("www2.", "");
+  } catch {
+    return false;
+  }
   if (!hostname.includes(site)) return false;
 
   if (hostname.includes("boat24.com")) return /\/detail\/\d+/i.test(url);
@@ -100,23 +135,38 @@ function isValidListingUrl(url: string, site: string): boolean {
 // ---------- Parsing helpers (same as scrape-boat-listing) ----------
 
 const FX_TO_EUR: Record<string, number> = {
-  EUR: 1, GBP: 1.17, USD: 0.92, CHF: 1.04, NOK: 0.087, SEK: 0.088, DKK: 0.134,
-  HRK: 0.133, AUD: 0.61, CAD: 0.68,
+  EUR: 1,
+  GBP: 1.17,
+  USD: 0.92,
+  CHF: 1.04,
+  NOK: 0.087,
+  SEK: 0.088,
+  DKK: 0.134,
+  HRK: 0.133,
+  AUD: 0.61,
+  CAD: 0.68,
 };
 
 function decodeEntities(s: string): string {
   return s
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
 function stripTags(s: string): string {
   return decodeEntities(
-    s.replace(/<script[\s\S]*?<\/script>/gi, " ")
-     .replace(/<style[\s\S]*?<\/style>/gi, " ")
-     .replace(/<[^>]+>/g, " ")
-  ).replace(/\s+/g, " ").trim();
+    s
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parsePriceWithCurrency(text: string): { eur: number | null } {
@@ -170,9 +220,14 @@ function parseYear(text: string): number | null {
   return null;
 }
 
-function detectBoatType(text: string, url: string, fallback: "sailboat" | "powerboat" | "auto"): "sailboat" | "powerboat" {
+function detectBoatType(
+  text: string,
+  url: string,
+  fallback: "sailboat" | "powerboat" | "auto",
+): "sailboat" | "powerboat" {
   const u = (url + " " + text).toLowerCase();
-  if (/\b(sailboat|sailing|segelboot|segelyacht|veliero|barca a vela|jedrilica|voilier|velero)\b/.test(u)) return "sailboat";
+  if (/\b(sailboat|sailing|segelboot|segelyacht|veliero|barca a vela|jedrilica|voilier|velero)\b/.test(u))
+    return "sailboat";
   if (/\b(powerboat|motorboat|motoryacht|motorboot|barca a motore|gliser|motoryacht)\b/.test(u)) return "powerboat";
   if (/\b(mainsail|genoa|spinnaker|jib|mast|rigging)\b/.test(u)) return "sailboat";
   if (/\b(outboard|sterndrive|jet drive|planing|fuoribordo|entrobordo)\b/.test(u)) return "powerboat";
@@ -198,7 +253,9 @@ function extractJsonLd(html: string): any[] {
       const parsed = JSON.parse(m[1].trim());
       if (Array.isArray(parsed)) blocks.push(...parsed);
       else blocks.push(parsed);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return blocks;
 }
@@ -208,13 +265,20 @@ function resolveUrl(src: string, base: string): string {
     if (src.startsWith("//")) return "https:" + src;
     if (src.startsWith("http")) return src;
     return new URL(src, base).toString();
-  } catch { return src; }
+  } catch {
+    return src;
+  }
 }
 
 function extractImages(html: string, baseUrl: string, max = 5, site?: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  const push = (u: string) => { if (!seen.has(u)) { seen.add(u); out.push(u); } };
+  const push = (u: string) => {
+    if (!seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  };
 
   const og = extractMeta(html, "og:image");
   if (og) push(resolveUrl(og, baseUrl));
@@ -240,7 +304,7 @@ function extractImages(html: string, baseUrl: string, max = 5, site?: string): s
 const browserHeaders = {
   "User-Agent":
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
   "Accept-Encoding": "gzip, deflate",
 };
@@ -254,7 +318,11 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
       const html = await res.text();
       if (html && html.length > 500) return html;
     }
-  } catch { /* fall through */ } finally { clearTimeout(t); }
+  } catch {
+    /* fall through */
+  } finally {
+    clearTimeout(t);
+  }
 
   // Fallback: r.jina.ai proxy (free, returns rendered HTML)
   try {
@@ -269,7 +337,9 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
       const html = await res.text();
       if (html && html.length > 500) return html;
     }
-  } catch { /* give up */ }
+  } catch {
+    /* give up */
+  }
   return null;
 }
 
@@ -293,10 +363,21 @@ function extractListingLinks(html: string, baseUrl: string, site: string): { url
 
 // ---------- Parse a single listing into cached_listings shape ----------
 
-function parseListing(html: string, url: string, site: string, hintType: "sailboat" | "powerboat" | "auto"): {
-  title: string; price_eur: number | null; year: number | null; length_feet: number | null;
-  boat_type: "sailboat" | "powerboat"; image_urls: string[]; image_url: string | null;
-  description: string | null; location: string | null;
+function parseListing(
+  html: string,
+  url: string,
+  site: string,
+  hintType: "sailboat" | "powerboat" | "auto",
+): {
+  title: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  boat_type: "sailboat" | "powerboat";
+  image_urls: string[];
+  image_url: string | null;
+  description: string | null;
+  location: string | null;
 } {
   const text = stripTags(html);
 
@@ -315,7 +396,10 @@ function parseListing(html: string, url: string, site: string, hintType: "sailbo
     const cur = offers?.priceCurrency || offers?.priceSpecification?.priceCurrency || "EUR";
     if (p) {
       const num = typeof p === "string" ? parseFloat(p.replace(/[^\d.]/g, "")) : Number(p);
-      if (num > 0) { price = Math.round(num * (FX_TO_EUR[cur] ?? 1)); break; }
+      if (num > 0) {
+        price = Math.round(num * (FX_TO_EUR[cur] ?? 1));
+        break;
+      }
     }
     if (ld.name && !title) title = ld.name;
   }
@@ -346,25 +430,26 @@ function parseListing(html: string, url: string, site: string, hintType: "sailbo
 
 // ---------- Persistence ----------
 
-async function upsertListing(supabaseUrl: string, supabaseKey: string, row: Record<string, any>): Promise<"insert" | "update" | "skip" | "error"> {
+async function upsertListing(
+  supabaseUrl: string,
+  supabaseKey: string,
+  row: Record<string, any>,
+): Promise<"insert" | "update" | "skip" | "error"> {
   // Quality gate: require price OR (year AND length) — same as scrape-listings-cron
   if (!row.price_eur && !(row.year && row.length_feet)) return "skip";
 
   try {
     // Try update first
-    const patch = await fetch(
-      `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(row.url)}`,
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${supabaseKey}`,
-          apikey: supabaseKey,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify(row),
-      }
-    );
+    const patch = await fetch(`${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(row.url)}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseKey,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(row),
+    });
     if (!patch.ok) return "error";
     const patched = await patch.json();
     if (Array.isArray(patched) && patched.length > 0) return "update";
@@ -423,7 +508,7 @@ Deno.serve(async (req) => {
         continue;
       }
       let links = extractListingLinks(indexHtml, catUrl, cat.site);
-      if (cat.titleFilter) links = links.filter(l => cat.titleFilter!(l.title));
+      if (cat.titleFilter) links = links.filter((l) => cat.titleFilter!(l.title));
       links = links.slice(0, maxListingsPerPage);
       stats.listingsFound += links.length;
       console.log(`[scrape-free] ${cat.site} p${page}: ${links.length} listings to process`);
@@ -431,7 +516,10 @@ Deno.serve(async (req) => {
       for (const link of links) {
         try {
           const html = await fetchHtml(link.url, 12000);
-          if (!html) { stats.errors++; continue; }
+          if (!html) {
+            stats.errors++;
+            continue;
+          }
           const parsed = parseListing(html, link.url, cat.site, cat.boatType);
           const row = {
             url: link.url,
@@ -448,8 +536,10 @@ Deno.serve(async (req) => {
             scraped_at: new Date().toISOString(),
           };
           const r = await upsertListing(supabaseUrl, supabaseKey, row);
-          if (r === "insert") { stats.inserted++; if (samples.length < 5) samples.push(`+ ${link.url}`); }
-          else if (r === "update") stats.updated++;
+          if (r === "insert") {
+            stats.inserted++;
+            if (samples.length < 5) samples.push(`+ ${link.url}`);
+          } else if (r === "update") stats.updated++;
           else if (r === "skip") stats.skipped++;
           else stats.errors++;
         } catch (e) {
