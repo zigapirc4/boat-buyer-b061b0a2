@@ -93,8 +93,8 @@ const CATEGORY_PAGES: CategoryPage[] = [
     // boat24 uses offset pagination: page 2 = ?page=20, page 3 = ?page=40, page 8 = ?page=140
     buildUrl: (page) =>
       page === 1
-        ? `https://www.boat24.com/en/sailboats/`
-        : `https://www.boat24.com/en/sailboats/?page=${(page - 1) * 20}`,
+        ? `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc`
+        : `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc?page=${(page - 1) * 20}`,
     boatType: "sailboat",
     pages: 10,
   },
