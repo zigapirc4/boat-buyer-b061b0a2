@@ -1,17 +1,71 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Trash2, ExternalLink, Heart, MapPin } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Trash2, Heart } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getSavedBoats, deleteBoat, getSavedListings, removeListing, type SavedBoat, type SavedListing } from "@/lib/boatStore";
+import { BoatDetailModal } from "@/components/BoatDetailModal";
+import { supabase } from "@/integrations/supabase/client";
+import { BoatListingCard } from "@/components/BoatListingCard";
+import { evaluate, type BoatType } from "@/lib/evaluateBoat";
 
 const verdictColor = (v: string) => v === "Good Deal" ? "text-success" : v === "Fair Deal" ? "text-warning" : "text-destructive";
+
+interface CachedListing {
+  id: string;
+  title: string;
+  url: string;
+  boat_type: string | null;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
+  image_urls: string[] | null;
+  engine_info: string | null;
+  description: string | null;
+  hull_material: string | null;
+  engine_hours?: number | null;
+  source: string | null;
+  scraped_at: string;
+}
+
+const timeAgo = (dateStr: string) => {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+};
 
 const MyBoats = () => {
   const [boats, setBoats] = useState<SavedBoat[]>(getSavedBoats);
   const [listings, setListings] = useState<SavedListing[]>(getSavedListings);
+  const [cachedListings, setCachedListings] = useState<CachedListing[]>([]);
+  const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("details");
+  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const loadCachedListings = async () => {
+      const ids = getSavedListings().map((l) => l.id);
+      if (ids.length === 0) {
+        setCachedListings([]);
+        return;
+      }
+      const { data } = await supabase.from("cached_listings").select("*").in("id", ids);
+      if (data) {
+        setCachedListings(data as CachedListing[]);
+      }
+    };
+    loadCachedListings();
+  }, [listings]);
 
   const handleDelete = (id: string) => {
     deleteBoat(id);
@@ -21,9 +75,144 @@ const MyBoats = () => {
   const handleRemoveListing = (id: string) => {
     removeListing(id);
     setListings(getSavedListings());
+    setCachedListings((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const getImageUrl = (listing: CachedListing) => {
+    if (listing.image_url) return listing.image_url;
+    if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
+    return null;
+  };
+
+  const getDealInsight = (listing: CachedListing, dataset: CachedListing[]) => {
+    if (!listing.price_eur || !listing.length_feet || !listing.year) {
+      return {
+        gapPct: null,
+        label: "No market data" as const,
+        shortReason: "Missing year/length/price",
+      };
+    }
+
+    const comps = dataset
+      .filter(
+        (c) =>
+          c.id !== listing.id &&
+          c.price_eur &&
+          c.length_feet &&
+          c.year &&
+          c.boat_type === listing.boat_type &&
+          Math.abs((c.year || 0) - listing.year!) <= 2 &&
+          Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
+      )
+      .slice(0, 60);
+
+    if (comps.length < 4) {
+      return {
+        gapPct: null,
+        label: "No market data" as const,
+        shortReason: "Too few comparables",
+      };
+    }
+
+    const sorted = comps
+      .map((c) => Number(c.price_eur))
+      .sort((a, b) => a - b);
+    const fairPrice = sorted[Math.floor(sorted.length / 2)];
+    const rawGapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
+    let qualityScore = 100;
+    const age = listing.year ? new Date().getFullYear() - listing.year : null;
+    const desc = (listing.description || "").toLowerCase();
+    const eng = (listing.engine_info || "").toLowerCase();
+
+    if (age !== null) {
+      if (age > 35) qualityScore -= 45;
+      else if (age > 30) qualityScore -= 35;
+      else if (age > 25) qualityScore -= 25;
+      else if (age > 15) qualityScore -= 10;
+    }
+    if (listing.engine_info && /\b(problem|fault|needs|repair|non funzionante|issue)\b/i.test(eng)) qualityScore -= 25;
+    if (listing.engine_info && /\bnew engine|rebuilt|overhauled\b/i.test(eng)) qualityScore += 8;
+    if (listing.engine_hours && listing.engine_hours > 4500) qualityScore -= 25;
+    else if (listing.engine_hours && listing.engine_hours > 3000) qualityScore -= 15;
+    if (!listing.engine_hours) qualityScore -= 8;
+    if (!listing.hull_material) qualityScore -= 10;
+    if (/\b(osmosis|blister|damage|damaged|leak|not working|needs repair|project boat|collision|grounding)\b/i.test(desc)) {
+      qualityScore -= 35;
+    }
+    if (!listing.description || listing.description.length < 80) qualityScore -= 8;
+    if (!listing.description && !listing.engine_info) qualityScore -= 10;
+
+    qualityScore = Math.max(25, Math.min(100, qualityScore));
+    const qualityWeight = qualityScore / 100;
+    const gapPct = rawGapPct * qualityWeight;
+    const engineText = (listing.engine_info || "").toLowerCase();
+    const descriptionText = (listing.description || "").toLowerCase();
+    const inferredEngine =
+      listing.engine_hours && listing.engine_hours > 4500
+        ? "bad"
+        : listing.engine_hours && listing.engine_hours > 3000
+          ? "average"
+          : /\b(problem|fault|needs|repair|issue|non funzionante)\b/i.test(engineText)
+            ? "bad"
+            : "good";
+    const inferredHull = /\b(osmosis|blister)\b/i.test(descriptionText)
+      ? "osmosis"
+      : /\b(damage|damaged|collision|grounding|leak)\b/i.test(descriptionText)
+        ? "damaged"
+        : "good";
+    const inferredSails = listing.boat_type === "powerboat" ? "none" : "average";
+    const evalScore = evaluate({
+      boatType: (listing.boat_type === "powerboat" ? "powerboat" : "sailboat") as BoatType,
+      year: listing.year,
+      price: Number(listing.price_eur),
+      lengthFt: Number(listing.length_feet),
+      engine: inferredEngine,
+      hull: inferredHull,
+      sails: inferredSails,
+      engineHours: listing.engine_hours ?? undefined,
+      hullMaterial: listing.hull_material ?? undefined,
+      comparables: comps.map((c) => ({
+        price_eur: Number(c.price_eur),
+        length_feet: Number(c.length_feet),
+        year: c.year ?? null,
+        title: c.title,
+        url: c.url,
+        image_url: c.image_url,
+        location: c.location,
+        engine_info: c.engine_info,
+        description: c.description || undefined,
+      })),
+    }).score;
+
+    if (gapPct >= 12 && qualityScore >= 60 && evalScore >= 65)
+      return { gapPct, label: "Great deal" as const, shortReason: `~${Math.round(gapPct)}% below peers (quality-adjusted)` };
+    if (gapPct <= -10)
+      return { gapPct, label: "Overpriced" as const, shortReason: `~${Math.round(Math.abs(gapPct))}% above peers` };
+    return { gapPct, label: "Fair" as const, shortReason: "Near market median" };
+  };
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 4) next.add(id);
+      return next;
+    });
   };
 
   const hasContent = boats.length > 0 || listings.length > 0;
+
+  const handleNavigateToListing = async (url: string, initialTab: "details" | "evaluate" | "costs" = "details") => {
+    let target = cachedListings.find((l) => l.url === url) || null;
+    if (!target) {
+      const { data } = await supabase.from("cached_listings").select("*").eq("url", url).limit(1).maybeSingle();
+      if (data) target = data as CachedListing;
+    }
+    if (!target) return;
+    setSelectedListing(target);
+    setModalInitialTab(initialTab);
+    setModalOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -39,33 +228,29 @@ const MyBoats = () => {
           {listings.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Saved Listings ({listings.length})</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {listings.map((l) => (
-                  <Card key={l.id} className="overflow-hidden flex flex-col animate-fade-in">
-                    {l.image_url && (
-                      <img src={l.image_url} alt={l.title} className="w-full h-32 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                    )}
-                    <div className="p-3 flex-1 flex flex-col">
-                      <p className="font-semibold text-sm line-clamp-2">{l.title}</p>
-                      {l.price_eur && <p className="text-base font-bold text-primary mt-1">€{Number(l.price_eur).toLocaleString()}</p>}
-                      <div className="flex flex-wrap gap-2 mt-1.5 text-xs text-muted-foreground">
-                        {l.year && <span>{l.year}</span>}
-                        {l.length_feet && <span>{l.length_feet} ft</span>}
-                        {l.location && <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{l.location}</span>}
-                      </div>
-                      <div className="flex gap-1.5 mt-auto pt-2">
-                        <Button variant="outline" size="sm" className="flex-1 text-xs gap-1 h-7" asChild>
-                          <a href={l.url} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="w-3 h-3" /> View
-                          </a>
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-xs gap-1 h-7 text-coral" onClick={() => handleRemoveListing(l.id)}>
-                          <Trash2 className="w-3 h-3" /> Remove
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {cachedListings.map((listing) => {
+                  const insight = getDealInsight(listing, cachedListings);
+                  return (
+                    <BoatListingCard
+                      key={listing.id}
+                      listing={listing}
+                      imageUrl={getImageUrl(listing)}
+                      insightLabel={insight.label}
+                      insightReason={insight.shortReason}
+                      isSaved
+                      isCompared={compareIds.has(listing.id)}
+                      onOpen={() => {
+                        setSelectedListing(listing);
+                        setModalInitialTab("details");
+                        setModalOpen(true);
+                      }}
+                      onToggleSave={() => handleRemoveListing(listing.id)}
+                      onToggleCompare={() => toggleCompare(listing.id)}
+                      timeAgo={timeAgo}
+                    />
+                  );
+                })}
               </div>
             </div>
           )}
@@ -98,6 +283,14 @@ const MyBoats = () => {
         </div>
       )}
       </div>
+      <BoatDetailModal
+        listing={selectedListing}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        timeAgo={timeAgo}
+        initialTab={modalInitialTab}
+        onNavigateToListing={handleNavigateToListing}
+      />
       <Footer />
     </div>
   );

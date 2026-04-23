@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight, Copy } from "lucide-react";
+import { Save, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight, Copy, Ship } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { saveBoat } from "@/lib/boatStore";
+import { isListingSaved, saveBoat, saveListing } from "@/lib/boatStore";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { fetchComparables } from "@/lib/fetchComparables";
 import {
@@ -139,8 +139,55 @@ const EvaluateBoat = () => {
     setSimilarBoats([]);
 
     try {
+      const normalizedUrl = url.trim();
+      const { data: existingListing } = await supabase
+        .from("cached_listings")
+        .select("id, title, boat_type, year, price_eur, length_feet, location, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description")
+        .eq("url", normalizedUrl)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingListing) {
+        if (existingListing.boat_type) setBoatType(existingListing.boat_type as BoatType);
+        if (existingListing.title) setModel(existingListing.title);
+        if (existingListing.year) setYear(String(existingListing.year));
+        if (existingListing.price_eur) setPrice(String(Math.round(existingListing.price_eur)));
+        if (existingListing.length_feet) setLength(String(Math.round(existingListing.length_feet)));
+        if (existingListing.engine_hours) setEngineHours(String(existingListing.engine_hours));
+
+        setExtras({
+          location: existingListing.location || undefined,
+          images: existingListing.image_urls || undefined,
+          hullMaterial: existingListing.hull_material || undefined,
+          cabins: existingListing.cabins || undefined,
+          engineType: existingListing.fuel_type || undefined,
+          descriptionSummary: existingListing.description || undefined,
+        });
+
+        if (!isListingSaved(existingListing.id)) {
+          saveListing({
+            id: existingListing.id,
+            title: existingListing.title || "Imported listing",
+            url: normalizedUrl,
+            boat_type: existingListing.boat_type,
+            price_eur: existingListing.price_eur,
+            year: existingListing.year,
+            length_feet: existingListing.length_feet,
+            location: existingListing.location,
+            image_url: existingListing.image_urls?.[0] || null,
+            source: "cached_listings",
+          });
+        }
+
+        toast({
+          title: "Listing already exists",
+          description: "This listing is already in our database and is now available in My Boats.",
+        });
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
-        body: { url },
+        body: { url: normalizedUrl },
       });
       if (error) throw error;
       if (data?.success && data.data) {
@@ -171,7 +218,59 @@ const EvaluateBoat = () => {
           knownIssues: d.known_issues,
         });
 
-        toast({ title: "Listing imported!", description: `Found: ${d.boat_model || "boat details"}` });
+        let sourceHost = "imported";
+        try {
+          sourceHost = new URL(url).hostname.replace("www.", "");
+        } catch {
+          sourceHost = "imported";
+        }
+
+        const listingPayload = {
+          url,
+          title: d.boat_model || `Imported listing (${d.boat_type || "boat"})`,
+          source: sourceHost,
+          boat_type: d.boat_type || boatType,
+          price_eur: d.price_eur ?? null,
+          year: d.year ?? null,
+          length_feet: d.length_feet ?? null,
+          image_url: d.images?.[0] || null,
+          image_urls: d.images || null,
+          description: d.description_summary || null,
+          location: d.location || null,
+          engine_hours: d.engine_hours ?? null,
+          fuel_type: d.engine_type || null,
+          cabins: d.cabins ?? null,
+          hull_material: d.hull_material || null,
+          engine_info: [d.engine_make, d.engine_model, d.engine_hp ? `${d.engine_hp}hp` : null].filter(Boolean).join(" ") || null,
+          equipment: d.equipment_highlights || null,
+          scraped_at: new Date().toISOString(),
+        };
+
+        const { data: cachedSaved } = await supabase
+          .from("cached_listings")
+          .upsert(listingPayload, { onConflict: "url" })
+          .select("id, title, url, boat_type, price_eur, year, length_feet, location, image_url, source")
+          .single();
+
+        if (cachedSaved && !isListingSaved(cachedSaved.id)) {
+          saveListing({
+            id: cachedSaved.id,
+            title: cachedSaved.title,
+            url: cachedSaved.url,
+            boat_type: cachedSaved.boat_type,
+            price_eur: cachedSaved.price_eur,
+            year: cachedSaved.year,
+            length_feet: cachedSaved.length_feet,
+            location: cachedSaved.location,
+            image_url: cachedSaved.image_url,
+            source: cachedSaved.source,
+          });
+        }
+
+        toast({
+          title: "Boat imported and saved",
+          description: "Listing is now cached in BoatBuyer and automatically added to My Boats.",
+        });
       } else {
         toast({ title: "Could not extract details", description: data?.error || "Try a different listing URL.", variant: "destructive" });
       }
@@ -341,15 +440,20 @@ const EvaluateBoat = () => {
       {/* URL Import */}
       <Card className="p-4 mb-6 border-dashed border-2">
         <Label className="text-sm font-medium flex items-center gap-2 mb-2">
-          <LinkIcon className="w-4 h-4" /> Import from listing URL
+          <Ship className="w-4 h-4" /> Import boat
         </Label>
+        <p className="text-xs text-muted-foreground mb-2">
+          Import any listing and evaluate it instantly. You can also estimate ownership costs from the same boat data.
+        </p>
         <div className="flex gap-2">
           <Input placeholder="Paste boat listing URL…" value={listingUrl} onChange={(e) => setListingUrl(e.target.value)} className="flex-1" />
           <Button onClick={handleScrape} disabled={isScraping || !listingUrl.trim()} size="sm">
             {isScraping ? <Loader2 className="w-4 h-4 animate-spin" /> : "Import"}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">Works with most boat listing sites (Boat24, YachtWorld, etc.)</p>
+        <p className="text-xs text-muted-foreground mt-2">
+          We save the imported listing in our app so you can reopen it anytime.
+        </p>
       </Card>
 
       {/* Imported Images */}

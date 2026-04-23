@@ -10,7 +10,7 @@ export interface SavedListing {
   id: string;
   title: string;
   url: string;
-  boat_type: string;
+  boat_type: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;

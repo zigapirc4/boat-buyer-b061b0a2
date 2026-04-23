@@ -10,7 +10,6 @@ import {
   ArrowRight,
   Clock,
   SlidersHorizontal,
-  Calculator,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +29,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
+import { BoatListingCard } from "@/components/BoatListingCard";
+import { evaluate, type BoatType } from "@/lib/evaluateBoat";
+import { useToast } from "@/hooks/use-toast";
 import myStoryImage from "@/assets/my-story-vivacity.jpg";
 import myStoryWorkbenchImage from "@/assets/my-story-workbench.png";
 
@@ -51,7 +53,7 @@ interface CachedListing {
   id: string;
   title: string;
   url: string;
-  boat_type: string;
+  boat_type: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
@@ -119,6 +121,7 @@ const ARTICLES = [
 const PER_PAGE = 24;
 
 const Index = () => {
+  const { toast } = useToast();
   const savedCount = getSavedBoats().length;
   const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -146,6 +149,9 @@ const Index = () => {
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -358,6 +364,205 @@ const Index = () => {
     setModalOpen(true);
   };
 
+  const handleImportBoat = async () => {
+    if (!importUrl.trim()) return;
+    const normalizedUrl = importUrl.trim();
+    setIsImporting(true);
+
+    try {
+      const getSourceFromUrl = (rawUrl: string): "boat24.com" | "trovobarche.it" | "mornar.net" | "other" => {
+        try {
+          const host = new URL(rawUrl).hostname.replace("www.", "").replace("www2.", "").toLowerCase();
+          if (host.includes("boat24.com")) return "boat24.com";
+          if (host.includes("trovobarche.it")) return "trovobarche.it";
+          if (host.includes("mornar.net")) return "mornar.net";
+          return "other";
+        } catch {
+          return "other";
+        }
+      };
+
+      const getCachedByUrl = async (targetUrl: string) => {
+        const { data } = await supabase
+          .from("cached_listings")
+          .select("*")
+          .eq("url", targetUrl)
+          .limit(1)
+          .maybeSingle();
+        return data as CachedListing | null;
+      };
+
+      const { data: existing } = await supabase
+        .from("cached_listings")
+        .select("*")
+        .eq("url", normalizedUrl)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        const existingListing = existing as CachedListing;
+        if (!isListingSaved(existingListing.id)) {
+          saveListing({
+            id: existingListing.id,
+            title: existingListing.title,
+            url: existingListing.url,
+            boat_type: existingListing.boat_type,
+            price_eur: existingListing.price_eur,
+            year: existingListing.year,
+            length_feet: existingListing.length_feet,
+            location: existingListing.location,
+            image_url: existingListing.image_url,
+            source: existingListing.source,
+          });
+          setSavedIds((prev) => new Set(prev).add(existingListing.id));
+        }
+
+        setSelectedListing(existingListing);
+        setModalInitialTab("details");
+        setModalOpen(true);
+        setImportOpen(false);
+        setImportUrl("");
+        toast({
+          title: "Listing already imported",
+          description: "Boat details opened. Listing is available in My Boats.",
+        });
+        return;
+      }
+
+      const source = getSourceFromUrl(normalizedUrl);
+      if (source === "other") {
+        toast({
+          title: "Unsupported source",
+          description: "We currently do not support importing from this website.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (source === "boat24.com" || source === "trovobarche.it" || source === "mornar.net") {
+        const { data, error } = await supabase.functions.invoke("scrape-free", {
+          body: { urls: [normalizedUrl] },
+        });
+        if (error || !data?.success) {
+          throw new Error(data?.error || error?.message || `Import failed for ${source}`);
+        }
+      } else {
+        const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
+          body: { url: normalizedUrl },
+        });
+        if (error || !data?.success) {
+          const fallbackSaved = await getCachedByUrl(normalizedUrl);
+
+          if (fallbackSaved) {
+            if (!isListingSaved(fallbackSaved.id)) {
+              saveListing({
+                id: fallbackSaved.id,
+                title: fallbackSaved.title,
+                url: fallbackSaved.url,
+                boat_type: fallbackSaved.boat_type,
+                price_eur: fallbackSaved.price_eur,
+                year: fallbackSaved.year,
+                length_feet: fallbackSaved.length_feet,
+                location: fallbackSaved.location,
+                image_url: fallbackSaved.image_url,
+                source: fallbackSaved.source,
+              });
+              setSavedIds((prev) => new Set(prev).add(fallbackSaved.id));
+            }
+            setSelectedListing(fallbackSaved);
+            setModalInitialTab("details");
+            setModalOpen(true);
+            setImportOpen(false);
+            setImportUrl("");
+            toast({
+              title: "Boat imported",
+              description: "Listing was already cached during import and is now added to My Boats.",
+            });
+            return;
+          }
+
+          throw new Error(data?.error || error?.message || "Import failed");
+        }
+      }
+
+      // scrape-free is optimized for site crawling, so wait briefly for persistence.
+      let savedRow: CachedListing | null = null;
+      for (let i = 0; i < 5; i++) {
+        savedRow = await getCachedByUrl(normalizedUrl);
+        if (savedRow) break;
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+
+      if (!savedRow) {
+        const fallbackSaved = await getCachedByUrl(normalizedUrl);
+        if (fallbackSaved) {
+          const fallbackListing = fallbackSaved as CachedListing;
+          if (!isListingSaved(fallbackListing.id)) {
+            saveListing({
+              id: fallbackListing.id,
+              title: fallbackListing.title,
+              url: fallbackListing.url,
+              boat_type: fallbackListing.boat_type,
+              price_eur: fallbackListing.price_eur,
+              year: fallbackListing.year,
+              length_feet: fallbackListing.length_feet,
+              location: fallbackListing.location,
+              image_url: fallbackListing.image_url,
+              source: fallbackListing.source,
+            });
+            setSavedIds((prev) => new Set(prev).add(fallbackListing.id));
+          }
+          setSelectedListing(fallbackListing);
+          setModalInitialTab("details");
+          setModalOpen(true);
+          setImportOpen(false);
+          setImportUrl("");
+          toast({
+            title: "Boat imported",
+            description: "Listing was already cached during import and is now added to My Boats.",
+          });
+          return;
+        }
+        throw new Error("Import completed but listing is not yet visible in cache. Please retry in a moment.");
+      }
+
+      const savedListing = savedRow as CachedListing;
+      saveListing({
+        id: savedListing.id,
+        title: savedListing.title,
+        url: savedListing.url,
+        boat_type: savedListing.boat_type,
+        price_eur: savedListing.price_eur,
+        year: savedListing.year,
+        length_feet: savedListing.length_feet,
+        location: savedListing.location,
+        image_url: savedListing.image_url,
+        source: savedListing.source,
+      });
+      setSavedIds((prev) => new Set(prev).add(savedListing.id));
+      setListings((prev) => [savedListing, ...prev.filter((l) => l.id !== savedListing.id)]);
+
+      setSelectedListing(savedListing);
+      setModalInitialTab("details");
+      setModalOpen(true);
+      setImportOpen(false);
+      setImportUrl("");
+      toast({
+        title: "Boat imported",
+        description: "Listing is saved in BoatBuyer and automatically added to My Boats.",
+      });
+    } catch (e) {
+      console.error("Import failed:", e);
+      toast({
+        title: "Import failed",
+        description: e instanceof Error ? e.message : "Could not import this listing. Check URL and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const getImageUrl = (listing: CachedListing) => {
     if (listing.image_url) return listing.image_url;
     if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
@@ -402,17 +607,82 @@ const Index = () => {
       .map((c) => Number(c.price_eur))
       .sort((a, b) => a - b);
     const fairPrice = sorted[Math.floor(sorted.length / 2)];
-    const gapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
+    const rawGapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
+    let qualityScore = 100;
+    const age = listing.year ? new Date().getFullYear() - listing.year : null;
+    const desc = (listing.description || "").toLowerCase();
+    const eng = (listing.engine_info || "").toLowerCase();
+
+    if (age !== null) {
+      if (age > 35) qualityScore -= 45;
+      else if (age > 30) qualityScore -= 35;
+      else if (age > 25) qualityScore -= 25;
+      else if (age > 15) qualityScore -= 10;
+    }
+    if (listing.engine_info && /\b(problem|fault|needs|repair|non funzionante|issue)\b/i.test(eng)) qualityScore -= 25;
+    if (listing.engine_info && /\bnew engine|rebuilt|overhauled\b/i.test(eng)) qualityScore += 8;
+    if (listing.engine_hours && listing.engine_hours > 4500) qualityScore -= 25;
+    else if (listing.engine_hours && listing.engine_hours > 3000) qualityScore -= 15;
+    if (!listing.engine_hours) qualityScore -= 8;
+    if (!listing.hull_material) qualityScore -= 10;
+    if (/\b(osmosis|blister|damage|damaged|leak|not working|needs repair|project boat|collision|grounding)\b/i.test(desc)) {
+      qualityScore -= 35;
+    }
+    if (!listing.description || listing.description.length < 80) qualityScore -= 8;
+    if (!listing.description && !listing.engine_info) qualityScore -= 10;
+
+    qualityScore = Math.max(25, Math.min(100, qualityScore));
+    const qualityWeight = qualityScore / 100;
+    const gapPct = rawGapPct * qualityWeight;
     const confidence: DealInsight["confidence"] =
       comps.length >= 18 ? "high" : comps.length >= 10 ? "medium" : "low";
 
-    if (gapPct >= 12) {
+    const engineText = (listing.engine_info || "").toLowerCase();
+    const descriptionText = (listing.description || "").toLowerCase();
+    const inferredEngine =
+      listing.engine_hours && listing.engine_hours > 4500
+        ? "bad"
+        : listing.engine_hours && listing.engine_hours > 3000
+          ? "average"
+          : /\b(problem|fault|needs|repair|issue|non funzionante)\b/i.test(engineText)
+            ? "bad"
+            : "good";
+    const inferredHull = /\b(osmosis|blister)\b/i.test(descriptionText)
+      ? "osmosis"
+      : /\b(damage|damaged|collision|grounding|leak)\b/i.test(descriptionText)
+        ? "damaged"
+        : "good";
+    const inferredSails = listing.boat_type === "powerboat" ? "none" : "average";
+    const evalScore = evaluate({
+      boatType: (listing.boat_type === "powerboat" ? "powerboat" : "sailboat") as BoatType,
+      year: listing.year,
+      price: Number(listing.price_eur),
+      lengthFt: Number(listing.length_feet),
+      engine: inferredEngine,
+      hull: inferredHull,
+      sails: inferredSails,
+      engineHours: listing.engine_hours ?? undefined,
+      hullMaterial: listing.hull_material ?? undefined,
+      comparables: comps.map((c) => ({
+        price_eur: Number(c.price_eur),
+        length_feet: Number(c.length_feet),
+        year: c.year ?? null,
+        title: c.title,
+        url: c.url,
+        image_url: c.image_url,
+        location: c.location,
+        engine_info: c.engine_info,
+        description: c.description || undefined,
+      })),
+    }).score;
+
+    if (gapPct >= 12 && qualityScore >= 60 && evalScore >= 65) {
       return {
         fairPrice,
         gapPct,
         confidence,
         label: "Great deal",
-        shortReason: `~${Math.round(gapPct)}% below peers`,
+        shortReason: `~${Math.round(gapPct)}% below peers (quality-adjusted)`,
       };
     }
     if (gapPct <= -10) {
@@ -433,16 +703,29 @@ const Index = () => {
     };
   }
 
-  const topDeals = listings
+  const topDealsCandidates = listings
     .map((listing) => ({ listing, insight: getDealInsight(listing, listings) }))
     .filter(
       (x) =>
         x.insight.gapPct !== null &&
         (x.insight.gapPct || 0) >= 12 &&
-        Math.abs(x.insight.gapPct || 0) <= 150,
+        Math.abs(x.insight.gapPct || 0) <= 90,
     )
-    .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0))
-    .slice(0, 3);
+    .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0));
+
+  const topDeals: typeof topDealsCandidates = [];
+  const seenDealPercents = new Set<number>();
+  const seenBoatTypes = new Set<string>();
+  for (const candidate of topDealsCandidates) {
+    const roundedGap = Math.round(candidate.insight.gapPct || 0);
+    if (seenDealPercents.has(roundedGap)) continue;
+    const candidateType = candidate.listing.boat_type || "unknown";
+    if (topDeals.length < 2 && seenBoatTypes.has(candidateType)) continue;
+    seenDealPercents.add(roundedGap);
+    seenBoatTypes.add(candidateType);
+    topDeals.push(candidate);
+    if (topDeals.length >= 3) break;
+  }
 
   const toggleCompare = (id: string) => {
     setCompareIds((prev) => {
@@ -463,8 +746,7 @@ const Index = () => {
   };
 
   const actionCards = [
-    { to: "/evaluate", icon: Ship, label: "Evaluate", desc: "Rate any boat", gradient: "from-primary to-ocean" },
-    { to: "/cost", icon: Calculator, label: "Costs", desc: "Annual ownership", gradient: "from-ocean to-sky" },
+    { to: "/evaluate", icon: Ship, label: "Import boat", desc: "Evaluate + ownership cost", gradient: "from-primary to-ocean" },
     {
       to: "/my-boats",
       icon: List,
@@ -513,7 +795,16 @@ const Index = () => {
 
           {/* Action Cards */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
-            {actionCards.map((card) => (
+            <button type="button" className="group text-left" onClick={() => setImportOpen(true)}>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                  <Ship className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold">Import boat</p>
+                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Evaluate + ownership cost</p>
+              </div>
+            </button>
+            {actionCards.slice(1).map((card) => (
               <Link key={card.to} to={card.to} className="group">
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
                   <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
@@ -919,128 +1210,19 @@ const Index = () => {
                 const img = getImageUrl(listing);
                 const insight = getDealInsight(listing, listings);
                 return (
-                  <Card
+                  <BoatListingCard
                     key={listing.id}
-                    className="overflow-hidden flex flex-col cursor-pointer group premium-card"
-                    onClick={() => handleCardClick(listing)}
-                  >
-                    <div className="relative">
-                      {img ? (
-                        <img
-                          src={img}
-                          alt={listing.title}
-                          className="w-full h-40 object-cover transition-transform group-hover:scale-[1.02]"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = "none";
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-40 bg-muted flex items-center justify-center">
-                          <Ship className="w-12 h-12 text-muted-foreground/20" />
-                        </div>
-                      )}
-                      {listing.boat_type && (
-                        <span className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full capitalize">
-                          {listing.boat_type}
-                        </span>
-                      )}
-                      <span
-                        className={`absolute top-2 right-2 text-[10px] font-medium px-2 py-0.5 rounded-full shadow-sm ${
-                          insight.label === "Great deal"
-                            ? "bg-success/90 text-white"
-                            : insight.label === "Overpriced"
-                              ? "bg-destructive/90 text-white"
-                              : "bg-background/80 text-foreground"
-                        }`}
-                      >
-                        {insight.label}
-                      </span>
-                    </div>
-                    <div className="p-3 flex-1 flex flex-col">
-                      <p className="font-semibold text-sm truncate leading-tight">{listing.title}</p>
-                      {listing.price_eur && (
-                        <p className="text-lg font-bold text-primary mt-0.5">
-                          €{Number(listing.price_eur).toLocaleString()}
-                        </p>
-                      )}
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {listing.year && (
-                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            {listing.year}
-                          </span>
-                        )}
-                        {listing.length_feet && (
-                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            {Number(listing.length_feet)}ft
-                          </span>
-                        )}
-                        {listing.hull_material && (
-                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded capitalize">
-                            {listing.hull_material}
-                          </span>
-                        )}
-                      </div>
-                      {listing.location && (
-                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
-                        </p>
-                      )}
-                      <p className="text-[11px] text-muted-foreground mt-1">{insight.shortReason}</p>
-                      <div className="flex items-center gap-2 mt-auto pt-1.5">
-                        <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>
-                        <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5 shrink-0">
-                          <Clock className="w-2.5 h-2.5" /> {timeAgo(listing.scraped_at)}
-                        </span>
-                      </div>
-                      <div className="flex gap-1.5 mt-2 pt-2 border-t">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 text-xs gap-1 h-7 rounded-lg"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCardClick(listing);
-                          }}
-                        >
-                          <ArrowRight className="w-3 h-3" /> Details
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="flex-1 text-xs gap-1 h-7 rounded-lg"
-                          onClick={(e) => e.stopPropagation()}
-                          asChild
-                        >
-                          <a href={listing.url} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="w-3 h-3" /> View
-                          </a>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`text-xs gap-1 h-7 w-7 rounded-lg p-0 shrink-0 ${savedIds.has(listing.id) ? "text-coral" : ""}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSave(listing);
-                          }}
-                        >
-                          <Heart className={`w-3.5 h-3.5 ${savedIds.has(listing.id) ? "fill-coral" : ""}`} />
-                        </Button>
-                        <Button
-                          variant={compareIds.has(listing.id) ? "secondary" : "ghost"}
-                          size="sm"
-                          className="text-[10px] h-7 px-2 rounded-lg shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleCompare(listing.id);
-                          }}
-                        >
-                          Compare
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
+                    listing={listing}
+                    imageUrl={img}
+                    insightLabel={insight.label}
+                    insightReason={insight.shortReason}
+                    isSaved={savedIds.has(listing.id)}
+                    isCompared={compareIds.has(listing.id)}
+                    onOpen={() => handleCardClick(listing)}
+                    onToggleSave={() => toggleSave(listing)}
+                    onToggleCompare={() => toggleCompare(listing.id)}
+                    timeAgo={timeAgo}
+                  />
                 );
               })}
             </div>
@@ -1145,27 +1327,93 @@ const Index = () => {
 
       {/* Compare dialog */}
       <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-5xl bg-gradient-to-b from-background to-muted/30 border-primary/20">
           <DialogHeader>
-            <DialogTitle>Boat Comparison</DialogTitle>
-            <DialogDescription>Compare shortlist side-by-side before deciding.</DialogDescription>
+            <DialogTitle className="text-xl font-bold">Boat Comparison</DialogTitle>
+            <DialogDescription className="text-sm">
+              Compare your shortlist side-by-side before deciding.
+            </DialogDescription>
           </DialogHeader>
+          <Card className="p-3 border-primary/30 bg-gradient-to-r from-primary/10 via-ocean/10 to-accent/10 shadow-sm">
+            <p className="text-xs font-semibold text-primary">Coming soon: AI deep comparison</p>
+            <p className="text-xs text-foreground/80 mt-0.5">
+              Realtime AI insights for side-by-side technical, pricing, and risk comparison are coming soon.
+            </p>
+          </Card>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {compareListings.map((b) => {
               const insight = getDealInsight(b, listings);
+              const img = getImageUrl(b);
               return (
-                <Card key={`cmp-${b.id}`} className="p-3 space-y-1">
+                <Card key={`cmp-${b.id}`} className="overflow-hidden border-border/60 shadow-sm hover:shadow-md transition-shadow bg-card/95">
+                  <div className="aspect-video bg-muted">
+                    {img ? (
+                      <img
+                        src={img}
+                        alt={b.title}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Ship className="w-7 h-7 text-muted-foreground/30" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 space-y-1.5">
                   <p className="text-sm font-semibold line-clamp-2">{b.title}</p>
-                  <p className="text-sm text-primary font-bold">€{Number(b.price_eur || 0).toLocaleString()}</p>
+                  <p className="text-base text-primary font-bold">€{Number(b.price_eur || 0).toLocaleString()}</p>
                   <p className="text-xs text-muted-foreground">{b.year || "—"} · {b.length_feet || "—"}ft</p>
                   <p className="text-xs text-muted-foreground line-clamp-1">{b.location || "Unknown location"}</p>
-                  <p className="text-xs font-medium">{insight.label}</p>
-                  <Button size="sm" variant="outline" className="h-7 text-xs mt-2 w-full" onClick={() => handleCardClick(b)}>
+                  <span
+                    className={`inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      insight.label === "Great deal"
+                        ? "bg-success/15 text-success"
+                        : insight.label === "Overpriced"
+                          ? "bg-destructive/15 text-destructive"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {insight.label}
+                  </span>
+                  <Button size="sm" variant="outline" className="h-8 text-xs mt-2 w-full rounded-lg" onClick={() => handleCardClick(b)}>
                     Open
                   </Button>
+                  </div>
                 </Card>
               );
             })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Import boat</DialogTitle>
+            <DialogDescription>
+              Paste listing URL. We will import it, store it in BoatBuyer, add it to My Boats, and open boat details.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <input
+              type="url"
+              placeholder="https://..."
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              className="w-full h-10 rounded-lg border bg-background px-3 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(false)} disabled={isImporting}>
+                Cancel
+              </Button>
+              <Button onClick={handleImportBoat} disabled={isImporting || !importUrl.trim()}>
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Import"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1207,10 +1455,7 @@ const Index = () => {
             <p>© {new Date().getFullYear()} BoatBuyer. All rights reserved.</p>
             <div className="flex gap-4">
               <Link to="/evaluate" className="hover:text-primary transition-colors">
-                Evaluate
-              </Link>
-              <Link to="/cost" className="hover:text-primary transition-colors">
-                Costs
+                Import boat
               </Link>
               <Link to="/my-boats" className="hover:text-primary transition-colors">
                 My Boats

@@ -293,18 +293,53 @@ function parseHullMaterialFromText(text: string): string | null {
   return null;
 }
 
+function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
+  const u = url.toLowerCase();
+  if (
+    /\/(motornaplovila|motorna-plovila|motorna_plovila|motor-boats?|motorboats?|powerboats?|power-?boats?)\//.test(
+      u,
+    ) ||
+    /[?&]cat=2(?:[&#]|$)/.test(u) ||
+    /[?&]rubrika=1(?:[&#]|$)/.test(u) ||
+    /\/motor-boats-203(?:[/?#]|$)/.test(u)
+  ) {
+    return "powerboat";
+  }
+  if (
+    /\/(jadrnice|sailboats?|sailing|vela|barca-a-vela)\//.test(u) ||
+    /[?&]cat=1(?:[&#]|$)/.test(u) ||
+    /[?&]rubrika=2(?:[&#]|$)/.test(u) ||
+    /\/sailboats-202(?:[/?#]|$)/.test(u)
+  ) {
+    return "sailboat";
+  }
+  return null;
+}
+
 function detectBoatType(
   text: string,
   url: string,
   fallback: "sailboat" | "powerboat" | "auto",
-): "sailboat" | "powerboat" {
-  const u = (url + " " + text).toLowerCase();
-  if (/\b(sailboat|sailing|segelboot|segelyacht|veliero|barca a vela|jedrilica|voilier|velero)\b/.test(u))
-    return "sailboat";
-  if (/\b(powerboat|motorboat|motoryacht|motorboot|barca a motore|gliser|motoryacht)\b/.test(u)) return "powerboat";
-  if (/\b(mainsail|genoa|spinnaker|jib|mast|rigging)\b/.test(u)) return "sailboat";
-  if (/\b(outboard|sterndrive|jet drive|planing|fuoribordo|entrobordo)\b/.test(u)) return "powerboat";
-  if (fallback === "auto") return "sailboat";
+): "sailboat" | "powerboat" | null {
+  // Use URL/category inference only for import-targeted listings (auto mode).
+  if (fallback === "auto") {
+    const urlType = inferBoatTypeFromUrl(url);
+    if (urlType) return urlType;
+  }
+
+  const u = `${url} ${text}`.toLowerCase();
+  const sailRe =
+    /\b(sailboat|sailing|sail|segelboot|segelyacht|veliero|barca a vela|jedrilica|voilier|velero|jadrnic[ae]|jadrno)\b/;
+  const powerRe =
+    /\b(powerboat|motorboat|motoryacht|motorboot|barca a motore|gliser|motorn[ao]|motornaplovila|motorna plovila|fuoribordo|entrobordo|outboard|inboard|sterndrive|jet drive|planing)\b/;
+  const sailGearRe = /\b(mainsail|genoa|spinnaker|jib|mast|rigging)\b/;
+
+  const sailHits = Number(sailRe.test(u)) + Number(sailGearRe.test(u));
+  const powerHits = Number(powerRe.test(u));
+
+  if (powerHits > sailHits) return "powerboat";
+  if (sailHits > powerHits) return "sailboat";
+  if (fallback === "auto") return null;
   return fallback;
 }
 
@@ -849,6 +884,24 @@ function findAllFeatureValues(featureMap: Record<string, string>, keyRe: RegExp)
   return out;
 }
 
+function normalizeLocationValue(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/\s*»\s*/g, " » ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 80) return null;
+  if (
+    /\b(contact|favorite|share|views|save pdf|notes|comment|komentarji|navtična oprema|piši na|next|previous)\b/i.test(
+      cleaned,
+    )
+  ) {
+    return null;
+  }
+  if (!/[a-z]/i.test(cleaned)) return null;
+  return cleaned;
+}
+
 function extractRichFields(
   text: string,
   featureMap: Record<string, string>,
@@ -1014,7 +1067,7 @@ function parseListing(
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
-  boat_type: "sailboat" | "powerboat";
+  boat_type: "sailboat" | "powerboat" | null;
   image_urls: string[];
   image_url: string | null;
   description: string | null;
@@ -1098,19 +1151,36 @@ function parseListing(
   // Location heuristics per site
   let location: string | null = null;
   if (site === "boat24.com") {
-    // Prefer structured location-like fields to avoid UI chrome fragments.
-    const structuredLocation = findFeatureValue(
-      featureMap,
-      /\b(location|standort|posizione|lokacija|country|region|place)\b/i,
-    );
-    if (structuredLocation && structuredLocation.length <= 80 && !/(contact|favorite|share|views|save pdf|notes)/i.test(structuredLocation)) {
-      location = structuredLocation.trim();
+    // Prefer explicit JSON-LD / structured keys first, then fallback.
+    const prioritizedKeys = [
+      "location",
+      "country",
+      "countryname",
+      "addresscountry",
+      "addresslocality",
+      "region",
+      "regionname",
+      "place",
+    ];
+    for (const k of prioritizedKeys) {
+      const v = normalizeLocationValue(featureMap[k]);
+      if (v) {
+        location = v;
+        break;
+      }
+    }
+    if (!location) {
+      const structuredLocation = findFeatureValue(
+        featureMap,
+        /\b(location|standort|posizione|lokacija|country|region|place)\b/i,
+      );
+      location = normalizeLocationValue(structuredLocation);
     }
   } else {
     const locM = text.match(/(?:location|standort|posizione|lokacija|località)[\s:]+([^.\n,|]{3,80})/i);
-    if (locM) location = locM[1].trim();
+    if (locM) location = normalizeLocationValue(locM[1]);
     if (!location && site === "trovobarche.it") {
-      location = extractTrovobarcheCity(html, featureMap);
+      location = normalizeLocationValue(extractTrovobarcheCity(html, featureMap));
     }
   }
 
@@ -1306,7 +1376,14 @@ Deno.serve(async (req) => {
         stats.errors++;
         continue;
       }
-      await processListingUrl(u, site, "auto");
+      const lowerUrl = u.toLowerCase();
+      const hintType: "sailboat" | "powerboat" | "auto" =
+        /\/(?:jadrnice|sail|sailboats?|vela|vela)\b/.test(lowerUrl)
+          ? "sailboat"
+          : /\/(?:motornaplovila|motor-boats?|motorboats?|power|powerboats?)\b/.test(lowerUrl)
+            ? "powerboat"
+            : "auto";
+      await processListingUrl(u, site, hintType);
     }
 
     console.log(`[scrape-free] targeted done`, stats);
