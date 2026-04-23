@@ -677,6 +677,7 @@ Deno.serve(async (req) => {
             image_url: parsed.image_url,
             image_urls: parsed.image_urls.length > 0 ? parsed.image_urls : null,
             description: parsed.description,
+            equipment: parsed.equipment,
             location: parsed.location,
             scraped_at: new Date().toISOString(),
           };
