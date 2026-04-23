@@ -162,6 +162,10 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Similar boats state
+  const [similarBoats, setSimilarBoats] = useState<SimilarBoat[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
 
