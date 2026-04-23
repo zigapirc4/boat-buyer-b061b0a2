@@ -704,6 +704,65 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
               )}
             </div>
           )}
+
+          {/* ===== SIMILAR BOATS ===== */}
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="font-semibold text-primary flex items-center gap-2">
+              <Ship className="w-4 h-4" /> Similar Boats
+            </h3>
+            {loadingSimilar ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" /> Finding similar boats…
+              </div>
+            ) : similarBoats.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No similar boats found in the catalog yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {similarBoats.map((b) => (
+                  <a
+                    key={b.url}
+                    href={b.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block rounded-lg border border-border bg-card overflow-hidden hover:border-primary/50 hover:shadow-md transition-all"
+                  >
+                    <div className="aspect-video bg-muted overflow-hidden">
+                      {b.image_url ? (
+                        <img
+                          src={b.image_url}
+                          alt={b.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Ship className="w-6 h-6 text-muted-foreground/30" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-2 space-y-0.5">
+                      <p className="text-xs font-medium line-clamp-2 group-hover:text-primary transition-colors">{b.title}</p>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>
+                          {b.year || "—"}
+                          {b.length_feet ? ` · ${Number(b.length_feet)}ft` : ""}
+                        </span>
+                        {b.price_eur && (
+                          <span className="font-semibold text-primary">€{Number(b.price_eur).toLocaleString()}</span>
+                        )}
+                      </div>
+                      {b.location && (
+                        <p className="text-[10px] text-muted-foreground/70 line-clamp-1 flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" /> {b.location}
+                        </p>
+                      )}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
