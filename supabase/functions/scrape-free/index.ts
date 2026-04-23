@@ -2,7 +2,7 @@
 // same URL validation, same boat-type detection) but uses direct HTTP fetch + r.jina.ai
 // fallback instead of Firecrawl, so it costs zero credits and can run frequently.
 //
-// Sources covered: mornar.net (sail+power), subito.it (with title filter), boat24.com (sail+power).
+// Sources covered: mornar.net (sail+power), trovobarche.it (sail+power), boat24.com (sail+power).
 // Pagination matches the existing CATEGORY_PAGES config.
 
 const corsHeaders = {
@@ -12,50 +12,6 @@ const corsHeaders = {
 };
 
 // ---------- Sources (same rules as scrape-listings-cron CATEGORY_PAGES) ----------
-
-const SUBITO_BOAT_KEYWORDS = [
-  "barca",
-  "vela",
-  "yacht",
-  "gommone",
-  "cabinato",
-  "gozzo",
-  "natante",
-  "motoscafo",
-  "veliero",
-  "catamarano",
-  "bavaria",
-  "beneteau",
-  "jeanneau",
-  "hanse",
-  "dufour",
-  "elan",
-  "azimut",
-  "sessa",
-  "cranchi",
-  "sea ray",
-  "quicksilver",
-  "fairline",
-  "princess",
-  "sunseeker",
-  "lagoon",
-  "fountaine pajot",
-  "saxdor",
-  "axopar",
-  "nimbus",
-  "galeon",
-  "prestige",
-  "merry fisher",
-  "antares",
-  "oceanis",
-  "sun odyssey",
-  "first ",
-  "hallberg",
-];
-const isLikelyBoatTitle = (title: string): boolean => {
-  const t = title.toLowerCase();
-  return SUBITO_BOAT_KEYWORDS.some((k) => t.includes(k));
-};
 
 type CategoryPage = {
   site: string;
@@ -79,14 +35,20 @@ const CATEGORY_PAGES: CategoryPage[] = [
     pages: 8,
   },
   {
-    site: "subito.it",
+    site: "trovobarche.it",
+    // Sailboats: category 202, sorted by newest. Pages 1..N
     buildUrl: (page) =>
-      page === 1
-        ? `https://www.subito.it/annunci-italia/vendita/nautica/?q=barca`
-        : `https://www.subito.it/annunci-italia/vendita/nautica/?q=barca&o=${page}`,
-    boatType: "auto",
-    pages: 10,
-    titleFilter: isLikelyBoatTitle,
+      `https://www.trovobarche.it/en/used-boats/sailboats-202?o=date-d&page=${page}`,
+    boatType: "sailboat",
+    pages: 30,
+  },
+  {
+    site: "trovobarche.it",
+    // Motor boats: category 203, sorted by newest.
+    buildUrl: (page) =>
+      `https://www.trovobarche.it/en/used-boats/motor-boats-203?o=date-d&page=${page}`,
+    boatType: "powerboat",
+    pages: 30,
   },
   {
     site: "boat24.com",
@@ -124,10 +86,9 @@ function isValidListingUrl(url: string, site: string): boolean {
   if (hostname.includes("mornar.net")) {
     return (/\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url)) || /\/oglas[a-z\-]*\/\d+/i.test(url);
   }
-  if (hostname.includes("subito.it")) {
-    if (!/\.htm/i.test(url)) return false;
-    if (/\/annunci-\w+\/vendita\/[^/]+\/?$/i.test(url)) return false;
-    return /\d{6,}\.htm/i.test(url);
+  if (hostname.includes("trovobarche.it")) {
+    // Listing detail URLs look like: https://www.trovobarche.it/en/<slug>-classified-<id>
+    return /\/en\/[a-z0-9][a-z0-9-]*-classified-\d{4,}(?:[\/?#]|$)/i.test(url);
   }
   return false;
 }
