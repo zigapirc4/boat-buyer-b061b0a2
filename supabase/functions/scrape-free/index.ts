@@ -322,6 +322,162 @@ function extractListingLinks(html: string, baseUrl: string, site: string): { url
   return out;
 }
 
+// ---------- Site-specific description + equipment extractors ----------
+
+// Walk into the FIRST opening tag in `slice`, then return the substring
+// up until that tag's matching closing tag (handling nested same-name tags).
+function captureBlock(html: string, startIdx: number, tag: string, maxLen = 20000): string {
+  const open = new RegExp(`<${tag}\\b[^>]*>`, "i");
+  const close = new RegExp(`</${tag}\\s*>`, "i");
+  const slice = html.slice(startIdx, startIdx + maxLen + 2000);
+  const om = slice.match(open);
+  if (!om) return slice.slice(0, maxLen);
+  let depth = 1;
+  let i = (om.index ?? 0) + om[0].length;
+  while (depth > 0 && i < slice.length) {
+    const rest = slice.slice(i);
+    const no = rest.match(new RegExp(`<${tag}\\b[^>]*>`, "i"));
+    const nc = rest.match(close);
+    if (!nc) break;
+    if (no && (no.index ?? Infinity) < (nc.index ?? Infinity)) {
+      depth++;
+      i += (no.index ?? 0) + no[0].length;
+    } else {
+      depth--;
+      i += (nc.index ?? 0) + nc[0].length;
+      if (depth === 0) return slice.slice((om.index ?? 0) + om[0].length, i - nc[0].length);
+    }
+  }
+  return slice.slice((om.index ?? 0) + om[0].length, Math.min(i, maxLen));
+}
+
+function extractListItems(blockHtml: string, max = 80): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(blockHtml)) !== null) {
+    const t = stripTags(m[1]).replace(/^[•·\-\*\s]+/, "").trim();
+    if (t && t.length >= 2 && t.length <= 120 && !seen.has(t.toLowerCase())) {
+      seen.add(t.toLowerCase());
+      out.push(t);
+      if (out.length >= max) break;
+    }
+  }
+  return out;
+}
+
+// boat24.com: equipment is in `<div id="equipment">…<ul>…<li>Item</li></ul>`
+function extractBoat24(html: string): { description: string | null; equipment: string[] } {
+  let description: string | null = null;
+  const lds = extractJsonLd(html);
+  for (const block of lds) {
+    const arr = Array.isArray(block?.["@graph"]) ? block["@graph"] : [block];
+    for (const ld of arr) {
+      if (ld?.description && typeof ld.description === "string" && ld.description.length > 60) {
+        description = ld.description.replace(/\\r\\n|\\n/g, "\n").trim();
+        break;
+      }
+    }
+    if (description) break;
+  }
+  const equipment: string[] = [];
+  const eqIdx = html.search(/id=["']equipment["']/i);
+  if (eqIdx >= 0) {
+    const block = captureBlock(html, eqIdx, "ul", 30000);
+    equipment.push(...extractListItems(block, 120));
+  }
+  return { description, equipment };
+}
+
+// trovobarche.it: description in `cls-description` card, equipment in
+// "Optionals and equipment" card, features in `cls-features` card.
+function extractTrovobarche(html: string): {
+  description: string | null;
+  equipment: string[];
+  featureMap: Record<string, string>;
+} {
+  let description: string | null = null;
+  const descIdx = html.search(/class=["']cls-description[^"']*["']/i);
+  if (descIdx >= 0) {
+    const block = captureBlock(html, descIdx, "div", 30000);
+    // The actual text lives inside .translator-content
+    const tcMatch = block.match(/class=["']translator-content[^"']*["'][^>]*>([\s\S]*?)(?:<div><button|<\/div>\s*<\/div>)/i);
+    const raw = tcMatch ? tcMatch[1] : block;
+    const txt = stripTags(raw).replace(/Read everything/gi, "").trim();
+    if (txt.length > 30) description = txt;
+  }
+
+  const equipment: string[] = [];
+  const eqIdx = html.search(/>Optionals and equipment</i);
+  if (eqIdx >= 0) {
+    const block = captureBlock(html, eqIdx, "ul", 20000);
+    equipment.push(...extractListItems(block, 120));
+  }
+
+  const featureMap: Record<string, string> = {};
+  const featIdx = html.search(/class=["']cls-features[^"']*["']/i);
+  if (featIdx >= 0) {
+    const block = captureBlock(html, featIdx, "div", 30000);
+    const re = /<li[^>]*>([^<]+?)<span[^>]*class=["']badge[^"']*["'][^>]*>([^<]+)<\/span>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(block)) !== null) {
+      const k = stripTags(m[1]).trim();
+      const v = stripTags(m[2]).trim();
+      if (k && v) featureMap[k.toLowerCase()] = v;
+    }
+  }
+  return { description, equipment, featureMap };
+}
+
+// mornar.net: boat detail pages render a vertical content area with paragraph
+// description and a feature/equipment table. We try common containers.
+function extractMornar(html: string): { description: string | null; equipment: string[] } {
+  let description: string | null = null;
+  // 1) Look for og:description as starter, but also try main content body
+  const og = extractMeta(html, "og:description");
+  // Try a richer block: the boat description usually sits inside a div whose
+  // text is significantly longer than the surrounding chrome.
+  const candidates: string[] = [];
+  const reDiv = /<(?:div|p|td)[^>]*>([\s\S]{200,4000}?)<\/(?:div|p|td)>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = reDiv.exec(html)) !== null) {
+    const t = stripTags(m[1]);
+    if (t.length > 200 && t.length < 4000 && !/cookie|sign in|search ads|menu|navigation/i.test(t)) {
+      candidates.push(t);
+    }
+    if (candidates.length > 30) break;
+  }
+  // Pick the longest meaningful candidate
+  candidates.sort((a, b) => b.length - a.length);
+  if (candidates[0] && candidates[0].length > (og?.length || 0) + 80) {
+    description = candidates[0];
+  } else if (og && og.length > 30) {
+    description = og;
+  }
+
+  // Equipment heuristic: find a list of short bullet-like items near
+  // keywords like "Equipment", "Inventory", "Oprema".
+  const equipment: string[] = [];
+  const eqRe = /(?:Equipment|Inventory|Oprema|Inventar)[\s\S]{0,300}?<(ul|table)[^>]*>([\s\S]{0,15000}?)<\/\1>/i;
+  const em = html.match(eqRe);
+  if (em) {
+    equipment.push(...extractListItems(em[2], 120));
+    // tables: pull <td> cells too
+    if (equipment.length === 0) {
+      const tdRe = /<td[^>]*>([^<]{2,80})<\/td>/gi;
+      let tm: RegExpExecArray | null;
+      while ((tm = tdRe.exec(em[2])) !== null) {
+        const t = stripTags(tm[1]).trim();
+        if (t && t.length >= 2 && t.length <= 80) equipment.push(t);
+        if (equipment.length >= 80) break;
+      }
+    }
+  }
+
+  return { description, equipment };
+}
+
 // ---------- Parse a single listing into cached_listings shape ----------
 
 function parseListing(
@@ -339,6 +495,7 @@ function parseListing(
   image_url: string | null;
   description: string | null;
   location: string | null;
+  equipment: string[] | null;
 } {
   const text = stripTags(html);
 
@@ -348,21 +505,24 @@ function parseListing(
     if (t) title = decodeEntities(t[1]).trim();
   }
 
-  const description = extractMeta(html, "og:description") || extractMeta(html, "description");
   let price: number | null = null;
   const lds = extractJsonLd(html);
-  for (const ld of lds) {
-    const offers = ld.offers || ld;
-    const p = offers?.price || offers?.priceSpecification?.price;
-    const cur = offers?.priceCurrency || offers?.priceSpecification?.priceCurrency || "EUR";
-    if (p) {
-      const num = typeof p === "string" ? parseFloat(p.replace(/[^\d.]/g, "")) : Number(p);
-      if (num > 0) {
-        price = Math.round(num * (FX_TO_EUR[cur] ?? 1));
-        break;
+  for (const block of lds) {
+    const arr = Array.isArray(block?.["@graph"]) ? block["@graph"] : [block];
+    for (const ld of arr) {
+      const offers = ld?.offers || ld;
+      const p = offers?.price || offers?.priceSpecification?.price;
+      const cur = offers?.priceCurrency || offers?.priceSpecification?.priceCurrency || "EUR";
+      if (p) {
+        const num = typeof p === "string" ? parseFloat(p.replace(/[^\d.]/g, "")) : Number(p);
+        if (num > 0) {
+          price = Math.round(num * (FX_TO_EUR[cur] ?? 1));
+          break;
+        }
       }
+      if (ld?.name && !title) title = ld.name;
     }
-    if (ld.name && !title) title = ld.name;
+    if (price !== null) break;
   }
   if (price === null) price = parsePriceWithCurrency(text).eur;
 
@@ -370,6 +530,29 @@ function parseListing(
   const length_feet = parseLengthFeet(text);
   const images = extractImages(html, url, 5, site);
   const boat_type = detectBoatType(text, url, hintType);
+
+  // Site-specific RICH extraction for description + equipment
+  let description: string | null = null;
+  let equipment: string[] = [];
+  if (site === "boat24.com") {
+    const r = extractBoat24(html);
+    description = r.description;
+    equipment = r.equipment;
+  } else if (site === "trovobarche.it") {
+    const r = extractTrovobarche(html);
+    description = r.description;
+    equipment = r.equipment;
+  } else if (site === "mornar.net") {
+    const r = extractMornar(html);
+    description = r.description;
+    equipment = r.equipment;
+  }
+  // Fallback to og:description if site-specific extraction failed
+  if (!description) {
+    description = extractMeta(html, "og:description") || extractMeta(html, "description");
+  }
+  // Cap description length to avoid bloating the DB
+  if (description && description.length > 5000) description = description.slice(0, 5000) + "…";
 
   // Location heuristics per site
   let location: string | null = null;
@@ -386,6 +569,7 @@ function parseListing(
     image_url: images[0] || null,
     description: description || null,
     location,
+    equipment: equipment.length > 0 ? equipment : null,
   };
 }
 
