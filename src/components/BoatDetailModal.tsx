@@ -441,17 +441,24 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
             <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
           )}
 
-          {/* Equipment highlights from enrichment */}
-          {enrichedExtras.equipmentHighlights && enrichedExtras.equipmentHighlights.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold mb-1">Equipment</h3>
-              <div className="flex flex-wrap gap-1">
-                {enrichedExtras.equipmentHighlights.map((eq, i) => (
-                  <span key={i} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{eq}</span>
-                ))}
+          {/* Equipment — merged from scraped listing + AI enrichment */}
+          {(() => {
+            const merged = new Set<string>();
+            (effective!.equipment || []).forEach((e) => e && merged.add(e));
+            (enrichedExtras.equipmentHighlights || []).forEach((e) => e && merged.add(e));
+            const items = Array.from(merged);
+            if (items.length === 0) return null;
+            return (
+              <div>
+                <h3 className="text-sm font-semibold mb-1">Equipment</h3>
+                <div className="flex flex-wrap gap-1">
+                  {items.map((eq, i) => (
+                    <span key={i} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{eq}</span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Known issues from enrichment */}
           {enrichedExtras.knownIssues && enrichedExtras.knownIssues.length > 0 && (
