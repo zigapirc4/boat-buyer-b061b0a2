@@ -152,6 +152,12 @@ const Index = () => {
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [typePromptOpen, setTypePromptOpen] = useState(false);
+  const [pendingTypeListing, setPendingTypeListing] = useState<CachedListing | null>(null);
+  const [pendingTypeToastDescription, setPendingTypeToastDescription] = useState<string>(
+    "Listing is saved in BoatBuyer and automatically added to My Boats.",
+  );
+  const [selectedType, setSelectedType] = useState<"sailboat" | "powerboat" | "">("");
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -370,6 +376,42 @@ const Index = () => {
     setIsImporting(true);
 
     try {
+      const finalizeImportedListing = (savedListing: CachedListing, toastDescription: string) => {
+        saveListing({
+          id: savedListing.id,
+          title: savedListing.title,
+          url: savedListing.url,
+          boat_type: savedListing.boat_type,
+          price_eur: savedListing.price_eur,
+          year: savedListing.year,
+          length_feet: savedListing.length_feet,
+          location: savedListing.location,
+          image_url: savedListing.image_url,
+          source: savedListing.source,
+        });
+        setSavedIds((prev) => new Set(prev).add(savedListing.id));
+        setListings((prev) => [savedListing, ...prev.filter((l) => l.id !== savedListing.id)]);
+        setSelectedListing(savedListing);
+        setModalInitialTab("details");
+        setModalOpen(true);
+        setImportOpen(false);
+        setImportUrl("");
+        toast({
+          title: "Boat imported",
+          description: toastDescription,
+        });
+      };
+
+      const requireBoatTypeBeforeSave = (savedListing: CachedListing, toastDescription: string) => {
+        if (savedListing.boat_type) return false;
+        setPendingTypeListing(savedListing);
+        setPendingTypeToastDescription(toastDescription);
+        setSelectedType("");
+        setTypePromptOpen(true);
+        setImportOpen(false);
+        return true;
+      };
+
       const getSourceFromUrl = (rawUrl: string): "boat24.com" | "trovobarche.it" | "mornar.net" | "other" => {
         try {
           const host = new URL(rawUrl).hostname.replace("www.", "").replace("www2.", "").toLowerCase();
@@ -401,6 +443,9 @@ const Index = () => {
 
       if (existing) {
         const existingListing = existing as CachedListing;
+        if (requireBoatTypeBeforeSave(existingListing, "Listing is saved in BoatBuyer and automatically added to My Boats.")) {
+          return;
+        }
         if (!isListingSaved(existingListing.id)) {
           saveListing({
             id: existingListing.id,
@@ -454,6 +499,9 @@ const Index = () => {
           const fallbackSaved = await getCachedByUrl(normalizedUrl);
 
           if (fallbackSaved) {
+            if (requireBoatTypeBeforeSave(fallbackSaved, "Listing was already cached during import and is now added to My Boats.")) {
+              return;
+            }
             if (!isListingSaved(fallbackSaved.id)) {
               saveListing({
                 id: fallbackSaved.id,
@@ -497,60 +545,20 @@ const Index = () => {
         const fallbackSaved = await getCachedByUrl(normalizedUrl);
         if (fallbackSaved) {
           const fallbackListing = fallbackSaved as CachedListing;
-          if (!isListingSaved(fallbackListing.id)) {
-            saveListing({
-              id: fallbackListing.id,
-              title: fallbackListing.title,
-              url: fallbackListing.url,
-              boat_type: fallbackListing.boat_type,
-              price_eur: fallbackListing.price_eur,
-              year: fallbackListing.year,
-              length_feet: fallbackListing.length_feet,
-              location: fallbackListing.location,
-              image_url: fallbackListing.image_url,
-              source: fallbackListing.source,
-            });
-            setSavedIds((prev) => new Set(prev).add(fallbackListing.id));
+          if (requireBoatTypeBeforeSave(fallbackListing, "Listing was already cached during import and is now added to My Boats.")) {
+            return;
           }
-          setSelectedListing(fallbackListing);
-          setModalInitialTab("details");
-          setModalOpen(true);
-          setImportOpen(false);
-          setImportUrl("");
-          toast({
-            title: "Boat imported",
-            description: "Listing was already cached during import and is now added to My Boats.",
-          });
+          finalizeImportedListing(fallbackListing, "Listing was already cached during import and is now added to My Boats.");
           return;
         }
         throw new Error("Import completed but listing is not yet visible in cache. Please retry in a moment.");
       }
 
       const savedListing = savedRow as CachedListing;
-      saveListing({
-        id: savedListing.id,
-        title: savedListing.title,
-        url: savedListing.url,
-        boat_type: savedListing.boat_type,
-        price_eur: savedListing.price_eur,
-        year: savedListing.year,
-        length_feet: savedListing.length_feet,
-        location: savedListing.location,
-        image_url: savedListing.image_url,
-        source: savedListing.source,
-      });
-      setSavedIds((prev) => new Set(prev).add(savedListing.id));
-      setListings((prev) => [savedListing, ...prev.filter((l) => l.id !== savedListing.id)]);
-
-      setSelectedListing(savedListing);
-      setModalInitialTab("details");
-      setModalOpen(true);
-      setImportOpen(false);
-      setImportUrl("");
-      toast({
-        title: "Boat imported",
-        description: "Listing is saved in BoatBuyer and automatically added to My Boats.",
-      });
+      if (requireBoatTypeBeforeSave(savedListing, "Listing is saved in BoatBuyer and automatically added to My Boats.")) {
+        return;
+      }
+      finalizeImportedListing(savedListing, "Listing is saved in BoatBuyer and automatically added to My Boats.");
     } catch (e) {
       console.error("Import failed:", e);
       toast({
@@ -561,6 +569,37 @@ const Index = () => {
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const handleConfirmBoatType = async () => {
+    if (!pendingTypeListing || !selectedType) return;
+    const typedListing: CachedListing = { ...pendingTypeListing, boat_type: selectedType };
+    await supabase.from("cached_listings").update({ boat_type: selectedType }).eq("id", pendingTypeListing.id);
+    saveListing({
+      id: typedListing.id,
+      title: typedListing.title,
+      url: typedListing.url,
+      boat_type: typedListing.boat_type,
+      price_eur: typedListing.price_eur,
+      year: typedListing.year,
+      length_feet: typedListing.length_feet,
+      location: typedListing.location,
+      image_url: typedListing.image_url,
+      source: typedListing.source,
+    });
+    setSavedIds((prev) => new Set(prev).add(typedListing.id));
+    setListings((prev) => [typedListing, ...prev.filter((l) => l.id !== typedListing.id)]);
+    setSelectedListing(typedListing);
+    setModalInitialTab("details");
+    setModalOpen(true);
+    setTypePromptOpen(false);
+    setPendingTypeListing(null);
+    setSelectedType("");
+    setImportUrl("");
+    toast({
+      title: "Boat imported",
+      description: pendingTypeToastDescription,
+    });
   };
 
   const getImageUrl = (listing: CachedListing) => {
@@ -1412,6 +1451,42 @@ const Index = () => {
               </Button>
               <Button onClick={handleImportBoat} disabled={isImporting || !importUrl.trim()}>
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Import"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={typePromptOpen} onOpenChange={setTypePromptOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select boat type</DialogTitle>
+            <DialogDescription>
+              We could not detect the boat type automatically. Please choose it before we save this boat.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Select value={selectedType} onValueChange={(v) => setSelectedType(v as "sailboat" | "powerboat")}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose type..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sailboat">Sailboat</SelectItem>
+                <SelectItem value="powerboat">Powerboat</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setTypePromptOpen(false);
+                  setPendingTypeListing(null);
+                  setSelectedType("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmBoatType} disabled={!selectedType}>
+                Save
               </Button>
             </div>
           </div>
