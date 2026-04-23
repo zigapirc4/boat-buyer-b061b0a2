@@ -197,7 +197,39 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
     setEnrichedListing(null);
     setEnrichedExtras({});
     setFetchError(null);
+    setSimilarBoats([]);
   }, [listing?.id]);
+
+  // Fetch similar boats when modal opens for a listing
+  useEffect(() => {
+    if (!open || !listing) return;
+    let cancelled = false;
+    const run = async () => {
+      setLoadingSimilar(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("search-similar-boats", {
+          body: {
+            model: listing.title,
+            length_feet: listing.length_feet,
+            year: listing.year,
+            boat_type: listing.boat_type || "sailboat",
+          },
+        });
+        if (cancelled) return;
+        if (!error && data?.success && Array.isArray(data.data)) {
+          // Exclude the current listing itself
+          const filtered = (data.data as SimilarBoat[]).filter((b) => b.url !== listing.url).slice(0, 6);
+          setSimilarBoats(filtered);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setLoadingSimilar(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [open, listing?.id]);
 
   const needsFetch = (tab: "evaluate" | "costs") => {
     if (!effective) return false;
