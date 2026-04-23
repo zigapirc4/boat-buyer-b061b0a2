@@ -382,6 +382,25 @@ const browserHeaders = {
   "Accept-Encoding": "gzip, deflate",
 };
 
+async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { "User-Agent": browserHeaders["User-Agent"], "X-Return-Format": "html" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (res.ok) {
+      const html = await res.text();
+      if (html && html.length > 500) return html;
+    }
+  } catch {
+    /* give up */
+  }
+  return null;
+}
+
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -398,22 +417,7 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
   }
 
   // Fallback: r.jina.ai proxy (free, returns rendered HTML)
-  try {
-    const ctrl2 = new AbortController();
-    const t2 = setTimeout(() => ctrl2.abort(), timeoutMs);
-    const res = await fetch(`https://r.jina.ai/${url}`, {
-      headers: { "User-Agent": browserHeaders["User-Agent"], "X-Return-Format": "html" },
-      signal: ctrl2.signal,
-    });
-    clearTimeout(t2);
-    if (res.ok) {
-      const html = await res.text();
-      if (html && html.length > 500) return html;
-    }
-  } catch {
-    /* give up */
-  }
-  return null;
+  return await fetchHtmlViaProxy(url, timeoutMs);
 }
 
 // ---------- Extract listing links from a category page ----------
@@ -479,6 +483,27 @@ function extractListItems(blockHtml: string, max = 80): string[] {
   return out;
 }
 
+function htmlToReadableText(blockHtml: string): string {
+  if (!blockHtml) return "";
+  const normalized = blockHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/(?:div|section|article|table|tr|td|th|h[1-6])>/gi, "\n")
+    .replace(/<li\b[^>]*>/gi, "")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<\/(?:ul|ol)>/gi, "\n");
+
+  return decodeEntities(normalized.replace(/<[^>]+>/g, " "))
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // boat24.com: equipment is in `<div id="equipment">…<ul>…<li>Item</li></ul>`
 function extractBoat24(html: string): { description: string | null; equipment: string[] } {
   let description: string | null = null;
@@ -513,10 +538,20 @@ function extractTrovobarche(html: string): {
   const descIdx = html.search(/<div[^>]+class=["'][^"']*cls-description[^"']*["'][^>]*>/i);
   if (descIdx >= 0) {
     const block = captureBlock(html, descIdx, "div", 30000);
-    // The actual text lives inside .translator-content
+    // New template: first data-readmore block contains canonical listing description.
+    const readmoreMatch = block.match(/<div[^>]+data-readmore=["'][^"']+["'][^>]*>([\s\S]*?)<\/div>/i);
+    // Legacy template fallback: text may be inside translator-content.
     const tcMatch = block.match(/class=["']translator-content[^"']*["'][^>]*>([\s\S]*?)(?:<div><button|<\/div>\s*<\/div>)/i);
-    const raw = tcMatch ? tcMatch[1] : block;
-    const txt = stripTags(raw).replace(/Read everything/gi, "").trim();
+    const raw = readmoreMatch?.[1] || tcMatch?.[1] || block;
+    let txt = stripTags(raw)
+      .replace(/\b(Read everything|Show full description|Hide full description)\b/gi, "")
+      .trim();
+    // Remove UI/secondary sections that can leak into older templates.
+    txt = txt
+      .replace(/\bInsert note\b[\s\S]*$/i, "")
+      .replace(/\bSuspicious ad\b[\s\S]*$/i, "")
+      .replace(/\bOptionals and equipment\b[\s\S]*$/i, "")
+      .trim();
     if (txt.length > 30) description = txt;
   }
 
@@ -587,43 +622,65 @@ function extractTrovobarche(html: string): {
 // description and a feature/equipment table. We try common containers.
 function extractMornar(html: string): { description: string | null; equipment: string[] } {
   let description: string | null = null;
-  // 1) Look for og:description as starter, but also try main content body
-  const og = extractMeta(html, "og:description");
-  // Try a richer block: the boat description usually sits inside a div whose
-  // text is significantly longer than the surrounding chrome.
-  const candidates: string[] = [];
-  const reDiv = /<(?:div|p|td)[^>]*>([\s\S]{200,4000}?)<\/(?:div|p|td)>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = reDiv.exec(html)) !== null) {
-    const t = stripTags(m[1]);
-    if (t.length > 200 && t.length < 4000 && !/cookie|sign in|search ads|menu|navigation/i.test(t)) {
-      candidates.push(t);
+  const equipment: string[] = [];
+
+  // Best source: "EQUIPMENT AND DESCRIPTION" table block on listing detail pages.
+  const eqHeaderIdx = html.search(/<th[^>]*>\s*EQUIPMENT AND DESCRIPTION\s*<\/th>/i);
+  if (eqHeaderIdx >= 0) {
+    const tableStart = html.lastIndexOf("<table", eqHeaderIdx);
+    const tableEnd = html.indexOf("</table>", eqHeaderIdx);
+    const eqTable =
+      tableStart >= 0 && tableEnd > tableStart ? html.slice(tableStart, tableEnd + "</table>".length) : null;
+    if (eqTable) {
+    const tdMatch = eqTable.match(/<td[^>]*>([\s\S]*?)<\/td>/i);
+    const contentBlock = tdMatch ? tdMatch[1] : eqTable;
+
+    const formatted = htmlToReadableText(contentBlock);
+    if (formatted.length > 40) description = formatted;
+
+    equipment.push(...extractListItems(contentBlock, 120));
     }
-    if (candidates.length > 30) break;
-  }
-  // Pick the longest meaningful candidate
-  candidates.sort((a, b) => b.length - a.length);
-  if (candidates[0] && candidates[0].length > (og?.length || 0) + 80) {
-    description = candidates[0];
-  } else if (og && og.length > 30) {
-    description = og;
   }
 
-  // Equipment heuristic: find a list of short bullet-like items near
-  // keywords like "Equipment", "Inventory", "Oprema".
-  const equipment: string[] = [];
-  const eqRe = /(?:Equipment|Inventory|Oprema|Inventar)[\s\S]{0,300}?<(ul|table)[^>]*>([\s\S]{0,15000}?)<\/\1>/i;
-  const em = html.match(eqRe);
-  if (em) {
-    equipment.push(...extractListItems(em[2], 120));
-    // tables: pull <td> cells too
-    if (equipment.length === 0) {
-      const tdRe = /<td[^>]*>([^<]{2,80})<\/td>/gi;
-      let tm: RegExpExecArray | null;
-      while ((tm = tdRe.exec(em[2])) !== null) {
-        const t = stripTags(tm[1]).trim();
-        if (t && t.length >= 2 && t.length <= 80) equipment.push(t);
-        if (equipment.length >= 80) break;
+  // 1) Look for og:description as starter, but also try main content body
+  const og = extractMeta(html, "og:description");
+  if (!description) {
+    // Try a richer block: the boat description usually sits inside a div whose
+    // text is significantly longer than the surrounding chrome.
+    const candidates: string[] = [];
+    const reDiv = /<(?:div|p|td)[^>]*>([\s\S]{200,4000}?)<\/(?:div|p|td)>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = reDiv.exec(html)) !== null) {
+      const t = stripTags(m[1]);
+      if (t.length > 200 && t.length < 4000 && !/cookie|sign in|search ads|menu|navigation/i.test(t)) {
+        candidates.push(t);
+      }
+      if (candidates.length > 30) break;
+    }
+    // Pick the longest meaningful candidate
+    candidates.sort((a, b) => b.length - a.length);
+    if (candidates[0] && candidates[0].length > (og?.length || 0) + 80) {
+      description = candidates[0];
+    } else if (og && og.length > 30) {
+      description = og;
+    }
+  }
+
+  if (equipment.length === 0) {
+    // Fallback heuristic: find a list near equipment keywords.
+    const eqRe = /(?:Equipment|Inventory|Oprema|Inventar)[\s\S]{0,300}?<(ul|table)[^>]*>([\s\S]{0,15000}?)<\/\1>/i;
+    const em = html.match(eqRe);
+    if (em) {
+      equipment.push(...extractListItems(em[2], 120));
+      // tables: pull <td> cells too
+      if (equipment.length === 0) {
+        const tdRe = /<td[^>]*>([^<]{2,80})<\/td>/gi;
+        let tm: RegExpExecArray | null;
+        while ((tm = tdRe.exec(em[2])) !== null) {
+          const t = stripTags(tm[1]).trim();
+          if (t && t.length >= 2 && t.length <= 80) equipment.push(t);
+          if (equipment.length >= 80) break;
+        }
       }
     }
   }
@@ -788,11 +845,15 @@ Deno.serve(async (req) => {
   let categoryStart = 0;
   let categoryEnd = CATEGORY_PAGES.length;
   let maxListingsPerPage = 8;
+  let pageStart = 1;
+  let pageEnd: number | null = null;
   try {
     const body = await req.json().catch(() => ({}));
     if (typeof body.categoryStart === "number") categoryStart = body.categoryStart;
     if (typeof body.categoryEnd === "number") categoryEnd = body.categoryEnd;
     if (typeof body.maxListingsPerPage === "number") maxListingsPerPage = body.maxListingsPerPage;
+    if (typeof body.pageStart === "number") pageStart = Math.max(1, Math.floor(body.pageStart));
+    if (typeof body.pageEnd === "number") pageEnd = Math.max(1, Math.floor(body.pageEnd));
   } catch {}
 
   const stats = { categoriesProcessed: 0, listingsFound: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
@@ -803,7 +864,9 @@ Deno.serve(async (req) => {
 
   for (const cat of cats) {
     stats.categoriesProcessed++;
-    for (let page = 1; page <= cat.pages; page++) {
+    const startPage = Math.min(pageStart, cat.pages);
+    const endPage = Math.max(startPage, Math.min(pageEnd ?? cat.pages, cat.pages));
+    for (let page = startPage; page <= endPage; page++) {
       const catUrl = cat.buildUrl(page);
       console.log(`[scrape-free] ${cat.site} p${page}: ${catUrl}`);
       const indexHtml = await fetchHtml(catUrl);
@@ -825,7 +888,27 @@ Deno.serve(async (req) => {
             stats.errors++;
             continue;
           }
-          const parsed = parseListing(html, link.url, cat.site, cat.boatType);
+          let parsed = parseListing(html, link.url, cat.site, cat.boatType);
+
+          // Trovobarche can return teaser descriptions on direct fetch for some ads.
+          // When we detect a likely teaser, retry description extraction using proxy HTML.
+          if (
+            cat.site === "trovobarche.it" &&
+            parsed.description &&
+            /\.\.\./.test(parsed.description)
+          ) {
+            const proxyHtml = await fetchHtmlViaProxy(link.url, 12000);
+            if (proxyHtml) {
+              const proxyParsed = parseListing(proxyHtml, link.url, cat.site, cat.boatType);
+              if (
+                proxyParsed.description &&
+                proxyParsed.description.length > parsed.description.length + 40
+              ) {
+                parsed = { ...parsed, description: proxyParsed.description };
+              }
+            }
+          }
+
           const row = {
             url: link.url,
             title: parsed.title || link.title || link.url,
