@@ -28,8 +28,19 @@ interface CachedListing {
   engine_hours?: number | null;
   cabins?: number | null;
   fuel_type?: string | null;
+  equipment?: string[] | null;
   source: string | null;
   scraped_at: string;
+}
+
+interface SimilarBoat {
+  title: string;
+  url: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
 }
 
 interface Marina {
