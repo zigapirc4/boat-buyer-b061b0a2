@@ -1,13 +1,13 @@
 ---
 name: Scraper configuration
-description: Edge function scraper with 95 targeted queries, strict listing-only URL filtering, quality data requirements
+description: Token-free scraper covering mornar.net, trovobarche.it, boat24.com — 4 batches running every 15 min staggered
 type: feature
 ---
-- Edge function: `scrape-listings-cron`
-- 95 search queries: brand+model specific (Bavaria 34, Beneteau Oceanis 38, etc.) + regional site-scoped
-- SAILBOAT_QUERY_COUNT = 44 (queries 0-43)
-- Strict URL filtering: rejects category/search/aggregation pages, YouTube, Facebook, etc.
+- Edge function: `scrape-free` (token-free, direct fetch + r.jina.ai fallback)
+- Sources: mornar.net (sail+power), trovobarche.it (sail+power, replaces subito.it), boat24.com (sail+power)
+- CATEGORY_PAGES indices: 0,1=mornar; 2,3=trovobarche (sail=202, power=203, 30 pages each); 4,5=boat24
+- trovobarche listing URL pattern: `/en/<slug>-classified-<id>`
+- Pagination: trovobarche `?o=date-d&page=N`
 - Quality gate: requires price OR (year AND length) to accept a listing
-- Enrichment: Firecrawl scrape+extract on top 10 per batch (limited to avoid timeout)
-- Batched invocation: `startIdx`, `endIdx`, `skipEnrich` params
-- Upsert with `resolution=merge-duplicates` on `url` unique constraint
+- Cron: 4 batches (a/b/c/d) every 15 min, offset 0/3/6/9 min — effective scrape every ~3-4 min
+- Body: `{categoryStart, categoryEnd, maxListingsPerPage:8}`
