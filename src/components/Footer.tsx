@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Anchor, Heart, Mail } from "lucide-react";
+import { Heart, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export const Footer = () => (
@@ -7,13 +7,7 @@ export const Footer = () => (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-ocean flex items-center justify-center">
-            <Anchor className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">BoatBuyer</p>
-            <p className="text-xs text-muted-foreground">Smart boat purchase decisions</p>
-          </div>
+          <img src="/logo-horizontal.png" alt="BoatBuyer" className="h-7 w-auto" />
         </div>
         <div className="text-center sm:text-right">
           <p className="text-sm font-medium">Žiga Pirc</p>

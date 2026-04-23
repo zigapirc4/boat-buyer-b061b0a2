@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Anchor, Heart, MapPin, Home, Ship, Calculator, List, BookOpen } from "lucide-react";
+import { Heart, MapPin, Home, Ship, Calculator, List, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -35,17 +35,11 @@ export const Header = () => {
   }, []);
 
   return (
-    <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
+    <div className="hero-header-bg text-primary-foreground">
       <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
         <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <Anchor className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xl sm:text-2xl font-bold leading-tight text-white">BoatBuyer</p>
-              <p className="text-white/75 text-[10px] sm:text-xs">Smart boat purchase decisions</p>
-            </div>
+          <Link to="/" className="inline-flex items-center">
+            <img src="/logo-horizontal.png" alt="BoatBuyer" className="h-10 sm:h-11 w-auto" />
           </Link>
           <Link
             to="/my-story"

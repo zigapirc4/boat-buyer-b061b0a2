@@ -3,7 +3,7 @@ import { Footer } from "@/components/Footer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FeedbackButton } from "@/components/FeedbackButton";
-import { Anchor, BookOpen, Heart, List, MapPin, Ship } from "lucide-react";
+import { BookOpen, Heart, List, MapPin, Ship } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import myStoryImage from "@/assets/my-story-vivacity.jpg";
@@ -38,17 +38,24 @@ const MyStory = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
-        <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
-          <div className="flex items-center gap-3 mb-4">
-            <Link to="/" className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <Anchor className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
-                <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
-              </div>
+      <div className="hero-header-bg text-primary-foreground">
+        <div className="max-w-6xl mx-auto px-4 py-6 sm:py-10">
+          <div className="sticky top-0 z-40 -mx-4 px-4 py-2 mb-4">
+            <div className="flex items-center justify-end gap-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+                <Link to="/buyers-guides" className="top-nav-link">Buyer’s Guides</Link>
+                <span className="top-nav-link-active">My Story</span>
+                <Link to="/my-boats" className="top-nav-link">My Boats</Link>
+                <div className="shrink-0">
+                  <FeedbackButton pagePath="/my-story" />
+                </div>
+                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
+                  <Heart className="w-3.5 h-3.5" /> Donate
+                </a>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mb-5">
+            <Link to="/" className="inline-flex items-center">
+              <img src="/logo-horizontal.png" alt="BoatBuyer" className="h-12 sm:h-14 w-auto" />
             </Link>
             <div className="hidden sm:flex items-center gap-2 ml-auto">
               {locationLabel && (
@@ -56,15 +63,6 @@ const MyStory = () => {
                   <MapPin className="w-3 h-3" /> {locationLabel}
                 </span>
               )}
-              <FeedbackButton pagePath="/my-story" />
-              <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
-                <Button
-                  size="sm"
-                  className="bg-warning hover:bg-warning/90 text-warning-foreground font-semibold text-xs gap-1.5 rounded-full px-4"
-                >
-                  <Heart className="w-3.5 h-3.5" /> Donate
-                </Button>
-              </a>
             </div>
           </div>
 
@@ -77,44 +75,7 @@ const MyStory = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 sm:gap-3 mt-6">
-            <Link to="/" state={{ openImport: true }} className="group">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
-                  <Ship className="w-4 h-4 sm:w-5 sm:h-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-semibold">Import boat</p>
-                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Evaluate + ownership cost</p>
-              </div>
-            </Link>
-            <Link to="/my-boats" className="group">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
-                  <List className="w-4 h-4 sm:w-5 sm:h-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-semibold">My Boats</p>
-                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Your shortlist</p>
-              </div>
-            </Link>
-            <div className="group">
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center border border-white/20">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/25 flex items-center justify-center mx-auto mb-2">
-                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-semibold">My Story</p>
-                <p className="text-[10px] sm:text-xs text-white/70 mt-0.5">You are here</p>
-              </div>
-            </div>
-            <Link to="/buyers-guides" className="group">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
-                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-semibold">Buyer’s Guides</p>
-                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Expert playbooks</p>
-              </div>
-            </Link>
-          </div>
+          <div className="mt-5" />
         </div>
       </div>
 

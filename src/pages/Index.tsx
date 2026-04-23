@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Anchor,
   Ship,
   List,
   Loader2,
@@ -158,6 +157,7 @@ const Index = () => {
     "Listing is saved in BoatBuyer and automatically added to My Boats.",
   );
   const [selectedType, setSelectedType] = useState<"sailboat" | "powerboat" | "">("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -167,10 +167,10 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    const shouldOpenImport = Boolean((location.state as { openImport?: boolean } | null)?.openImport);
-    if (!shouldOpenImport) return;
+    const shouldFocusImport = Boolean((location.state as { openImport?: boolean } | null)?.openImport);
+    if (!shouldFocusImport) return;
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setImportOpen(true);
+    setTimeout(() => importInputRef.current?.focus(), 120);
     navigate(location.pathname, { replace: true, state: {} });
   }, [location.pathname, location.state, navigate]);
 
@@ -791,45 +791,27 @@ const Index = () => {
   const scrollToListings = () => {
     document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
   };
-  const actionCards = [
-    { icon: Ship, label: "Import boat", desc: "Evaluate + ownership cost", onClick: () => setImportOpen(true), badge: null as number | null },
-    {
-      to: "/my-boats",
-      icon: List,
-      label: "My Boats",
-      desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist",
-      badge: savedCount,
-    },
-    {
-      to: "/my-story",
-      icon: Heart,
-      label: "My Story",
-      desc: "Why BoatBuyer exists",
-      badge: null as number | null,
-    },
-    {
-      to: "/buyers-guides",
-      icon: BookOpen,
-      label: "Buyer’s Guides",
-      desc: "Expert playbooks",
-      badge: null as number | null,
-    },
-  ];
-
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Hero Banner */}
-      <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
-        <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
-          <div className="flex items-center gap-3 mb-4">
-            <Link to="/" className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <Anchor className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
-                <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
-              </div>
+      <div className="hero-header-bg text-primary-foreground">
+        <div className="max-w-6xl mx-auto px-4 py-6 sm:py-10">
+          <div className="sticky top-0 z-40 -mx-4 px-4 py-2 mb-4">
+            <div className="flex items-center justify-end gap-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+                <Link to="/buyers-guides" className="top-nav-link">Buyer’s Guides</Link>
+                <Link to="/my-story" className="top-nav-link">My Story</Link>
+                <Link to="/my-boats" className="top-nav-link">My Boats {savedCount > 0 ? `(${savedCount})` : ""}</Link>
+                <div className="shrink-0">
+                  <FeedbackButton pagePath="/" />
+                </div>
+                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
+                  <Heart className="w-3.5 h-3.5" /> Donate
+                </a>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mb-5">
+            <Link to="/" className="inline-flex items-center">
+              <img src="/logo-horizontal.png" alt="BoatBuyer" className="h-12 sm:h-14 w-auto" />
             </Link>
             <div className="hidden sm:flex items-center gap-2 ml-auto">
               {locationLabel && (
@@ -837,58 +819,55 @@ const Index = () => {
                   <MapPin className="w-3 h-3" /> {locationLabel}
                 </span>
               )}
-              <FeedbackButton pagePath="/" />
-              <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
-                <Button
-                  size="sm"
-                  className="bg-warning hover:bg-warning/90 text-warning-foreground font-semibold text-xs gap-1.5 rounded-full px-4"
-                >
-                  <Heart className="w-3.5 h-3.5" /> Donate
-                </Button>
-              </a>
             </div>
           </div>
 
-          <div className="mt-3 max-w-2xl">
-            <p className="text-sm sm:text-base text-white/90">
-              We analyze listings, compare market peers, and show what to negotiate before you call the seller.
-            </p>
-            <p className="text-xs text-white/70 mt-1">
-              We highly value your feedback - it directly helps us make BoatBuyer better.
-            </p>
+          <div className="grid md:grid-cols-2 gap-6 md:gap-8 items-end">
+            <div className="max-w-2xl">
+              <p className="text-4xl sm:text-5xl font-semibold leading-tight text-white">
+                Smart decisions.
+                <br />
+                Better <span className="text-cyan-300">boat ownership.</span>
+              </p>
+              <p className="text-base sm:text-lg text-white/90 mt-3">
+                Evaluate used boats, compare prices, and estimate annual ownership costs.
+              </p>
+
+              <div className="mt-5 flex flex-col sm:flex-row gap-2 max-w-xl">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    ref={importInputRef}
+                    value={importUrl}
+                    onChange={(e) => setImportUrl(e.target.value)}
+                    placeholder="Paste boat listing URL..."
+                    className="w-full h-11 rounded-lg bg-white text-foreground border border-white/30 pl-9 pr-3 text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && importUrl.trim() && !isImporting) {
+                        void handleImportBoat();
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={handleImportBoat}
+                  disabled={isImporting || !importUrl.trim()}
+                  className="h-11 bg-cyan-500 hover:bg-cyan-400 text-white font-semibold px-5"
+                >
+                  {isImporting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Ship className="w-4 h-4 mr-1" />}
+                  Import boat
+                </Button>
+              </div>
+            </div>
+
+            <div className="hidden md:flex" />
           </div>
 
-          {/* Action Cards */}
-          <div className="grid grid-cols-4 gap-2 sm:gap-3 mt-6">
-            {actionCards.map((card, idx) => {
-              const content = (
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
-                    <card.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold flex items-center gap-1 justify-center">
-                    {card.label}
-                    {card.badge ? (
-                      <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{card.badge}</span>
-                    ) : null}
-                  </p>
-                  <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">{card.desc}</p>
-                </div>
-              );
-
-              if ("to" in card && card.to) {
-                return (
-                  <Link key={card.to} to={card.to} className="group">
-                    {content}
-                  </Link>
-                );
-              }
-              return (
-                <button key={`${card.label}-${idx}`} type="button" className="group text-left" onClick={card.onClick}>
-                  {content}
-                </button>
-              );
-            })}
+          <div className="mt-4 max-w-2xl">
+            <p className="text-xs text-white/70">
+              We highly value your feedback - it directly helps us make BoatBuyer better.
+            </p>
           </div>
         </div>
       </div>
@@ -1436,13 +1415,7 @@ const Index = () => {
         <div className="max-w-6xl mx-auto px-4 py-8">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-ocean flex items-center justify-center">
-                <Anchor className="w-4 h-4 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">BoatBuyer</p>
-                <p className="text-xs text-muted-foreground">Smart boat purchase decisions</p>
-              </div>
+              <img src="/logo-horizontal.png" alt="BoatBuyer" className="h-7 w-auto" />
             </div>
             <div className="text-center sm:text-right">
               <p className="text-sm font-medium">Žiga Pirc</p>

@@ -54,6 +54,34 @@
 }
 
 @layer components {
+  .hero-header-bg {
+    background-image:
+      linear-gradient(135deg, hsl(210 90% 25% / 0.9), hsl(200 75% 30% / 0.72), hsl(195 80% 35% / 0.58)),
+      url("/header-bg.png");
+    background-image:
+      linear-gradient(135deg, hsl(210 90% 25% / 0.9), hsl(200 75% 30% / 0.72), hsl(195 80% 35% / 0.58)),
+      image-set(
+        url("/header-bg.png") 1x,
+        url("/header-bg@2x.png") 2x,
+        url("/header-bg@3x.png") 3x
+      );
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  .top-nav-link {
+    @apply inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white transition-colors px-1 py-1 shrink-0;
+  }
+
+  .top-nav-link-active {
+    @apply inline-flex items-center gap-1.5 text-xs text-white font-semibold border-b border-cyan-300/80 pb-1 shrink-0;
+  }
+
+  .top-nav-cta {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-cyan-500 hover:bg-cyan-400 text-white text-xs font-semibold px-3 py-1.5 transition-colors shrink-0;
+  }
+
   .premium-surface {
     @apply bg-card/80 border border-primary/10 backdrop-blur-sm shadow-sm;
   }
