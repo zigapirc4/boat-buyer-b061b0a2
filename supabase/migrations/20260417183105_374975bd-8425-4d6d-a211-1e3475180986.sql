@@ -38,8 +38,8 @@ SELECT cron.schedule(
      RETURNING (next_start_idx - 60 + 714) % 714 AS start_idx
   )
   SELECT net.http_post(
-    url := 'https://jnxxccyyvjvfqgigtmbo.supabase.co/functions/v1/scrape-listings-cron',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHhjY3l5dmp2ZnFnaWd0bWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTA2ODgsImV4cCI6MjA5MTcyNjY4OH0.UctgZZ3cUnQj5UVBpreVhLYNfGk6Z-_WRAABkDS5_gI"}'::jsonb,
+    url := 'https://tbvgavvsgyptktkdsdww.supabase.co/functions/v1/scrape-listings-cron',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidmdhdnZzZ3lwdGt0a2RzZHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDIzMTYsImV4cCI6MjA5MjUxODMxNn0.p8jgQKmQkHvBaPGHHxsZXSt9kWPr46V8df8gdYaFFHE"}'::jsonb,
     body := jsonb_build_object('startIdx', s.start_idx, 'endIdx', s.start_idx + 60, 'enrichCount', 40)
   ) FROM s;
   $cron$

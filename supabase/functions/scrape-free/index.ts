@@ -169,6 +169,68 @@ function parseLengthFeet(text: string): number | null {
   return null;
 }
 
+const DECIMAL_NUMBER_RE = /(\d{1,2}(?:[.,]\d{1,2})?)/;
+
+const METER_LENGTH_KEY_RE =
+  /\b(length|overall length|length overall|loa|lunghezza|lung\.|longueur|dužina|duzina|dolžina|dolzina|eslora|longitud|länge|laenge)\b/i;
+const METRIC_UNIT_RE = /\b(m|meter|meters|metre|metres|metri|metrov|metara)\b/i;
+const IMPERIAL_UNIT_RE = /\b(ft|feet|foot)\b/i;
+
+function parseLengthFromFeatureMap(featureMap: Record<string, string>): number | null {
+  // Avoid building intermediate arrays on every listing parse.
+  for (const [key, rawValue] of Object.entries(featureMap)) {
+    if (!METER_LENGTH_KEY_RE.test(key) || !rawValue) continue;
+
+    // Handles values like "11,98 m" / "39 ft" directly in the value.
+    const parsedByText = parseLengthFeet(rawValue);
+    if (parsedByText !== null) return parsedByText;
+
+    // Some listings split unit into the key (e.g., "Length (m)") and numeric value.
+    const plainNumber = rawValue.match(DECIMAL_NUMBER_RE);
+    if (!plainNumber) continue;
+
+    const value = Number.parseFloat(plainNumber[1].replace(",", "."));
+    if (!Number.isFinite(value)) continue;
+
+    const keyAndValue = `${key} ${rawValue}`;
+    if (METRIC_UNIT_RE.test(keyAndValue)) {
+      if (value > 3 && value < 50) return Math.round(value * 3.281 * 10) / 10;
+      continue;
+    }
+    if (IMPERIAL_UNIT_RE.test(keyAndValue)) {
+      if (value >= 10 && value < 200) return Math.round(value * 10) / 10;
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function parseLengthFromLabeledText(text: string): number | null {
+  if (!text) return null;
+  // Handles patterns like "Length (m) 8.40" or "Length (ft) 30".
+  const labeled = text.match(
+    /(?:length|overall length|length overall|loa|lunghezza|longueur|dužina|duzina|dolžina|dolzina|eslora|longitud|länge|laenge)\s*(?:\((m|meter|meters|metre|metres|metri|metrov|metara|ft|feet|foot)\))?\s*[:\-]?\s*(\d{1,3}(?:[.,]\d{1,2})?)/i,
+  );
+  if (!labeled) return null;
+
+  const unit = (labeled[1] || "").toLowerCase();
+  const value = Number.parseFloat(labeled[2].replace(",", "."));
+  if (!Number.isFinite(value)) return null;
+
+  if (unit && METRIC_UNIT_RE.test(unit)) {
+    if (value > 3 && value < 50) return Math.round(value * 3.281 * 10) / 10;
+    return null;
+  }
+  if (unit && IMPERIAL_UNIT_RE.test(unit)) {
+    if (value >= 10 && value < 200) return Math.round(value * 10) / 10;
+    return null;
+  }
+
+  // If no explicit unit is present, do not guess.
+  return null;
+}
+
 function parseYear(text: string): number | null {
   if (!text) return null;
   const keyed = text.match(/(?:year|year built|built|baujahr|année|anno|godina|leto)[\s:]+(\d{4})/i);
@@ -398,7 +460,7 @@ function extractTrovobarche(html: string): {
   featureMap: Record<string, string>;
 } {
   let description: string | null = null;
-  const descIdx = html.search(/class=["']cls-description[^"']*["']/i);
+  const descIdx = html.search(/<div[^>]+class=["'][^"']*cls-description[^"']*["'][^>]*>/i);
   if (descIdx >= 0) {
     const block = captureBlock(html, descIdx, "div", 30000);
     // The actual text lives inside .translator-content
@@ -416,17 +478,58 @@ function extractTrovobarche(html: string): {
   }
 
   const featureMap: Record<string, string> = {};
-  const featIdx = html.search(/class=["']cls-features[^"']*["']/i);
+  const featIdx = html.search(/<div[^>]+class=["'][^"']*cls-features[^"']*["'][^>]*>/i);
   if (featIdx >= 0) {
-    const block = captureBlock(html, featIdx, "div", 30000);
-    const re = /<li[^>]*>([^<]+?)<span[^>]*class=["']badge[^"']*["'][^>]*>([^<]+)<\/span>/gi;
+    const block = captureBlock(html, featIdx, "div", 120000);
+    // Legacy structure: list items with badge values.
+    const legacyRe = /<li[^>]*>([^<]+?)<span[^>]*class=["']badge[^"']*["'][^>]*>([^<]+)<\/span>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(block)) !== null) {
+    while ((m = legacyRe.exec(block)) !== null) {
+      const k = stripTags(m[1]).trim();
+      const v = stripTags(m[2]).trim();
+      if (k && v) featureMap[k.toLowerCase()] = v;
+    }
+
+    // Current structure: `<div class="item ..."><span class="label">..</span><span class="value">..</span>`
+    const itemRe =
+      /<div[^>]*class=["'][^"']*\bitem\b[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*\blabel\b[^"']*["'][^>]*>([\s\S]*?)<\/span>[\s\S]*?<span[^>]*class=["'][^"']*\bvalue\b[^"']*["'][^>]*>([\s\S]*?)<\/span>[\s\S]*?<\/div>/gi;
+    while ((m = itemRe.exec(block)) !== null) {
       const k = stripTags(m[1]).trim();
       const v = stripTags(m[2]).trim();
       if (k && v) featureMap[k.toLowerCase()] = v;
     }
   }
+
+  // Global safety nets for alternate/newer Trovobarche templates.
+  let m: RegExpExecArray | null;
+
+  // Legacy "li + badge" can appear outside the primary captured block.
+  const legacyGlobalRe = /<li[^>]*>([^<]+?)<span[^>]*class=["']badge[^"']*["'][^>]*>([^<]+)<\/span>/gi;
+  while ((m = legacyGlobalRe.exec(html)) !== null) {
+    const k = stripTags(m[1]).trim();
+    const v = stripTags(m[2]).trim();
+    if (k && v) featureMap[k.toLowerCase()] = v;
+  }
+
+  // Generic label/value class pairing.
+  const labelValueRe =
+    /<(?:span|div)[^>]*class=["'][^"']*\blabel\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>[\s\S]{0,300}?<(?:span|div)[^>]*class=["'][^"']*\bvalue\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>/gi;
+  while ((m = labelValueRe.exec(html)) !== null) {
+    const k = stripTags(m[1]).trim();
+    const v = stripTags(m[2]).trim();
+    if (k && v) featureMap[k.toLowerCase()] = v;
+  }
+
+  // Table-like specs fallback.
+  const tableRowRe = /<tr[^>]*>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<\/tr>/gi;
+  while ((m = tableRowRe.exec(html)) !== null) {
+    const k = stripTags(m[1]).trim();
+    const v = stripTags(m[2]).trim();
+    if (k && v && k.length <= 80 && v.length <= 120) {
+      featureMap[k.toLowerCase()] = v;
+    }
+  }
+
   return { description, equipment, featureMap };
 }
 
@@ -527,7 +630,7 @@ function parseListing(
   if (price === null) price = parsePriceWithCurrency(text).eur;
 
   const year = parseYear(text);
-  const length_feet = parseLengthFeet(text);
+  let length_feet = parseLengthFeet(text);
   const images = extractImages(html, url, 5, site);
   const boat_type = detectBoatType(text, url, hintType);
 
@@ -542,6 +645,13 @@ function parseListing(
     const r = extractTrovobarche(html);
     description = r.description;
     equipment = r.equipment;
+    // Trovobarche often stores length in structured features, not in free text.
+    if (!length_feet) {
+      length_feet = parseLengthFromFeatureMap(r.featureMap);
+    }
+    if (!length_feet) {
+      length_feet = parseLengthFromLabeledText(text);
+    }
   } else if (site === "mornar.net") {
     const r = extractMornar(html);
     description = r.description;

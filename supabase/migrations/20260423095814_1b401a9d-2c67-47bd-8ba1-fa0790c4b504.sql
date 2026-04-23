@@ -32,8 +32,8 @@ SELECT cron.schedule(
   '0,15,30,45 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://jnxxccyyvjvfqgigtmbo.supabase.co/functions/v1/scrape-free',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHhjY3l5dmp2ZnFnaWd0bWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTA2ODgsImV4cCI6MjA5MTcyNjY4OH0.UctgZZ3cUnQj5UVBpreVhLYNfGk6Z-_WRAABkDS5_gI"}'::jsonb,
+    url := 'https://tbvgavvsgyptktkdsdww.supabase.co/functions/v1/scrape-free',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidmdhdnZzZ3lwdGt0a2RzZHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDIzMTYsImV4cCI6MjA5MjUxODMxNn0.p8jgQKmQkHvBaPGHHxsZXSt9kWPr46V8df8gdYaFFHE"}'::jsonb,
     body := '{"categoryStart":0,"categoryEnd":2,"maxListingsPerPage":8}'::jsonb
   ) AS request_id;
   $$
@@ -45,8 +45,8 @@ SELECT cron.schedule(
   '3,18,33,48 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://jnxxccyyvjvfqgigtmbo.supabase.co/functions/v1/scrape-free',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHhjY3l5dmp2ZnFnaWd0bWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTA2ODgsImV4cCI6MjA5MTcyNjY4OH0.UctgZZ3cUnQj5UVBpreVhLYNfGk6Z-_WRAABkDS5_gI"}'::jsonb,
+    url := 'https://tbvgavvsgyptktkdsdww.supabase.co/functions/v1/scrape-free',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidmdhdnZzZ3lwdGt0a2RzZHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDIzMTYsImV4cCI6MjA5MjUxODMxNn0.p8jgQKmQkHvBaPGHHxsZXSt9kWPr46V8df8gdYaFFHE"}'::jsonb,
     body := '{"categoryStart":2,"categoryEnd":3,"maxListingsPerPage":8}'::jsonb
   ) AS request_id;
   $$
@@ -58,8 +58,8 @@ SELECT cron.schedule(
   '6,21,36,51 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://jnxxccyyvjvfqgigtmbo.supabase.co/functions/v1/scrape-free',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHhjY3l5dmp2ZnFnaWd0bWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTA2ODgsImV4cCI6MjA5MTcyNjY4OH0.UctgZZ3cUnQj5UVBpreVhLYNfGk6Z-_WRAABkDS5_gI"}'::jsonb,
+    url := 'https://tbvgavvsgyptktkdsdww.supabase.co/functions/v1/scrape-free',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidmdhdnZzZ3lwdGt0a2RzZHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDIzMTYsImV4cCI6MjA5MjUxODMxNn0.p8jgQKmQkHvBaPGHHxsZXSt9kWPr46V8df8gdYaFFHE"}'::jsonb,
     body := '{"categoryStart":3,"categoryEnd":4,"maxListingsPerPage":8}'::jsonb
   ) AS request_id;
   $$
@@ -71,8 +71,8 @@ SELECT cron.schedule(
   '9,24,39,54 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://jnxxccyyvjvfqgigtmbo.supabase.co/functions/v1/scrape-free',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHhjY3l5dmp2ZnFnaWd0bWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNTA2ODgsImV4cCI6MjA5MTcyNjY4OH0.UctgZZ3cUnQj5UVBpreVhLYNfGk6Z-_WRAABkDS5_gI"}'::jsonb,
+    url := 'https://tbvgavvsgyptktkdsdww.supabase.co/functions/v1/scrape-free',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRidmdhdnZzZ3lwdGt0a2RzZHd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDIzMTYsImV4cCI6MjA5MjUxODMxNn0.p8jgQKmQkHvBaPGHHxsZXSt9kWPr46V8df8gdYaFFHE"}'::jsonb,
     body := '{"categoryStart":4,"categoryEnd":6,"maxListingsPerPage":8}'::jsonb
   ) AS request_id;
   $$
