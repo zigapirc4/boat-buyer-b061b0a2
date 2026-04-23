@@ -10,6 +10,18 @@ export interface EvalCategory {
   icon: string;
 }
 
+export interface ScoreDriver {
+  label: string;
+  impact: number;
+  type: "positive" | "negative";
+}
+
+export interface DataQualityItem {
+  field: string;
+  status: "available" | "missing" | "inferred";
+  note: string;
+}
+
 export interface EvalResult {
   score: number;
   verdict: string;
@@ -18,6 +30,13 @@ export interface EvalResult {
   recommendations: string[];
   priceAssessment: string;
   estimatedRepairCost: number;
+  confidenceScore: number;
+  confidenceDetails: string;
+  fairPriceLow: number;
+  fairPriceHigh: number;
+  targetOffer: number;
+  scoreDrivers: ScoreDriver[];
+  dataQuality: DataQualityItem[];
 }
 
 export interface BoatData {
@@ -34,7 +53,35 @@ export interface BoatData {
   hullMaterial?: string;
   knownIssues?: string[];
   recentWork?: string[];
-  comparables?: { price_eur: number; length_feet: number }[];
+  comparables?: {
+    price_eur: number;
+    length_feet: number;
+    year?: number | null;
+    title?: string;
+    url?: string;
+    image_url?: string | null;
+    location?: string | null;
+    engine_info?: string | null;
+    description?: string;
+  }[];
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  const frac = idx - lo;
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
 }
 
 export function evaluate(data: BoatData): EvalResult {
@@ -102,10 +149,10 @@ export function evaluate(data: BoatData): EvalResult {
   let engineDetail = "";
 
   const effectiveEngineCondition =
-    engine === "good" && engineHours && engineHours > 3000
-      ? "average"
-      : engine === "good" && engineHours && engineHours > 5000
-        ? "bad"
+    engine === "good" && engineHours && engineHours > 5000
+      ? "bad"
+      : engine === "good" && engineHours && engineHours > 3000
+        ? "average"
         : engine;
 
   if (effectiveEngineCondition === "good") {
@@ -154,10 +201,18 @@ export function evaluate(data: BoatData): EvalResult {
   let valueDetail = "";
 
   // Market rate analysis — prefer real comparable listings (same type, ±2 years)
+  const comparableRows = (comparables || []).filter((c) => c.price_eur > 0 && c.length_feet > 0);
+  const comparableCount = comparableRows.length;
   let expectedPpf: number;
-  if (comparables && comparables.length >= 3) {
-    const ppfs = comparables.map((c) => c.price_eur / c.length_feet);
-    expectedPpf = ppfs.reduce((a, b) => a + b, 0) / ppfs.length;
+  if (comparableCount >= 3) {
+    const ppfs = comparableRows.map((c) => c.price_eur / c.length_feet);
+    const q1 = percentile(ppfs, 0.25);
+    const q3 = percentile(ppfs, 0.75);
+    const iqr = q3 - q1;
+    const lower = q1 - 1.5 * iqr;
+    const upper = q3 + 1.5 * iqr;
+    const filtered = ppfs.filter((v) => v >= lower && v <= upper);
+    expectedPpf = median(filtered.length >= 3 ? filtered : ppfs);
   } else {
     // Fallback to hardcoded estimates
     expectedPpf =
@@ -183,6 +238,7 @@ export function evaluate(data: BoatData): EvalResult {
   }
 
   const priceRatio = pricePerFoot / expectedPpf;
+  const expectedTotalPrice = expectedPpf * lengthFt;
 
   if (priceRatio <= 0.6) {
     valueScore = 25;
@@ -210,9 +266,7 @@ export function evaluate(data: BoatData): EvalResult {
     valueScore = Math.max(0, valueScore - 5);
     recommendations.push("High price for an older boat — ensure condition justifies it");
   }
-  if (comparables.length >= 3) {
-    categories.push({ name: "Value for Money", score: valueScore, maxScore: 25, details: valueDetail, icon: "💰" });
-  }
+  categories.push({ name: "Value for Money", score: valueScore, maxScore: 25, details: valueDetail, icon: "💰" });
   // 4. Sails/Drive (max 20 for sailboats, max 15 for powerboats)
   if (boatType === "sailboat") {
     let sailsScore = 20;
@@ -351,5 +405,96 @@ export function evaluate(data: BoatData): EvalResult {
     recommendations.push("Always get an independent marine survey for boats over €20,000");
   }
 
-  return { score: totalScore, verdict, color, categories, recommendations, priceAssessment, estimatedRepairCost };
+  let confidence = 40;
+  if (comparableCount >= 10) confidence += 25;
+  else if (comparableCount >= 5) confidence += 18;
+  else if (comparableCount >= 3) confidence += 12;
+  if (engineHours !== undefined) confidence += 8;
+  if (engineYear !== undefined) confidence += 5;
+  if (engineHp !== undefined) confidence += 5;
+  if (hullMaterial) confidence += 5;
+  if ((knownIssues && knownIssues.length > 0) || (recentWork && recentWork.length > 0)) confidence += 7;
+  const confidenceScore = Math.max(0, Math.min(100, confidence));
+  const confidenceDetails =
+    comparableCount >= 3
+      ? `Based on ${comparableCount} comparable listings and extracted technical details`
+      : `Limited comparables (${comparableCount}); price analysis relies more on fallback market curves`;
+
+  const fairBandPct = comparableCount >= 10 ? 0.1 : comparableCount >= 5 ? 0.15 : 0.25;
+  const fairPriceLow = Math.max(0, Math.round(expectedTotalPrice * (1 - fairBandPct)));
+  const fairPriceHigh = Math.max(fairPriceLow, Math.round(expectedTotalPrice * (1 + fairBandPct)));
+  const repairNegotiationBuffer = Math.round(estimatedRepairCost * 0.3);
+  const marketNegotiationBuffer = Math.round(fairPriceLow * 0.05);
+  const rawTargetOffer = Math.max(0, fairPriceLow - Math.max(repairNegotiationBuffer, marketNegotiationBuffer));
+  const isClearlyOverpriced = price > fairPriceHigh;
+  // Keep offer guidance aligned with verdict only when listing is not clearly above fair range.
+  const minOfferByVerdictPct =
+    totalScore >= 80 ? 0.92 : totalScore >= 65 ? 0.87 : totalScore >= 50 ? 0.78 : totalScore >= 35 ? 0.65 : 0.5;
+  const minOfferByVerdict = Math.round(price * minOfferByVerdictPct);
+  const verdictFloor = isClearlyOverpriced ? 0 : minOfferByVerdict;
+  const preCapTargetOffer = Math.max(rawTargetOffer, verdictFloor);
+  // If listing is above fair range, never suggest target above fair high.
+  const fairCap = isClearlyOverpriced ? fairPriceHigh : price;
+  // Never suggest offering above the current listing price.
+  const targetOffer = Math.max(0, Math.min(price, fairCap, preCapTargetOffer));
+
+  const driverCandidates: ScoreDriver[] = [
+    { label: "Age & Depreciation", impact: ageScore - 10, type: ageScore >= 10 ? "positive" : "negative" },
+    {
+      label: "Engine condition and hours",
+      impact: engineScore - Math.round(engineMax * 0.6),
+      type: engineScore >= Math.round(engineMax * 0.6) ? "positive" : "negative",
+    },
+    { label: "Value vs market comps", impact: valueScore - 15, type: valueScore >= 15 ? "positive" : "negative" },
+    { label: "Overall condition", impact: conditionScore - 5, type: conditionScore >= 5 ? "positive" : "negative" },
+  ];
+  const scoreDrivers = driverCandidates
+    .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+    .slice(0, 4)
+    .map((d) => ({ ...d, impact: Math.round(d.impact) }));
+
+  const dataQuality: DataQualityItem[] = [
+    { field: "Price", status: price > 0 ? "available" : "missing", note: price > 0 ? "Provided for valuation" : "Missing price" },
+    {
+      field: "Length",
+      status: lengthFt > 0 ? "available" : "missing",
+      note: lengthFt > 0 ? "Used for normalized market comparison" : "Missing length",
+    },
+    { field: "Year", status: year > 0 ? "available" : "missing", note: year > 0 ? "Used for age and comparables" : "Missing build year" },
+    {
+      field: "Engine hours",
+      status: engineHours !== undefined ? "available" : "inferred",
+      note: engineHours !== undefined ? "Directly included in engine scoring" : "Condition inferred without hour data",
+    },
+    {
+      field: "Hull material",
+      status: hullMaterial ? "available" : "inferred",
+      note: hullMaterial ? "Material-specific risk captured" : "Generic hull risk assumptions used",
+    },
+    {
+      field: "Market comparables",
+      status: comparableCount >= 3 ? "available" : "inferred",
+      note:
+        comparableCount >= 3
+          ? `${comparableCount} comparable listings used`
+          : "Fallback market curve used due to low comparable count",
+    },
+  ];
+
+  return {
+    score: totalScore,
+    verdict,
+    color,
+    categories,
+    recommendations,
+    priceAssessment,
+    estimatedRepairCost,
+    confidenceScore,
+    confidenceDetails,
+    fairPriceLow,
+    fairPriceHigh,
+    targetOffer,
+    scoreDrivers,
+    dataQuality,
+  };
 }

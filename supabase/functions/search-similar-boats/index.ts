@@ -7,6 +7,14 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function normalizeTokens(input: string): string[] {
+  return (input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t: string) => t.length >= 3 && !["used", "new", "boat", "yacht", "year", "del"].includes(t));
+}
+
 // Pure DB-based similar boat search — zero scraping, zero token cost.
 // Queries the cached_listings table that's already populated by the cron scraper.
 serve(async (req) => {
@@ -28,17 +36,17 @@ serve(async (req) => {
     // Pull a generous candidate pool, then rank in JS for flexibility
     let query = supabase
       .from("cached_listings")
-      .select("title, url, description, price_eur, year, length_feet, location, image_url, engine_info, boat_type")
+      .select("title, url, description, price_eur, year, length_feet, location, image_url, engine_info, boat_type, scraped_at")
       .eq("boat_type", type)
       .not("price_eur", "is", null)
       .gt("price_eur", 0)
       .limit(300);
 
     if (targetLen) {
-      query = query.gte("length_feet", targetLen - 8).lte("length_feet", targetLen + 8);
+      query = query.gte("length_feet", targetLen - 6).lte("length_feet", targetLen + 6);
     }
     if (targetYear) {
-      query = query.gte("year", targetYear - 7).lte("year", targetYear + 7);
+      query = query.gte("year", targetYear - 8).lte("year", targetYear + 8);
     }
 
     const { data, error } = await query;
@@ -54,34 +62,43 @@ serve(async (req) => {
     console.log(`Found ${candidates.length} candidates for ${type} ~${targetLen}ft ~${targetYear}`);
 
     // Rank by similarity: model match > length closeness > year closeness
-    const modelTokens = (model || "")
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((t: string) => t.length >= 3);
+    const modelTokens = normalizeTokens(model || "");
+    const modelPhrase = (model || "").toLowerCase().trim();
+    const now = Date.now();
 
     const scored = candidates.map((c) => {
       let score = 0;
       const title = (c.title || "").toLowerCase();
+      const desc = (c.description || "").toLowerCase();
+
+      if (modelPhrase && title.includes(modelPhrase)) score += 20;
 
       // Model token matches (strong signal)
       for (const tok of modelTokens) {
         if (title.includes(tok)) score += 10;
+        else if (desc.includes(tok)) score += 3;
       }
 
       // Length proximity
       if (targetLen && c.length_feet) {
         const diff = Math.abs(Number(c.length_feet) - targetLen);
-        score += Math.max(0, 8 - diff); // 8 pts at exact, 0 at 8ft off
+        score += Math.max(0, 12 - diff * 1.5); // stronger size signal
       }
 
       // Year proximity
       if (targetYear && c.year) {
         const diff = Math.abs(Number(c.year) - targetYear);
-        score += Math.max(0, 7 - diff);
+        score += Math.max(0, 8 - diff);
       }
 
       // Has image bonus
       if (c.image_url) score += 2;
+
+      // Recent listings are more relevant market comps.
+      if (c.scraped_at) {
+        const ageDays = Math.max(0, Math.floor((now - new Date(c.scraped_at).getTime()) / (1000 * 60 * 60 * 24)));
+        score += Math.max(0, 4 - ageDays / 30);
+      }
 
       return { ...c, _score: score };
     });

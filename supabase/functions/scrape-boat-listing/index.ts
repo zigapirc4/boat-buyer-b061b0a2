@@ -139,6 +139,44 @@ function parseHullMaterial(text: string): string | null {
   return null;
 }
 
+function splitTextSegments(text: string): string[] {
+  return (text || "")
+    .split(/[\n.;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 8);
+}
+
+function extractSignalsFromDescription(description: string): {
+  knownIssues: string[];
+  recentWork: string[];
+  equipmentHighlights: string[];
+} {
+  const segments = splitTextSegments(description);
+  const knownIssues: string[] = [];
+  const recentWork: string[] = [];
+  const equipmentHighlights: string[] = [];
+  const seen = new Set<string>();
+
+  const issueRe =
+    /\b(osmosis|leak|damage|damaged|broken|not working|needs repair|refit needed|project boat|engine problem|fault|issue|da rifare|non funzionante)\b/i;
+  const workRe =
+    /\b(new|replaced|replacement|refit|overhaul|overhauled|serviced|renewed|installed|rebuilt|restored|202[0-9]:?\s*new)\b/i;
+  const equipRe =
+    /\b(gps|autopilot|chartplotter|radar|vhf|windlass|bow thruster|generator|air conditioning|teak cockpit|solar panel|watermaker|inverter)\b/i;
+
+  for (const segment of segments) {
+    const key = segment.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (issueRe.test(segment) && knownIssues.length < 8) knownIssues.push(segment);
+    if (workRe.test(segment) && recentWork.length < 8) recentWork.push(segment);
+    if (equipRe.test(segment) && equipmentHighlights.length < 12) equipmentHighlights.push(segment);
+  }
+
+  return { knownIssues, recentWork, equipmentHighlights };
+}
+
 function extractJsonLd(html: string): any[] {
   const blocks: any[] = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -225,6 +263,10 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
         const imgs = Array.isArray(ld.image) ? ld.image : [ld.image];
         result.images = imgs.slice(0, 5);
       }
+      const addr = ld.address || ld.location?.address || offers?.availableAtOrFrom?.address;
+      const ldLocation =
+        ld.location?.name || addr?.addressLocality || addr?.addressRegion || addr?.addressCountry || null;
+      if (ldLocation && !result.location) result.location = String(ldLocation).trim();
     }
   }
 
@@ -255,11 +297,72 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
   result.hull_condition = "good";
   result.sails_condition = result.boat_type === "powerboat" ? "none" : "average";
 
+  if (result.description_summary) {
+    const signals = extractSignalsFromDescription(String(result.description_summary));
+    if (signals.knownIssues.length > 0) result.known_issues = signals.knownIssues;
+    if (signals.recentWork.length > 0) result.recent_work = signals.recentWork;
+    if (signals.equipmentHighlights.length > 0) result.equipment_highlights = signals.equipmentHighlights;
+  }
+
   // Location: try og:locality or visible text near "Location"
   const locMatch = text.match(/(?:location|standort|posizione|lokacija|localización)[\s:]+([^.\n,|]{3,80})/i);
   if (locMatch) result.location = locMatch[1].trim();
+  // Boat24-specific fallback: location card often renders "Location" label with country beneath.
+  if (!result.location && /boat24\.com/i.test(url)) {
+    const idx = html.search(/>\s*Location\s*</i);
+    if (idx >= 0) {
+      const chunk = html.slice(Math.max(0, idx - 200), idx + 2200);
+      const plain = stripTags(chunk).replace(/\bLocation\b/i, " ").replace(/\s{2,}/g, " ").trim();
+      const m = plain.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+      if (m && !/(Contact|Favorite|Share|Views|Save|PDF)/i.test(m[1])) {
+        result.location = m[1].trim();
+      }
+    }
+  }
+  // Boat24 JSON fallback: many pages embed country/location in script blobs.
+  if (!result.location && /boat24\.com/i.test(url)) {
+    const re =
+      /"(?:addressCountry|countryName|country|locationName|location|regionName|region)"\s*:\s*"([A-Z][A-Za-z\s-]{2,40})"/gi;
+    let jm: RegExpExecArray | null;
+    while ((jm = re.exec(html)) !== null) {
+      const v = (jm[1] || "").trim();
+      if (!v) continue;
+      if (/(Contact|Favorite|Share|Views|Save|PDF|Boat24|usedboats)/i.test(v)) continue;
+      result.location = v;
+      break;
+    }
+  }
+  // Trovobarche fallback: parse city from seller address like "00137 Roma(RM)".
+  if (!result.location && /trovobarche\.it/i.test(url)) {
+    const zipCity = html.match(/\b\d{4,6}\s+([A-Z][A-Za-z'’\- ]{2,40})\s*\([A-Z]{2}\)/);
+    if (zipCity?.[1]) result.location = zipCity[1].trim();
+  }
 
   return result;
+}
+
+async function fetchBoat24LocationViaMarkdownProxy(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5)" },
+    });
+    if (!res.ok) return null;
+    const body = await res.text();
+    if (!body) return null;
+    const clean = (v: string) =>
+      v
+        .replace(/\*\*/g, "")
+        .replace(/\s*»\s*/g, " » ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    const section = body.match(/##\s*Location\s*\n+([^\n]{3,100})\n/i);
+    if (section?.[1]) return clean(section[1]);
+    const inline = body.match(/\bLocation\b[\s:|-]+([A-Za-z][A-Za-z\s\-»*]{2,100})/i);
+    if (inline?.[1]) return clean(inline[1]);
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 // ---------- Main handler ----------
@@ -300,6 +403,9 @@ serve(async (req) => {
         const row = cacheRows[0];
         if (row.price_eur && row.length_feet && row.year) {
           console.log("Cache hit — returning DB row");
+          const cacheSignals = row.description
+            ? extractSignalsFromDescription(String(row.description))
+            : { knownIssues: [], recentWork: [], equipmentHighlights: [] };
           const cachedExtract = {
             boat_model: row.title,
             boat_type: row.boat_type || "sailboat",
@@ -318,6 +424,9 @@ serve(async (req) => {
             sails_condition: row.boat_type === "powerboat" ? "none" : "average",
             cabins: row.cabins,
             description_summary: row.description,
+            known_issues: cacheSignals.knownIssues,
+            recent_work: cacheSignals.recentWork,
+            equipment_highlights: cacheSignals.equipmentHighlights,
           };
           return new Response(
             JSON.stringify({ success: true, data: cachedExtract, source: "cache" }),
@@ -389,6 +498,10 @@ serve(async (req) => {
     }
 
     const extracted = parseListingHtml(html, formattedUrl);
+    if (!extracted.location && /boat24\.com/i.test(formattedUrl)) {
+      const loc = await fetchBoat24LocationViaMarkdownProxy(formattedUrl);
+      if (loc) extracted.location = loc;
+    }
     console.log("Parsed data:", JSON.stringify({
       model: extracted.boat_model, year: extracted.year, price: extracted.price_eur,
       len: extracted.length_feet, images: extracted.images?.length,

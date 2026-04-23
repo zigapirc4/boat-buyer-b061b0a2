@@ -123,6 +123,7 @@ const Index = () => {
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("evaluate");
   const [page, setPage] = useState(1);
   const [selectedArticle, setSelectedArticle] = useState<(typeof ARTICLES)[number] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -305,6 +306,20 @@ const Index = () => {
 
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
+    setModalInitialTab("evaluate");
+    setModalOpen(true);
+  };
+
+  const handleNavigateToListing = async (url: string, initialTab: "details" | "evaluate" | "costs" = "details") => {
+    let target = listings.find((l) => l.url === url) || null;
+    if (!target) {
+      const { data } = await supabase.from("cached_listings").select("*").eq("url", url).limit(1).maybeSingle();
+      if (data) target = data as CachedListing;
+    }
+    if (!target) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setSelectedListing(target);
+    setModalInitialTab(initialTab);
     setModalOpen(true);
   };
 
@@ -858,8 +873,10 @@ const Index = () => {
         open={modalOpen}
         onOpenChange={setModalOpen}
         timeAgo={timeAgo}
+        initialTab={modalInitialTab}
         isSaved={selectedListing ? savedIds.has(selectedListing.id) : false}
         onToggleSave={toggleSave}
+        onNavigateToListing={handleNavigateToListing}
       />
     </div>
   );

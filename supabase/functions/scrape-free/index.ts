@@ -243,6 +243,56 @@ function parseYear(text: string): number | null {
   return null;
 }
 
+function parseEngineHoursFromText(text: string): number | null {
+  if (!text) return null;
+  const afterLabel = text.match(/(?:engine\s*hours|ore\s*moto|radnih\s*sati|stunden|motostunden)\s*[:\-]?\s*(\d{1,5})/i);
+  const beforeLabel = text.match(/(\d{1,5})\s*(?:engine\s*hours|hours|h\b|ore\s*moto|radnih\s*sati|stunden|motostunden)/i);
+  const raw = afterLabel?.[1] || beforeLabel?.[1];
+  if (!raw) return null;
+  const val = Number.parseInt(raw, 10);
+  if (!Number.isFinite(val) || val < 0 || val > 60000) return null;
+  return val;
+}
+
+function parseCabinsFromText(text: string): number | null {
+  if (!text) return null;
+  const m = text.match(
+    /(?:cabins?|cabine?|kabine?|number of cabins?|n[o°]\.?\s*of cabins?)\s*[:\-]?\s*(\d{1,2})/i,
+  );
+  if (!m) {
+    // Listings sometimes phrase this as "version 4 cabins ...".
+    const inline = text.match(/\b(\d{1,2})\s*(?:cabins?|cabine?|kabine?)\b/i);
+    if (!inline) return null;
+    const v = Number.parseInt(inline[1], 10);
+    if (!Number.isFinite(v) || v < 0 || v > 20) return null;
+    return v;
+  }
+  const v = Number.parseInt(m[1], 10);
+  if (!Number.isFinite(v) || v < 0 || v > 20) return null;
+  return v;
+}
+
+function parseFuelTypeFromText(text: string): string | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (/\b(diesel|gasolio|nafta)\b/.test(lower)) return "diesel";
+  if (/\b(gasoline|petrol|benzin|benzin[a]?)\b/.test(lower)) return "gasoline";
+  if (/\b(electric|elektri[ck]n?)\b/.test(lower)) return "electric";
+  if (/\b(hybrid|ibrido)\b/.test(lower)) return "hybrid";
+  return null;
+}
+
+function parseHullMaterialFromText(text: string): string | null {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  if (/\b(fiberglass|fibreglass|grp|gfk|vetroresina|composite)\b/.test(t)) return "fiberglass";
+  if (/\b(steel|acciaio|stahl|čelik)\b/.test(t)) return "steel";
+  if (/\b(aluminum|aluminium|alu)\b/.test(t)) return "aluminum";
+  if (/\b(wood|drvo|legno|holz)\b/.test(t)) return "wood";
+  if (/\b(carbo[nio]|carbon)\b/.test(t)) return "carbon";
+  return null;
+}
+
 function detectBoatType(
   text: string,
   url: string,
@@ -420,6 +470,43 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
   return await fetchHtmlViaProxy(url, timeoutMs);
 }
 
+async function fetchBoat24LocationViaProxy(url: string, timeoutMs = 12000): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { "User-Agent": browserHeaders["User-Agent"] },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const body = await res.text();
+    if (!body) return null;
+
+    const normalize = (v: string) =>
+      v
+        .replace(/\*\*/g, "")
+        .replace(/\s*»\s*/g, " » ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+    const locationSection = body.match(/##\s*Location\s*\n+([^\n]+)\n/i);
+    if (locationSection?.[1]) {
+      const val = normalize(locationSection[1]);
+      if (val.length >= 3 && val.length <= 80) return val;
+    }
+
+    const lineMatch = body.match(/(?:^|\n)\s*Location\s*\n+\s*([^\n]{3,80})(?:\n|$)/i);
+    if (lineMatch?.[1]) return normalize(lineMatch[1]);
+
+    const inline = body.match(/\bLocation\b[\s:|-]+([A-Za-z][A-Za-z\s\-»*]{2,80})/i);
+    if (inline?.[1]) return normalize(inline[1]);
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 // ---------- Extract listing links from a category page ----------
 
 function extractListingLinks(html: string, baseUrl: string, site: string): { url: string; title: string }[] {
@@ -504,8 +591,87 @@ function htmlToReadableText(blockHtml: string): string {
     .trim();
 }
 
+function addFeature(featureMap: Record<string, string>, key: string, value: unknown) {
+  if (!key || value === null || value === undefined) return;
+  const k = key.trim().toLowerCase();
+  const v = String(value).trim();
+  if (!k || !v) return;
+  if (k.length > 100 || v.length > 220) return;
+  featureMap[k] = v;
+}
+
+function extractBoat24FeatureMapFromJsonLd(html: string): Record<string, string> {
+  const featureMap: Record<string, string> = {};
+  const blocks = extractJsonLd(html);
+  for (const block of blocks) {
+    const arr = Array.isArray(block?.["@graph"]) ? block["@graph"] : [block];
+    for (const ld of arr) {
+      if (!ld || typeof ld !== "object") continue;
+      addFeature(featureMap, "brand", ld.brand?.name || ld.brand);
+      addFeature(featureMap, "model", ld.model);
+      addFeature(featureMap, "year", ld.productionDate || ld.releaseDate || ld.year);
+      addFeature(featureMap, "fuel type", ld.fuelType || ld.vehicleEngine?.fuelType);
+      addFeature(featureMap, "engine", ld.vehicleEngine?.name || ld.vehicleEngine?.model || ld.engine);
+      addFeature(featureMap, "engine power", ld.vehicleEngine?.power?.value || ld.vehicleEngine?.power);
+      addFeature(featureMap, "hull material", ld.material || ld.hullMaterial);
+      addFeature(featureMap, "cabins", ld.numberOfCabins || ld.numberOfRooms);
+      addFeature(featureMap, "berths", ld.numberOfBeds);
+      addFeature(featureMap, "length", ld.length?.value || ld.length);
+      addFeature(featureMap, "beam", ld.width?.value || ld.beam);
+      addFeature(featureMap, "draft", ld.depth?.value || ld.draft);
+      addFeature(featureMap, "displacement", ld.weight?.value || ld.displacement);
+      const addr = ld.address || ld.location?.address || ld.offers?.availableAtOrFrom?.address;
+      addFeature(
+        featureMap,
+        "location",
+        ld.location?.name || addr?.addressLocality || addr?.addressRegion || addr?.addressCountry,
+      );
+
+      const additional = Array.isArray(ld.additionalProperty) ? ld.additionalProperty : [];
+      for (const p of additional) {
+        if (!p || typeof p !== "object") continue;
+        addFeature(featureMap, p.name || p.propertyID || p.label, p.value);
+      }
+    }
+  }
+  return featureMap;
+}
+
+function extractBoat24LocationFromHtml(html: string): string | null {
+  const idx = html.search(/>\s*Location\s*</i);
+  if (idx < 0) return null;
+  const block = captureBlock(html, Math.max(0, idx - 200), "div", 6000);
+  const plain = stripTags(block)
+    .replace(/\b(location|standort|posizione|lokacija)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  const m = plain.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+  if (!m) return null;
+  const val = m[1].trim();
+  if (val.length < 3 || val.length > 40) return null;
+  if (/(contact|favorite|share|views|save pdf|notes)/i.test(val)) return null;
+  return val;
+}
+
+function extractBoat24LocationFromRawJson(html: string): string | null {
+  const re =
+    /"(?:addressCountry|countryName|country|locationName|location|regionName|region)"\s*:\s*"([A-Z][A-Za-z\s-]{2,40})"/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const v = (m[1] || "").trim();
+    if (!v) continue;
+    if (/(contact|favorite|share|views|save pdf|notes|boat24|usedboats)/i.test(v)) continue;
+    return v;
+  }
+  return null;
+}
+
 // boat24.com: equipment is in `<div id="equipment">…<ul>…<li>Item</li></ul>`
-function extractBoat24(html: string): { description: string | null; equipment: string[] } {
+function extractBoat24(html: string): {
+  description: string | null;
+  equipment: string[];
+  featureMap: Record<string, string>;
+} {
   let description: string | null = null;
   const lds = extractJsonLd(html);
   for (const block of lds) {
@@ -524,7 +690,12 @@ function extractBoat24(html: string): { description: string | null; equipment: s
     const block = captureBlock(html, eqIdx, "ul", 30000);
     equipment.push(...extractListItems(block, 120));
   }
-  return { description, equipment };
+  const featureMap = extractBoat24FeatureMapFromJsonLd(html);
+  const locationFromHtml = extractBoat24LocationFromHtml(html);
+  if (locationFromHtml) addFeature(featureMap, "location", locationFromHtml);
+  const locationFromRawJson = extractBoat24LocationFromRawJson(html);
+  if (locationFromRawJson) addFeature(featureMap, "location", locationFromRawJson);
+  return { description, equipment, featureMap };
 }
 
 // trovobarche.it: description in `cls-description` card, equipment in
@@ -618,6 +789,149 @@ function extractTrovobarche(html: string): {
   return { description, equipment, featureMap };
 }
 
+function extractTrovobarcheCity(html: string, featureMap: Record<string, string>): string | null {
+  const visibleTo = findFeatureValue(featureMap, /\b(visible to|location|località|localita|city)\b/i);
+  if (visibleTo) {
+    const cleaned = visibleTo
+      .replace(/\b(?:IT|HR|SI|DE|FR|ES)\b$/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const m = cleaned.match(/\b([A-Z][A-Za-z'’\- ]{2,40})\b/);
+    if (m?.[1]) return m[1].trim();
+  }
+
+  // Seller info usually contains "00137 Roma(RM)" or similar.
+  const zipCity = html.match(/\b\d{4,6}\s+([A-Z][A-Za-z'’\- ]{2,40})\s*\([A-Z]{2}\)/);
+  if (zipCity?.[1]) return zipCity[1].trim();
+
+  return null;
+}
+
+function extractFeatureMapFromHtml(html: string): Record<string, string> {
+  const featureMap: Record<string, string> = {};
+  const put = (kRaw: string, vRaw: string) => {
+    const k = stripTags(kRaw).replace(/[:\s]+$/, "").trim().toLowerCase();
+    const v = stripTags(vRaw).trim();
+    if (!k || !v) return;
+    if (k.length > 100 || v.length > 220) return;
+    featureMap[k] = v;
+  };
+
+  // <tr><td>Label</td><td>Value</td></tr>
+  const rowRe = /<tr[^>]*>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<\/tr>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(html)) !== null) put(m[1], m[2]);
+
+  // <li>Label <span class="badge">Value</span></li>
+  const liRe = /<li[^>]*>([^<]+?)<span[^>]*class=["'][^"']*(?:badge|value)[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi;
+  while ((m = liRe.exec(html)) !== null) put(m[1], m[2]);
+
+  // <span class="label">Label</span> ... <span class="value">Value</span>
+  const labelValueRe =
+    /<(?:span|div)[^>]*class=["'][^"']*\blabel\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>[\s\S]{0,300}?<(?:span|div)[^>]*class=["'][^"']*\bvalue\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>/gi;
+  while ((m = labelValueRe.exec(html)) !== null) put(m[1], m[2]);
+
+  return featureMap;
+}
+
+function findFeatureValue(featureMap: Record<string, string>, keyRe: RegExp): string | null {
+  for (const [k, v] of Object.entries(featureMap)) {
+    if (keyRe.test(k) && v) return v;
+  }
+  return null;
+}
+
+function findAllFeatureValues(featureMap: Record<string, string>, keyRe: RegExp): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(featureMap)) {
+    if (keyRe.test(k) && v) out.push(v);
+  }
+  return out;
+}
+
+function extractRichFields(
+  text: string,
+  featureMap: Record<string, string>,
+): {
+  engine_hours: number | null;
+  fuel_type: string | null;
+  cabins: number | null;
+  hull_material: string | null;
+  engine_info: string | null;
+} {
+  const engineVal = findFeatureValue(
+    featureMap,
+    /\b(engine|engine model|engine type|motor|motore|motore 1|propulsion|propulsione)\b/i,
+  );
+  const fuelVal = findFeatureValue(featureMap, /\b(fuel|fuel type|gorivo|carburante|combustibile)\b/i);
+  const cabinsVals = findAllFeatureValues(
+    featureMap,
+    /\b(cabins?|cabine?|kabine?|no\.?\s*of cabins?|number of cabins?)\b/i,
+  );
+  const hullVal = findFeatureValue(
+    featureMap,
+    /\b(hull material|material|materiale|construction|costruzione|scafo|hull)\b/i,
+  );
+  const hoursVal = findFeatureValue(
+    featureMap,
+    /\b(engine hours|hours|ore moto|radnih sati|stunden|motostunden)\b/i,
+  );
+
+  const engine_hours =
+    parseEngineHoursFromText(hoursVal || "") ||
+    parseEngineHoursFromText(engineVal || "") ||
+    parseEngineHoursFromText(text);
+  const fuel_type = parseFuelTypeFromText(fuelVal || "") || parseFuelTypeFromText(engineVal || "");
+  const cabinsFromFeatures = cabinsVals
+    .map((v) => parseCabinsFromText(v))
+    .find((v): v is number => typeof v === "number" && Number.isFinite(v));
+  const cabins = cabinsFromFeatures ?? parseCabinsFromText(text);
+  const hull_material = parseHullMaterialFromText(hullVal || "") || parseHullMaterialFromText(text);
+  const engine_info = engineVal ? engineVal.slice(0, 180) : null;
+
+  return { engine_hours, fuel_type, cabins, hull_material, engine_info };
+}
+
+function sanitizeSpecsRaw(featureMap: Record<string, string>): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  for (const [kRaw, vRaw] of Object.entries(featureMap)) {
+    const key = kRaw.trim().toLowerCase();
+    const value = vRaw.trim();
+    if (!key || !value) continue;
+    if (key.length > 100 || value.length > 300) continue;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function buildSpecsRawFallback(input: {
+  year: number | null;
+  length_feet: number | null;
+  engine_info: string | null;
+  engine_hours: number | null;
+  fuel_type: string | null;
+  cabins: number | null;
+  hull_material: string | null;
+  location: string | null;
+}): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  if (input.year !== null) out.year = String(input.year);
+  if (input.length_feet !== null) out.length_feet = String(input.length_feet);
+  if (input.engine_info) out.engine_info = input.engine_info;
+  if (input.engine_hours !== null) out.engine_hours = String(input.engine_hours);
+  if (input.fuel_type) out.fuel_type = input.fuel_type;
+  if (input.cabins !== null) out.cabins = String(input.cabins);
+  if (input.hull_material) out.hull_material = input.hull_material;
+  if (
+    input.location &&
+    input.location.length <= 80 &&
+    !/(contact|favorite|share|views|save pdf|notes)/i.test(input.location)
+  ) {
+    out.location = input.location;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // mornar.net: boat detail pages render a vertical content area with paragraph
 // description and a feature/equipment table. We try common containers.
 function extractMornar(html: string): { description: string | null; equipment: string[] } {
@@ -706,6 +1020,12 @@ function parseListing(
   description: string | null;
   location: string | null;
   equipment: string[] | null;
+  engine_hours: number | null;
+  fuel_type: string | null;
+  cabins: number | null;
+  hull_material: string | null;
+  engine_info: string | null;
+  specs_raw: Record<string, string> | null;
 } {
   const text = stripTags(html);
 
@@ -744,14 +1064,17 @@ function parseListing(
   // Site-specific RICH extraction for description + equipment
   let description: string | null = null;
   let equipment: string[] = [];
+  let featureMap: Record<string, string> = {};
   if (site === "boat24.com") {
     const r = extractBoat24(html);
     description = r.description;
     equipment = r.equipment;
+    featureMap = { ...extractFeatureMapFromHtml(html), ...r.featureMap };
   } else if (site === "trovobarche.it") {
     const r = extractTrovobarche(html);
     description = r.description;
     equipment = r.equipment;
+    featureMap = r.featureMap;
     // Trovobarche often stores length in structured features, not in free text.
     if (!length_feet) {
       length_feet = parseLengthFromFeatureMap(r.featureMap);
@@ -763,6 +1086,7 @@ function parseListing(
     const r = extractMornar(html);
     description = r.description;
     equipment = r.equipment;
+    featureMap = extractFeatureMapFromHtml(html);
   }
   // Fallback to og:description if site-specific extraction failed
   if (!description) {
@@ -773,8 +1097,37 @@ function parseListing(
 
   // Location heuristics per site
   let location: string | null = null;
-  const locM = text.match(/(?:location|standort|posizione|lokacija|località)[\s:]+([^.\n,|]{3,80})/i);
-  if (locM) location = locM[1].trim();
+  if (site === "boat24.com") {
+    // Prefer structured location-like fields to avoid UI chrome fragments.
+    const structuredLocation = findFeatureValue(
+      featureMap,
+      /\b(location|standort|posizione|lokacija|country|region|place)\b/i,
+    );
+    if (structuredLocation && structuredLocation.length <= 80 && !/(contact|favorite|share|views|save pdf|notes)/i.test(structuredLocation)) {
+      location = structuredLocation.trim();
+    }
+  } else {
+    const locM = text.match(/(?:location|standort|posizione|lokacija|località)[\s:]+([^.\n,|]{3,80})/i);
+    if (locM) location = locM[1].trim();
+    if (!location && site === "trovobarche.it") {
+      location = extractTrovobarcheCity(html, featureMap);
+    }
+  }
+
+  const rich = extractRichFields(text, featureMap);
+
+  const specsRaw =
+    sanitizeSpecsRaw(featureMap) ||
+    buildSpecsRawFallback({
+      year,
+      length_feet,
+      engine_info: rich.engine_info,
+      engine_hours: rich.engine_hours,
+      fuel_type: rich.fuel_type,
+      cabins: rich.cabins,
+      hull_material: rich.hull_material,
+      location,
+    });
 
   return {
     title: (title || url).slice(0, 250),
@@ -787,6 +1140,12 @@ function parseListing(
     description: description || null,
     location,
     equipment: equipment.length > 0 ? equipment : null,
+    engine_hours: rich.engine_hours,
+    fuel_type: rich.fuel_type,
+    cabins: rich.cabins,
+    hull_material: rich.hull_material,
+    engine_info: rich.engine_info,
+    specs_raw: specsRaw,
   };
 }
 
@@ -847,6 +1206,7 @@ Deno.serve(async (req) => {
   let maxListingsPerPage = 8;
   let pageStart = 1;
   let pageEnd: number | null = null;
+  let requestedUrls: string[] = [];
   try {
     const body = await req.json().catch(() => ({}));
     if (typeof body.categoryStart === "number") categoryStart = body.categoryStart;
@@ -854,10 +1214,106 @@ Deno.serve(async (req) => {
     if (typeof body.maxListingsPerPage === "number") maxListingsPerPage = body.maxListingsPerPage;
     if (typeof body.pageStart === "number") pageStart = Math.max(1, Math.floor(body.pageStart));
     if (typeof body.pageEnd === "number") pageEnd = Math.max(1, Math.floor(body.pageEnd));
+    if (Array.isArray(body.urls)) {
+      requestedUrls = body.urls.filter((u: unknown): u is string => typeof u === "string" && u.length > 10);
+    }
   } catch {}
 
   const stats = { categoriesProcessed: 0, listingsFound: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
   const samples: string[] = [];
+
+  const processListingUrl = async (
+    linkUrl: string,
+    site: string,
+    hintType: "sailboat" | "powerboat" | "auto",
+  ) => {
+    try {
+      const html = await fetchHtml(linkUrl, 12000);
+      if (!html) {
+        stats.errors++;
+        return;
+      }
+      let parsed = parseListing(html, linkUrl, site, hintType);
+      if (site === "boat24.com" && !parsed.location) {
+        const proxyLocation = await fetchBoat24LocationViaProxy(linkUrl, 12000);
+        if (proxyLocation) parsed = { ...parsed, location: proxyLocation };
+      }
+
+      if (
+        site === "trovobarche.it" &&
+        parsed.description &&
+        /\.\.\./.test(parsed.description)
+      ) {
+        const proxyHtml = await fetchHtmlViaProxy(linkUrl, 12000);
+        if (proxyHtml) {
+          const proxyParsed = parseListing(proxyHtml, linkUrl, site, hintType);
+          if (
+            proxyParsed.description &&
+            proxyParsed.description.length > parsed.description.length + 40
+          ) {
+            parsed = { ...parsed, description: proxyParsed.description };
+          }
+        }
+      }
+
+      const row = {
+        url: linkUrl,
+        title: parsed.title || linkUrl,
+        source: site,
+        boat_type: parsed.boat_type,
+        price_eur: parsed.price_eur,
+        year: parsed.year,
+        length_feet: parsed.length_feet,
+        image_url: parsed.image_url,
+        image_urls: parsed.image_urls.length > 0 ? parsed.image_urls : null,
+        description: parsed.description,
+        equipment: parsed.equipment,
+        location: parsed.location,
+        engine_hours: parsed.engine_hours,
+        fuel_type: parsed.fuel_type,
+        cabins: parsed.cabins,
+        hull_material: parsed.hull_material,
+        engine_info: parsed.engine_info,
+        specs_raw: parsed.specs_raw,
+        scraped_at: new Date().toISOString(),
+      };
+      const r = await upsertListing(supabaseUrl, supabaseKey, row);
+      if (r === "insert") {
+        stats.inserted++;
+        if (samples.length < 5) samples.push(`+ ${linkUrl}`);
+      } else if (r === "update") stats.updated++;
+      else if (r === "skip") stats.skipped++;
+      else stats.errors++;
+    } catch (e) {
+      console.log(`[scrape-free] listing error ${linkUrl}: ${e}`);
+      stats.errors++;
+    }
+  };
+
+  if (requestedUrls.length > 0) {
+    stats.listingsFound = requestedUrls.length;
+    for (const u of requestedUrls) {
+      let site = "";
+      try {
+        const h = new URL(u).hostname.replace("www.", "").replace("www2.", "");
+        if (h.includes("trovobarche.it")) site = "trovobarche.it";
+        else if (h.includes("mornar.net")) site = "mornar.net";
+        else if (h.includes("boat24.com")) site = "boat24.com";
+      } catch {
+        /* ignore */
+      }
+      if (!site) {
+        stats.errors++;
+        continue;
+      }
+      await processListingUrl(u, site, "auto");
+    }
+
+    console.log(`[scrape-free] targeted done`, stats);
+    return new Response(JSON.stringify({ success: true, stats, samples }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const cats = CATEGORY_PAGES.slice(categoryStart, categoryEnd);
   console.log(`[scrape-free] starting: ${cats.length} categories, maxListingsPerPage=${maxListingsPerPage}`);
@@ -882,59 +1338,7 @@ Deno.serve(async (req) => {
       console.log(`[scrape-free] ${cat.site} p${page}: ${links.length} listings to process`);
 
       for (const link of links) {
-        try {
-          const html = await fetchHtml(link.url, 12000);
-          if (!html) {
-            stats.errors++;
-            continue;
-          }
-          let parsed = parseListing(html, link.url, cat.site, cat.boatType);
-
-          // Trovobarche can return teaser descriptions on direct fetch for some ads.
-          // When we detect a likely teaser, retry description extraction using proxy HTML.
-          if (
-            cat.site === "trovobarche.it" &&
-            parsed.description &&
-            /\.\.\./.test(parsed.description)
-          ) {
-            const proxyHtml = await fetchHtmlViaProxy(link.url, 12000);
-            if (proxyHtml) {
-              const proxyParsed = parseListing(proxyHtml, link.url, cat.site, cat.boatType);
-              if (
-                proxyParsed.description &&
-                proxyParsed.description.length > parsed.description.length + 40
-              ) {
-                parsed = { ...parsed, description: proxyParsed.description };
-              }
-            }
-          }
-
-          const row = {
-            url: link.url,
-            title: parsed.title || link.title || link.url,
-            source: cat.site,
-            boat_type: parsed.boat_type,
-            price_eur: parsed.price_eur,
-            year: parsed.year,
-            length_feet: parsed.length_feet,
-            image_url: parsed.image_url,
-            image_urls: parsed.image_urls.length > 0 ? parsed.image_urls : null,
-            description: parsed.description,
-            equipment: parsed.equipment,
-            location: parsed.location,
-            scraped_at: new Date().toISOString(),
-          };
-          const r = await upsertListing(supabaseUrl, supabaseKey, row);
-          if (r === "insert") {
-            stats.inserted++;
-            if (samples.length < 5) samples.push(`+ ${link.url}`);
-          } else if (r === "update") stats.updated++;
-          else if (r === "skip") stats.skipped++;
-          else stats.errors++;
-        } catch (e) {
-          console.log(`[scrape-free] listing error ${link.url}: ${e}`);
-          stats.errors++;
-        }
+        await processListingUrl(link.url, cat.site, cat.boatType);
       }
     }
   }

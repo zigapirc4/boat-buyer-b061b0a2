@@ -3,11 +3,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { saveBoat } from "@/lib/boatStore";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { fetchComparables } from "@/lib/fetchComparables";
@@ -26,6 +28,18 @@ interface SimilarBoat {
   engine_info: string | null;
 }
 
+interface ComparableBoat {
+  price_eur: number;
+  length_feet: number;
+  year?: number | null;
+  title?: string;
+  url?: string;
+  location?: string | null;
+  image_url?: string | null;
+  engine_info?: string | null;
+  description?: string;
+}
+
 interface ImportedExtras {
   location?: string;
   images?: string[];
@@ -39,6 +53,28 @@ interface ImportedExtras {
   equipmentHighlights?: string[];
   recentWork?: string[];
   knownIssues?: string[];
+}
+
+interface CachedListingForModal {
+  id: string;
+  title: string;
+  url: string;
+  boat_type: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
+  image_urls: string[] | null;
+  engine_info: string | null;
+  description: string | null;
+  hull_material: string | null;
+  engine_hours?: number | null;
+  cabins?: number | null;
+  fuel_type?: string | null;
+  equipment?: string[] | null;
+  source: string | null;
+  scraped_at: string;
 }
 
 const EvaluateBoat = () => {
@@ -60,8 +96,14 @@ const EvaluateBoat = () => {
 
   const [extras, setExtras] = useState<ImportedExtras>({});
   const [result, setResult] = useState<EvalResult | null>(null);
+  const [comparablesUsed, setComparablesUsed] = useState<ComparableBoat[]>([]);
   const [similarBoats, setSimilarBoats] = useState<SimilarBoat[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedSimilarBoat, setSelectedSimilarBoat] = useState<SimilarBoat | null>(null);
+  const [isBoatCardOpen, setIsBoatCardOpen] = useState(false);
+  const [isCombinedLoading, setIsCombinedLoading] = useState(false);
+  const [detailListing, setDetailListing] = useState<CachedListingForModal | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   const canEvaluate = model && year && price && length && engine && hull && (boatType === "powerboat" || sails);
 
@@ -80,6 +122,7 @@ const EvaluateBoat = () => {
     if (!url.trim()) return;
     setIsScraping(true);
     setResult(null);
+    setComparablesUsed([]);
     setSimilarBoats([]);
 
     try {
@@ -131,38 +174,55 @@ const EvaluateBoat = () => {
 
   const handleEvaluate = async () => {
     if (!canEvaluate) return;
-    const comparables = await fetchComparables(boatType, Number(year));
-    const evalResult = evaluate({
-      boatType,
-      year: Number(year),
-      price: Number(price),
-      lengthFt: Number(length),
-      engine,
-      hull,
-      sails: boatType === "powerboat" ? "none" : sails,
-      engineHours: engineHours ? Number(engineHours) : undefined,
-      engineYear: engineYear ? Number(engineYear) : undefined,
-      engineHp: extras.engineHp,
-      hullMaterial: extras.hullMaterial,
-      knownIssues: extras.knownIssues,
-      recentWork: extras.recentWork,
-      comparables,
-    });
-    setResult(evalResult);
-    setSimilarBoats([]);
-
-    setIsSearching(true);
     try {
-      const { data, error } = await supabase.functions.invoke("search-similar-boats", {
-        body: { model, length_feet: Number(length), year: Number(year), boat_type: boatType },
+      // Keep evaluation snappy even if comparables query is slow.
+      const comparables = await Promise.race([
+        fetchComparables(boatType, Number(year), Number(length), model).catch(() => []),
+        new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
+      ]);
+
+      const evalResult = evaluate({
+        boatType,
+        year: Number(year),
+        price: Number(price),
+        lengthFt: Number(length),
+        engine,
+        hull,
+        sails: boatType === "powerboat" ? "none" : sails,
+        engineHours: engineHours ? Number(engineHours) : undefined,
+        engineYear: engineYear ? Number(engineYear) : undefined,
+        engineHp: extras.engineHp,
+        hullMaterial: extras.hullMaterial,
+        knownIssues: extras.knownIssues,
+        recentWork: extras.recentWork,
+        comparables,
       });
-      if (!error && data?.success && data.data) {
-        setSimilarBoats(data.data);
+      setResult(evalResult);
+      setComparablesUsed(comparables.slice(0, 8));
+      setSimilarBoats([]);
+
+      setIsSearching(true);
+      setIsCombinedLoading(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("search-similar-boats", {
+          body: { model, length_feet: Number(length), year: Number(year), boat_type: boatType },
+        });
+        if (!error && data?.success && data.data) {
+          setSimilarBoats(data.data);
+        }
+      } catch (e) {
+        console.error("Similar boats search error:", e);
+      } finally {
+        setIsSearching(false);
+        setIsCombinedLoading(false);
       }
     } catch (e) {
-      console.error("Similar boats search error:", e);
-    } finally {
-      setIsSearching(false);
+      console.error("Evaluation error:", e);
+      toast({
+        title: "Evaluation failed",
+        description: "Please try again. If it persists, refresh the page.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -179,6 +239,51 @@ const EvaluateBoat = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
     handleScrapeUrl(boatUrl);
   };
+
+  const handleOpenBoatCard = (boat: SimilarBoat) => {
+    setSelectedSimilarBoat(boat);
+    setIsBoatCardOpen(true);
+  };
+
+  const timeAgo = (dateStr: string) => {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diffMs / (1000 * 60));
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  const openEvaluateFromReference = async (url: string) => {
+    const { data } = await supabase.from("cached_listings").select("*").eq("url", url).limit(1).maybeSingle();
+    if (!data) {
+      toast({ title: "Boat not found", description: "Could not load boat details from cache.", variant: "destructive" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setDetailListing(data as CachedListingForModal);
+    setDetailModalOpen(true);
+    setIsBoatCardOpen(false);
+  };
+
+  const comparableAsSimilar = comparablesUsed
+    .filter((c) => !!c.url)
+    .map((c): SimilarBoat => ({
+      title: c.title || "Comparable boat",
+      url: c.url || "",
+      description: c.description || "",
+      price_eur: c.price_eur ?? null,
+      year: c.year ?? null,
+      length_feet: c.length_feet ?? null,
+      location: c.location ?? null,
+      image_url: c.image_url ?? null,
+      engine_info: c.engine_info ?? null,
+    }));
+
+  const combinedBoats: Array<SimilarBoat & { sourceTag: "Comparable" | "Similar" }> = [
+    ...comparableAsSimilar.map((b) => ({ ...b, sourceTag: "Comparable" as const })),
+    ...similarBoats.map((b) => ({ ...b, sourceTag: "Similar" as const })),
+  ];
 
   const scoreBarColor = (score: number, max: number) => {
     const pct = score / max;
@@ -319,6 +424,59 @@ const EvaluateBoat = () => {
             <p className={`text-6xl font-bold font-display ${result.color}`}>{result.score}</p>
             <p className={`text-xl font-semibold mt-1 ${result.color}`}>{result.verdict}</p>
             <p className="text-sm text-muted-foreground mt-2">{result.priceAssessment}</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Confidence: <span className="font-medium">{result.confidenceScore}/100</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">{result.confidenceDetails}</p>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-2">🎯 Negotiation Range</h3>
+            <p className="text-sm text-muted-foreground">
+              Fair range: <span className="font-medium text-foreground">€{result.fairPriceLow.toLocaleString()} - €{result.fairPriceHigh.toLocaleString()}</span>
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Target offer: <span className="font-medium text-primary">€{result.targetOffer.toLocaleString()}</span>
+            </p>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-3">📌 What Moved The Score</h3>
+            <ul className="space-y-2">
+              {result.scoreDrivers.map((d, i) => (
+                <li key={i} className="text-sm flex items-start justify-between gap-3">
+                  <span className="text-muted-foreground">{d.label}</span>
+                  <span className={d.type === "positive" ? "text-success font-medium" : "text-destructive font-medium"}>
+                    {d.impact > 0 ? "+" : ""}{d.impact}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-3">🧾 Data Quality</h3>
+            <div className="space-y-2">
+              {result.dataQuality.map((q) => (
+                <div key={q.field} className="flex items-start justify-between gap-3 text-sm">
+                  <div>
+                    <p className="font-medium">{q.field}</p>
+                    <p className="text-xs text-muted-foreground">{q.note}</p>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      q.status === "available"
+                        ? "bg-success/15 text-success"
+                        : q.status === "inferred"
+                          ? "bg-warning/15 text-warning"
+                          : "bg-destructive/15 text-destructive"
+                    }`}
+                  >
+                    {q.status}
+                  </span>
+                </div>
+              ))}
+            </div>
           </Card>
 
           <Card className="p-5">
@@ -368,21 +526,22 @@ const EvaluateBoat = () => {
             </ul>
           </Card>
 
-          {/* Similar Boats */}
+          {/* Comparables + Similar Boats */}
           <Card className="p-5">
             <h3 className="font-semibold text-primary mb-3 flex items-center gap-2">
-              <Search className="w-4 h-4" /> Similar Boats for Comparison
+              <Search className="w-4 h-4" /> Comparables + Similar Boats
             </h3>
-            {isSearching ? (
+            {isCombinedLoading || isSearching ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                <Loader2 className="w-4 h-4 animate-spin" /> Searching for similar boats…
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading comparables and similar boats…
               </div>
-            ) : similarBoats.length > 0 ? (
+            ) : combinedBoats.length > 0 ? (
               <div className="space-y-3">
-                {similarBoats.map((boat, i) => (
+                {combinedBoats.map((boat, i) => (
                   <div
-                    key={i}
-                    className="rounded-lg bg-muted/50 overflow-hidden"
+                    key={`${boat.sourceTag}-${boat.url}-${i}`}
+                    className="rounded-lg bg-muted/50 overflow-hidden cursor-pointer hover:bg-muted/70 transition-colors"
+                    onClick={() => handleOpenBoatCard(boat)}
                   >
                     <div className="flex">
                       {boat.image_url && (
@@ -394,7 +553,12 @@ const EvaluateBoat = () => {
                         />
                       )}
                       <div className="p-3 flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{boat.title}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium truncate">{boat.title}</p>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                            {boat.sourceTag}
+                          </span>
+                        </div>
                         {boat.price_eur && (
                           <p className="text-sm font-bold text-accent mt-0.5">€{boat.price_eur.toLocaleString()}</p>
                         )}
@@ -418,12 +582,20 @@ const EvaluateBoat = () => {
                             variant="outline"
                             size="sm"
                             className="h-7 text-xs gap-1 px-2"
-                            onClick={() => handleCompareBoat(boat.url)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenBoatCard(boat);
+                            }}
                           >
-                            <ArrowRight className="w-3 h-3" /> Compare
+                            <ArrowRight className="w-3 h-3" /> Open Card
                           </Button>
                           <a href={boat.url} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1 px-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <ExternalLink className="w-3 h-3" /> View
                             </Button>
                           </a>
@@ -434,7 +606,7 @@ const EvaluateBoat = () => {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No similar boats found.</p>
+              <p className="text-sm text-muted-foreground">No comparables or similar boats found.</p>
             )}
           </Card>
 
@@ -443,6 +615,66 @@ const EvaluateBoat = () => {
           </Button>
         </div>
       )}
+      <Dialog open={isBoatCardOpen} onOpenChange={setIsBoatCardOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{selectedSimilarBoat?.title || "Boat details"}</DialogTitle>
+          </DialogHeader>
+          {selectedSimilarBoat && (
+            <div className="space-y-3">
+              {selectedSimilarBoat.image_url && (
+                <img
+                  src={selectedSimilarBoat.image_url}
+                  alt={selectedSimilarBoat.title}
+                  className="w-full h-52 object-cover rounded-md"
+                />
+              )}
+              <div className="flex flex-wrap gap-3 text-sm">
+                {selectedSimilarBoat.price_eur && <span className="font-semibold text-primary">€{selectedSimilarBoat.price_eur.toLocaleString()}</span>}
+                {selectedSimilarBoat.year && <span className="text-muted-foreground">{selectedSimilarBoat.year}</span>}
+                {selectedSimilarBoat.length_feet && <span className="text-muted-foreground">{selectedSimilarBoat.length_feet}ft</span>}
+                {selectedSimilarBoat.location && <span className="text-muted-foreground">{selectedSimilarBoat.location}</span>}
+              </div>
+              {selectedSimilarBoat.engine_info && (
+                <p className="text-sm text-muted-foreground">⚙️ {selectedSimilarBoat.engine_info}</p>
+              )}
+              {selectedSimilarBoat.description && (
+                <p className="text-sm text-muted-foreground line-clamp-4">{selectedSimilarBoat.description}</p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => openEvaluateFromReference(selectedSimilarBoat.url)}
+                >
+                  Evaluate
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setIsBoatCardOpen(false);
+                    handleCompareBoat(selectedSimilarBoat.url);
+                  }}
+                >
+                  Compare this boat
+                </Button>
+                <a href={selectedSimilarBoat.url} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="outline" className="gap-1">
+                    <ExternalLink className="w-3 h-3" /> Open listing
+                  </Button>
+                </a>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <BoatDetailModal
+        listing={detailListing as any}
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        timeAgo={timeAgo}
+        initialTab="evaluate"
+      />
       </div>
       <Footer />
     </div>

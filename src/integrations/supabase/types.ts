@@ -33,6 +33,7 @@ export type Database = {
           price_eur: number | null
           scraped_at: string
           source: string | null
+          specs_raw: Json | null
           title: string
           url: string
           year: number | null
@@ -55,6 +56,7 @@ export type Database = {
           price_eur?: number | null
           scraped_at?: string
           source?: string | null
+          specs_raw?: Json | null
           title: string
           url: string
           year?: number | null
@@ -77,6 +79,7 @@ export type Database = {
           price_eur?: number | null
           scraped_at?: string
           source?: string | null
+          specs_raw?: Json | null
           title?: string
           url?: string
           year?: number | null
