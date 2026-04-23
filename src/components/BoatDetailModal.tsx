@@ -1,12 +1,14 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart, Copy } from "lucide-react";
+import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart, Copy, ChevronsUpDown, Check } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { fetchComparables } from "@/lib/fetchComparables";
 import { supabase } from "@/integrations/supabase/client";
@@ -66,6 +68,8 @@ interface MaintenanceItem {
   costHigh: number;
   frequency: string;
   applicable: boolean;
+  rationale?: string;
+  optionsHint?: string;
 }
 
 // Infer engine condition from available data
@@ -107,38 +111,246 @@ function getMaintenanceBreakdown(lengthM: number, year: number | null, boatType:
   const age = year ? new Date().getFullYear() - year : 15;
   const isSail = boatType === "sailboat";
   const items: MaintenanceItem[] = [];
+  const sizeClass = len < 8 ? "small" : len < 12 ? "medium" : "large";
 
-  items.push({ category: "Hull", item: "Antifouling paint", costLow: len * 30, costHigh: len * 60, frequency: "Yearly", applicable: true });
-  items.push({ category: "Hull", item: "Hull polishing & waxing", costLow: 200, costHigh: 600, frequency: "Yearly", applicable: true });
-  items.push({ category: "Hull", item: "Anode replacement", costLow: 100, costHigh: 300, frequency: "Yearly", applicable: true });
-  items.push({ category: "Hull", item: "Osmosis treatment", costLow: 1500, costHigh: 4000, frequency: "Every 10 years", applicable: hullMaterial === "fiberglass" || !hullMaterial });
+  items.push({
+    category: "Hull",
+    item: "Antifouling paint",
+    costLow: len * 30,
+    costHigh: len * 60,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: `Prevents marine growth that increases drag and fuel burn. Cost scales with hull surface (${sizeClass} boat: ${len.toFixed(1)}m).`,
+    optionsHint: "DIY roll-on systems are cheaper; yard application is faster and usually more durable.",
+  });
+  items.push({
+    category: "Hull",
+    item: "Hull polishing & waxing",
+    costLow: 200,
+    costHigh: 600,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Protects gelcoat/paint from UV and oxidation; keeps resale condition stronger over time.",
+    optionsHint: "Basic annual polish is enough for many boats; premium compounds raise cost but last longer.",
+  });
+  items.push({
+    category: "Hull",
+    item: "Anode replacement",
+    costLow: 100,
+    costHigh: 300,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Sacrificial anodes reduce galvanic corrosion on underwater metals.",
+    optionsHint: "Saltwater marinas and shore-power exposure usually increase replacement frequency.",
+  });
+  items.push({
+    category: "Hull",
+    item: "Osmosis treatment",
+    costLow: 1500,
+    costHigh: 4000,
+    frequency: "Every 10 years",
+    applicable: hullMaterial === "fiberglass" || !hullMaterial,
+    rationale: `Relevant mostly for fiberglass hulls, especially as boats age (${age} years old).`,
+    optionsHint: "Localized treatment is cheaper; full peel/epoxy barrier is costly but comprehensive.",
+  });
 
-  items.push({ category: "Engine", item: "Oil & filter change", costLow: 80, costHigh: 200, frequency: "Yearly", applicable: true });
-  items.push({ category: "Engine", item: "Impeller replacement", costLow: 50, costHigh: 150, frequency: "Yearly", applicable: true });
-  items.push({ category: "Engine", item: "Fuel filter & water separator", costLow: 40, costHigh: 100, frequency: "Yearly", applicable: true });
-  items.push({ category: "Engine", item: "Belt replacement", costLow: 30, costHigh: 80, frequency: "Every 2 years", applicable: true });
-  items.push({ category: "Engine", item: "Winterization", costLow: 150, costHigh: 400, frequency: "Yearly", applicable: true });
-  items.push({ category: "Engine", item: "Major engine service", costLow: 800, costHigh: 2500, frequency: "Every 5 years", applicable: age > 10 || (engineHours || 0) > 2000 });
+  items.push({
+    category: "Engine",
+    item: "Oil & filter change",
+    costLow: 80,
+    costHigh: 200,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Core preventive maintenance that protects bearings and extends engine life.",
+    optionsHint: "Single-engine setups are cheaper than twin engines; premium oil/filter brands increase cost.",
+  });
+  items.push({
+    category: "Engine",
+    item: "Impeller replacement",
+    costLow: 50,
+    costHigh: 150,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Critical cooling component; failure can overheat and damage the engine quickly.",
+    optionsHint: "Annual proactive replacement is usually cheaper than emergency repair.",
+  });
+  items.push({
+    category: "Engine",
+    item: "Fuel filter & water separator",
+    costLow: 40,
+    costHigh: 100,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Keeps injectors and fuel system protected from contamination and water.",
+    optionsHint: "Frequent tank refills from mixed-quality sources may require more frequent changes.",
+  });
+  items.push({
+    category: "Engine",
+    item: "Belt replacement",
+    costLow: 30,
+    costHigh: 80,
+    frequency: "Every 2 years",
+    applicable: true,
+    rationale: "Aged belts increase risk of charging/cooling failures.",
+    optionsHint: "Part-only replacement is cheap; full tensioner/pulley service raises cost.",
+  });
+  items.push({
+    category: "Engine",
+    item: "Winterization",
+    costLow: 150,
+    costHigh: 400,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Prevents freeze/corrosion damage during lay-up periods.",
+    optionsHint: "DIY can reduce cost if done correctly; yard service lowers execution risk.",
+  });
+  items.push({
+    category: "Engine",
+    item: "Major engine service",
+    costLow: 800,
+    costHigh: 2500,
+    frequency: "Every 5 years",
+    applicable: age > 10 || (engineHours || 0) > 2000,
+    rationale: `Triggered by age/hours profile (${age} years${engineHours ? `, ${engineHours}h` : ""}). Older/high-hour engines need deeper preventive work.`,
+    optionsHint: "Scope ranges from injector/turbo checks to major overhaul depending on diagnostics.",
+  });
 
   if (isSail) {
-    items.push({ category: "Sails & Rigging", item: "Sail inspection & repair", costLow: 200, costHigh: 800, frequency: "Yearly", applicable: true });
-    items.push({ category: "Sails & Rigging", item: "Standing rigging inspection", costLow: 150, costHigh: 400, frequency: "Yearly", applicable: true });
-    items.push({ category: "Sails & Rigging", item: "Running rigging replacement", costLow: 300, costHigh: 1000, frequency: "Every 5 years", applicable: age > 5 });
-    items.push({ category: "Sails & Rigging", item: "Full rigging replacement", costLow: 3000, costHigh: 8000, frequency: "Every 10-15 years", applicable: age > 10 });
+    items.push({
+      category: "Sails & Rigging",
+      item: "Sail inspection & repair",
+      costLow: 200,
+      costHigh: 800,
+      frequency: "Yearly",
+      applicable: true,
+      rationale: "Sailcloth, stitching and UV strips degrade with use and sun exposure.",
+      optionsHint: "Patch/repair is cheaper; full recut or replacement is significantly more expensive.",
+    });
+    items.push({
+      category: "Sails & Rigging",
+      item: "Standing rigging inspection",
+      costLow: 150,
+      costHigh: 400,
+      frequency: "Yearly",
+      applicable: true,
+      rationale: "Wire terminals and fittings are critical safety points on sailboats.",
+      optionsHint: "Inspection cost is low compared to mast/rig failure risk.",
+    });
+    items.push({
+      category: "Sails & Rigging",
+      item: "Running rigging replacement",
+      costLow: 300,
+      costHigh: 1000,
+      frequency: "Every 5 years",
+      applicable: age > 5,
+      rationale: `Lines age with UV/load cycles; older boats typically need partial replacement (${age} years).`,
+      optionsHint: "Performance lines cost more; cruising-grade ropes are a practical middle ground.",
+    });
+    items.push({
+      category: "Sails & Rigging",
+      item: "Full rigging replacement",
+      costLow: 3000,
+      costHigh: 8000,
+      frequency: "Every 10-15 years",
+      applicable: age > 10,
+      rationale: `Long-term safety replacement for aging rigs (${age} years).`,
+      optionsHint: "Partial replacement is cheaper short-term; full replacement gives stronger reliability.",
+    });
   }
 
-  items.push({ category: "Electrical", item: "Battery replacement", costLow: 200, costHigh: 600, frequency: "Every 3-5 years", applicable: true });
-  items.push({ category: "Electrical", item: "Electrical system check", costLow: 100, costHigh: 300, frequency: "Yearly", applicable: true });
+  items.push({
+    category: "Electrical",
+    item: "Battery replacement",
+    costLow: 200,
+    costHigh: 600,
+    frequency: "Every 3-5 years",
+    applicable: true,
+    rationale: "Battery capacity fades with cycles and calendar age; weak batteries create reliability issues.",
+    optionsHint: "Lead-acid is cheaper; AGM/LiFePO4 options cost more but improve performance/lifetime.",
+  });
+  items.push({
+    category: "Electrical",
+    item: "Electrical system check",
+    costLow: 100,
+    costHigh: 300,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Detects corrosion, loose terminals, and charging faults before failures at sea.",
+    optionsHint: "Basic visual check is cheap; load testing and thermal diagnostics cost more.",
+  });
 
-  items.push({ category: "Safety", item: "Life raft service", costLow: 200, costHigh: 500, frequency: "Every 2-3 years", applicable: true });
-  items.push({ category: "Safety", item: "Fire extinguisher service", costLow: 50, costHigh: 150, frequency: "Yearly", applicable: true });
-  items.push({ category: "Safety", item: "Flare replacement", costLow: 80, costHigh: 200, frequency: "Every 3 years", applicable: true });
+  items.push({
+    category: "Safety",
+    item: "Life raft service",
+    costLow: 200,
+    costHigh: 500,
+    frequency: "Every 2-3 years",
+    applicable: true,
+    rationale: "Mandatory/strongly recommended safety readiness for offshore and longer passages.",
+    optionsHint: "Service interval and raft size drive cost differences.",
+  });
+  items.push({
+    category: "Safety",
+    item: "Fire extinguisher service",
+    costLow: 50,
+    costHigh: 150,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Required for safety compliance and emergency preparedness.",
+    optionsHint: "Refill/service is cheaper than replacing multiple units.",
+  });
+  items.push({
+    category: "Safety",
+    item: "Flare replacement",
+    costLow: 80,
+    costHigh: 200,
+    frequency: "Every 3 years",
+    applicable: true,
+    rationale: "Pyrotechnics expire and must be replaced to stay compliant and usable.",
+    optionsHint: "Bundle packs lower unit cost vs single replacements.",
+  });
 
-  items.push({ category: "Insurance & Admin", item: "Boat insurance", costLow: len * 40, costHigh: len * 80, frequency: "Yearly", applicable: true });
-  items.push({ category: "Insurance & Admin", item: "Registration renewal", costLow: 50, costHigh: 200, frequency: "Yearly", applicable: true });
+  items.push({
+    category: "Insurance & Admin",
+    item: "Boat insurance",
+    costLow: len * 40,
+    costHigh: len * 80,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: `Insurance scales with vessel value, size (${len.toFixed(1)}m), type (${boatType}) and cruising zone.`,
+    optionsHint: "Higher deductibles reduce premium; broader coverage and wider cruising areas increase premium.",
+  });
+  items.push({
+    category: "Insurance & Admin",
+    item: "Registration renewal",
+    costLow: 50,
+    costHigh: 200,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Administrative renewal and compliance fees required by flag/state rules.",
+    optionsHint: "Fees vary by jurisdiction and vessel class.",
+  });
 
-  items.push({ category: "Haulout", item: "Crane / travel lift", costLow: len * 15, costHigh: len * 30, frequency: "Yearly (for antifouling)", applicable: true });
-  items.push({ category: "Haulout", item: "Hard stand storage (winter)", costLow: len * 10, costHigh: len * 25, frequency: "Yearly", applicable: true });
+  items.push({
+    category: "Haulout",
+    item: "Crane / travel lift",
+    costLow: len * 15,
+    costHigh: len * 30,
+    frequency: "Yearly (for antifouling)",
+    applicable: true,
+    rationale: `Lift/launch handling cost scales with vessel size and yard equipment class (${sizeClass}).`,
+    optionsHint: "Busy premium yards and larger travel lifts usually cost more.",
+  });
+  items.push({
+    category: "Haulout",
+    item: "Hard stand storage (winter)",
+    costLow: len * 10,
+    costHigh: len * 25,
+    frequency: "Yearly",
+    applicable: true,
+    rationale: "Off-water storage reduces winter wear and simplifies seasonal maintenance.",
+    optionsHint: "Indoor storage is pricier; outdoor stands are cheaper but with more weather exposure.",
+  });
 
   return items;
 }
@@ -201,9 +413,11 @@ export const BoatDetailModal = ({
 
   // Costs state
   const [marinas, setMarinas] = useState<Marina[]>([]);
-  const [countries, setCountries] = useState<string[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedMarinaId, setSelectedMarinaId] = useState("");
+  const [marinaSelectOpen, setMarinaSelectOpen] = useState(false);
+  const [marinaSectionOpen, setMarinaSectionOpen] = useState(false);
+  const [marinaMode, setMarinaMode] = useState<"selected" | "manual">("selected");
+  const [manualMarinaCost, setManualMarinaCost] = useState("");
   const [loadingMarinas, setLoadingMarinas] = useState(false);
   const [costResult, setCostResult] = useState<{
     marina: number;
@@ -232,6 +446,10 @@ export const BoatDetailModal = ({
     setScriptOpen(false);
     setCostResult(null);
     setSelectedMarinaId("");
+    setMarinaSelectOpen(false);
+    setMarinaSectionOpen(false);
+    setMarinaMode("selected");
+    setManualMarinaCost("");
     setEnrichedListing(null);
     setEnrichedExtras({});
     setFetchError(null);
@@ -360,16 +578,55 @@ export const BoatDetailModal = ({
   useEffect(() => {
     if (activeTab === "costs" && marinas.length === 0) {
       setLoadingMarinas(true);
-      supabase.from("marinas").select("id, name, country, region, price_per_meter_year").order("country").order("name")
+      supabase.from("marinas").select("id, name, country, region, price_per_meter_year").order("name")
         .then(({ data }) => {
           if (data) {
             setMarinas(data);
-            setCountries([...new Set(data.map(m => m.country))].sort());
           }
           setLoadingMarinas(false);
         });
     }
   }, [activeTab]);
+
+  const handleCalcCost = () => {
+    if (!effective?.length_feet) return;
+    const lengthM = effective.length_feet * 0.3048;
+    const selectedMarina = marinas.find(m => m.id === selectedMarinaId);
+    const manualCost = Number.parseFloat(manualMarinaCost);
+    const marinaCost =
+      marinaMode === "manual"
+        ? Number.isFinite(manualCost) && manualCost >= 0
+          ? manualCost
+          : 0
+        : selectedMarina
+          ? lengthM * (selectedMarina.price_per_meter_year || 0)
+          : 0;
+    const items = getMaintenanceBreakdown(lengthM, effective.year, effective.boat_type || "sailboat", effective.hull_material, effective.engine_hours || null);
+    const applicable = items.filter(i => i.applicable);
+
+    let maintenanceLow = 0, maintenanceHigh = 0;
+    for (const item of applicable) {
+      const match = item.frequency.match(/(\d+)/);
+      const years = item.frequency === "Yearly" ? 1 : (match ? parseInt(match[1]) : 3);
+      maintenanceLow += item.costLow / years;
+      maintenanceHigh += item.costHigh / years;
+    }
+
+    setCostResult({
+      marina: Math.round(marinaCost),
+      maintenanceItems: applicable,
+      maintenanceLow: Math.round(maintenanceLow),
+      maintenanceHigh: Math.round(maintenanceHigh),
+      totalLow: Math.round(marinaCost + maintenanceLow),
+      totalHigh: Math.round(marinaCost + maintenanceHigh),
+    });
+  };
+
+  useEffect(() => {
+    if (activeTab !== "costs") return;
+    if (!effective?.length_feet || isFetching) return;
+    handleCalcCost();
+  }, [activeTab, effective?.length_feet, effective?.year, effective?.boat_type, effective?.hull_material, effective?.engine_hours, selectedMarinaId, marinaMode, manualMarinaCost, marinas.length, isFetching]);
 
   if (!listing) return null;
 
@@ -442,33 +699,8 @@ export const BoatDetailModal = ({
     }
   };
 
-  const handleCalcCost = () => {
-    if (!effective!.length_feet) return;
-    const lengthM = effective!.length_feet * 0.3048;
-    const selectedMarina = marinas.find(m => m.id === selectedMarinaId);
-    const marinaCost = selectedMarina ? lengthM * (selectedMarina.price_per_meter_year || 0) : 0;
-    const items = getMaintenanceBreakdown(lengthM, effective!.year, effective!.boat_type || "sailboat", effective!.hull_material, effective!.engine_hours || null);
-    const applicable = items.filter(i => i.applicable);
-
-    let maintenanceLow = 0, maintenanceHigh = 0;
-    for (const item of applicable) {
-      const match = item.frequency.match(/(\d+)/);
-      const years = item.frequency === "Yearly" ? 1 : (match ? parseInt(match[1]) : 3);
-      maintenanceLow += item.costLow / years;
-      maintenanceHigh += item.costHigh / years;
-    }
-
-    setCostResult({
-      marina: Math.round(marinaCost),
-      maintenanceItems: applicable,
-      maintenanceLow: Math.round(maintenanceLow),
-      maintenanceHigh: Math.round(maintenanceHigh),
-      totalLow: Math.round(marinaCost + maintenanceLow),
-      totalHigh: Math.round(marinaCost + maintenanceHigh),
-    });
-  };
-
-  const filteredMarinas = marinas.filter(m => !selectedCountry || m.country === selectedCountry);
+  const filteredMarinas = marinas;
+  const selectedMarina = marinas.find((m) => m.id === selectedMarinaId) || null;
   const scoreBarColor = (score: number, max: number) => {
     const pct = score / max;
     if (pct >= 0.75) return "bg-success";
@@ -860,31 +1092,145 @@ export const BoatDetailModal = ({
                 <p className="text-sm text-muted-foreground">Missing boat length — cannot calculate costs.</p>
               ) : (
                 <>
+                  {(() => {
+                    const items = getMaintenanceBreakdown(
+                      effective!.length_feet! * 0.3048,
+                      effective!.year,
+                      effective!.boat_type || "sailboat",
+                      effective!.hull_material,
+                      effective!.engine_hours || null,
+                    ).filter((i) => i.applicable);
+                    let low = 0;
+                    let high = 0;
+                    for (const item of items) {
+                      const match = item.frequency.match(/(\d+)/);
+                      const years = item.frequency === "Yearly" ? 1 : (match ? parseInt(match[1]) : 3);
+                      low += item.costLow / years;
+                      high += item.costHigh / years;
+                    }
+                    const byCategory = [...new Set(items.map((i) => i.category))].map((cat) => {
+                      const catItems = items.filter((i) => i.category === cat);
+                      let catLow = 0;
+                      let catHigh = 0;
+                      for (const item of catItems) {
+                        const match = item.frequency.match(/(\d+)/);
+                        const years = item.frequency === "Yearly" ? 1 : (match ? parseInt(match[1]) : 3);
+                        catLow += item.costLow / years;
+                        catHigh += item.costHigh / years;
+                      }
+                      return { cat, low: Math.round(catLow), high: Math.round(catHigh) };
+                    });
+                    return (
+                      <Card className="p-3">
+                        <p className="text-xs font-semibold text-primary">Base annual cost breakdown (without marina)</p>
+                        <p className="text-sm font-semibold mt-1">
+                          €{Math.round(low).toLocaleString()} - €{Math.round(high).toLocaleString()} / yr
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {byCategory.slice(0, 6).map((row) => (
+                            <p key={row.cat} className="text-[11px] text-muted-foreground">
+                              {row.cat}: €{row.low.toLocaleString()}-€{row.high.toLocaleString()}
+                            </p>
+                          ))}
+                        </div>
+                      </Card>
+                    );
+                  })()}
+
                   {loadingMarinas ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading marinas…</div>
                   ) : (
                     <div className="space-y-3">
-                      <div>
-                        <Label className="text-xs">Country</Label>
-                        <Select value={selectedCountry} onValueChange={v => { setSelectedCountry(v); setSelectedMarinaId(""); }}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All countries" /></SelectTrigger>
-                          <SelectContent>{countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs">Marina</Label>
-                        <Select value={selectedMarinaId} onValueChange={setSelectedMarinaId}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select a marina" /></SelectTrigger>
-                          <SelectContent>
-                            {filteredMarinas.map(m => (
-                              <SelectItem key={m.id} value={m.id}>{m.name} {m.region ? `(${m.region})` : ""} — €{m.price_per_meter_year}/m/yr</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button className="w-full" size="sm" onClick={handleCalcCost}>
-                        <DollarSign className="w-4 h-4 mr-1" /> Calculate Annual Cost
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-between text-xs"
+                        onClick={() => setMarinaSectionOpen((v) => !v)}
+                      >
+                        {marinaSectionOpen ? "Hide marina options" : "Add marina cost (optional)"}
+                        <ChevronsUpDown className="w-3.5 h-3.5" />
                       </Button>
+                      {marinaSectionOpen && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              type="button"
+                              variant={marinaMode === "selected" ? "default" : "outline"}
+                              size="sm"
+                              className="text-xs"
+                              onClick={() => setMarinaMode("selected")}
+                            >
+                              Use marina rate
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={marinaMode === "manual" ? "default" : "outline"}
+                              size="sm"
+                              className="text-xs"
+                              onClick={() => setMarinaMode("manual")}
+                            >
+                              Use manual cost
+                            </Button>
+                          </div>
+                          <div className={marinaMode === "selected" ? "" : "opacity-60"}>
+                            <Label className="text-xs">Marina (searchable)</Label>
+                            <Popover open={marinaSelectOpen} onOpenChange={setMarinaSelectOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  role="combobox"
+                                  className="w-full justify-between h-8 text-xs mt-1"
+                                  disabled={marinaMode !== "selected"}
+                                >
+                                  {selectedMarina
+                                    ? `${selectedMarina.name}${selectedMarina.region ? ` (${selectedMarina.region})` : ""}`
+                                    : "Optional: select a marina"}
+                                  <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[360px] p-0">
+                                <Command>
+                                  <CommandInput placeholder="Search marina..." />
+                                  <CommandList>
+                                    <CommandEmpty>No marina found.</CommandEmpty>
+                                    <CommandGroup>
+                                      {filteredMarinas.map((m) => (
+                                        <CommandItem
+                                          key={m.id}
+                                          value={`${m.name} ${m.region || ""} ${m.country}`}
+                                          onSelect={() => {
+                                            setSelectedMarinaId(m.id);
+                                            setMarinaSelectOpen(false);
+                                          }}
+                                        >
+                                          <Check
+                                            className={`mr-2 h-4 w-4 ${selectedMarinaId === m.id ? "opacity-100" : "opacity-0"}`}
+                                          />
+                                          {m.name} {m.region ? `(${m.region})` : ""} — €{m.price_per_meter_year}/m/yr
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className={marinaMode === "manual" ? "" : "opacity-60"}>
+                            <Label className="text-xs">Or enter manual annual marina cost (€)</Label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={manualMarinaCost}
+                              onChange={(e) => setManualMarinaCost(e.target.value)}
+                              className="mt-1 w-full h-8 rounded-md border bg-background px-2 text-xs"
+                              placeholder="Optional, e.g. 7200"
+                              disabled={marinaMode !== "manual"}
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </>
@@ -948,12 +1294,20 @@ export const BoatDetailModal = ({
                           <h5 className="font-medium text-xs text-primary mb-1 flex items-center gap-1"><Wrench className="w-3 h-3" /> {cat}</h5>
                           <div className="space-y-0.5">
                             {costResult.maintenanceItems.filter(i => i.category === cat).map((item, idx) => (
-                              <div key={idx} className="flex justify-between text-xs py-0.5 border-b border-border/30 last:border-0">
-                                <div>
-                                  <span className="text-foreground">{item.item}</span>
-                                  <span className="text-muted-foreground ml-1.5">({item.frequency})</span>
+                              <div key={idx} className="py-1 border-b border-border/30 last:border-0">
+                                <div className="flex justify-between text-xs">
+                                  <div>
+                                    <span className="text-foreground">{item.item}</span>
+                                    <span className="text-muted-foreground ml-1.5">({item.frequency})</span>
+                                  </div>
+                                  <span className="text-muted-foreground whitespace-nowrap">€{item.costLow.toLocaleString()} – €{item.costHigh.toLocaleString()}</span>
                                 </div>
-                                <span className="text-muted-foreground whitespace-nowrap">€{item.costLow.toLocaleString()} – €{item.costHigh.toLocaleString()}</span>
+                                {item.rationale && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">{item.rationale}</p>
+                                )}
+                                {item.optionsHint && (
+                                  <p className="text-[11px] text-muted-foreground/80 mt-0.5">Options: {item.optionsHint}</p>
+                                )}
                               </div>
                             ))}
                           </div>

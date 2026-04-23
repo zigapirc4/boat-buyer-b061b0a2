@@ -3,10 +3,11 @@ import { Anchor, Heart, MapPin, Home, Ship, Calculator, List, BookOpen } from "l
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { FeedbackButton } from "@/components/FeedbackButton";
 
-const NAV_ITEMS = [
+const NAV_ITEMS: Array<{ to: string; icon: any; label: string; state?: Record<string, unknown> }> = [
   { to: "/", icon: Home, label: "Home" },
-  { to: "/evaluate", icon: Ship, label: "Evaluate" },
+  { to: "/", icon: Ship, label: "Import", state: { openImport: true } },
   { to: "/cost", icon: Calculator, label: "Costs" },
   { to: "/my-boats", icon: List, label: "My Boats" },
 ];
@@ -63,6 +64,7 @@ export const Header = () => {
                 <MapPin className="w-3 h-3" /> {locationLabel}
               </span>
             )}
+            <FeedbackButton />
             <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
               <Button size="sm" className="bg-warning hover:bg-warning/90 text-warning-foreground font-semibold text-xs gap-1.5 rounded-full px-4">
                 <Heart className="w-3.5 h-3.5" /> Donate
@@ -70,6 +72,7 @@ export const Header = () => {
             </a>
           </div>
         </div>
+        <p className="mt-3 text-[11px] text-white/75">We highly value your feedback - it helps us improve BoatBuyer for everyone.</p>
 
         {/* Navigation */}
         <nav className="flex gap-1 mt-4">
@@ -77,8 +80,9 @@ export const Header = () => {
             const isActive = location.pathname === item.to;
             return (
               <Link
-                key={item.to}
+                key={`${item.to}-${item.label}`}
                 to={item.to}
+                state={item.state}
                 className={cn(
                   "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl text-[10px] sm:text-xs font-medium transition-all",
                   isActive

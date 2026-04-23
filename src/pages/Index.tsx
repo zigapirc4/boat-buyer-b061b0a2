@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Anchor,
   Ship,
@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  TrendingDown,
   DollarSign,
   Shield,
   Compass,
@@ -30,10 +31,10 @@ import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { BoatListingCard } from "@/components/BoatListingCard";
+import { FeedbackButton } from "@/components/FeedbackButton";
 import { evaluate, type BoatType } from "@/lib/evaluateBoat";
 import { useToast } from "@/hooks/use-toast";
-import myStoryImage from "@/assets/my-story-vivacity.jpg";
-import myStoryWorkbenchImage from "@/assets/my-story-workbench.png";
+import { BUYER_GUIDES } from "@/lib/buyerGuides";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -121,6 +122,8 @@ const ARTICLES = [
 const PER_PAGE = 24;
 
 const Index = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const savedCount = getSavedBoats().length;
   const [listings, setListings] = useState<CachedListing[]>([]);
@@ -142,10 +145,7 @@ const Index = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("evaluate");
   const [page, setPage] = useState(1);
-  const [selectedArticle, setSelectedArticle] = useState<(typeof ARTICLES)[number] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [storyImageOpen, setStoryImageOpen] = useState(false);
-  const [activeStoryImage, setActiveStoryImage] = useState<string>(myStoryImage);
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
@@ -165,6 +165,14 @@ const Index = () => {
     );
     setSavedIds(ids);
   }, []);
+
+  useEffect(() => {
+    const shouldOpenImport = Boolean((location.state as { openImport?: boolean } | null)?.openImport);
+    if (!shouldOpenImport) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setImportOpen(true);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.pathname, location.state, navigate]);
 
   const toggleSave = (listing: CachedListing) => {
     if (savedIds.has(listing.id)) {
@@ -783,16 +791,28 @@ const Index = () => {
   const scrollToListings = () => {
     document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
   };
-
   const actionCards = [
-    { to: "/evaluate", icon: Ship, label: "Import boat", desc: "Evaluate + ownership cost", gradient: "from-primary to-ocean" },
+    { icon: Ship, label: "Import boat", desc: "Evaluate + ownership cost", onClick: () => setImportOpen(true), badge: null as number | null },
     {
       to: "/my-boats",
       icon: List,
       label: "My Boats",
       desc: savedCount > 0 ? `${savedCount} saved` : "Your shortlist",
-      gradient: "from-coral to-warning",
       badge: savedCount,
+    },
+    {
+      to: "/my-story",
+      icon: Heart,
+      label: "My Story",
+      desc: "Why BoatBuyer exists",
+      badge: null as number | null,
+    },
+    {
+      to: "/buyers-guides",
+      icon: BookOpen,
+      label: "Buyer’s Guides",
+      desc: "Expert playbooks",
+      badge: null as number | null,
     },
   ];
 
@@ -802,19 +822,22 @@ const Index = () => {
       <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
         <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <Anchor className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
-              <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
-            </div>
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                <Anchor className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
+                <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
+              </div>
+            </Link>
             <div className="hidden sm:flex items-center gap-2 ml-auto">
               {locationLabel && (
                 <span className="flex items-center gap-1.5 text-xs bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
                   <MapPin className="w-3 h-3" /> {locationLabel}
                 </span>
               )}
+              <FeedbackButton pagePath="/" />
               <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
                 <Button
                   size="sm"
@@ -830,21 +853,15 @@ const Index = () => {
             <p className="text-sm sm:text-base text-white/90">
               We analyze listings, compare market peers, and show what to negotiate before you call the seller.
             </p>
+            <p className="text-xs text-white/70 mt-1">
+              We highly value your feedback - it directly helps us make BoatBuyer better.
+            </p>
           </div>
 
           {/* Action Cards */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
-            <button type="button" className="group text-left" onClick={() => setImportOpen(true)}>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
-                  <Ship className="w-4 h-4 sm:w-5 sm:h-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-semibold">Import boat</p>
-                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Evaluate + ownership cost</p>
-              </div>
-            </button>
-            {actionCards.slice(1).map((card) => (
-              <Link key={card.to} to={card.to} className="group">
+          <div className="grid grid-cols-4 gap-2 sm:gap-3 mt-6">
+            {actionCards.map((card, idx) => {
+              const content = (
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
                   <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
                     <card.icon className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -857,14 +874,27 @@ const Index = () => {
                   </p>
                   <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">{card.desc}</p>
                 </div>
-              </Link>
-            ))}
+              );
+
+              if ("to" in card && card.to) {
+                return (
+                  <Link key={card.to} to={card.to} className="group">
+                    {content}
+                  </Link>
+                );
+              }
+              return (
+                <button key={`${card.label}-${idx}`} type="button" className="group text-left" onClick={card.onClick}>
+                  {content}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* Instant Value Preview */}
-      <section className="max-w-6xl mx-auto px-4 pt-6 w-full">
+      <section id="top-deals" className="max-w-6xl mx-auto px-4 pt-6 w-full">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">Top Deals Right Now</h2>
           <Button variant="ghost" size="sm" className="text-xs" onClick={scrollToListings}>
@@ -914,16 +944,41 @@ const Index = () => {
       <section className="max-w-6xl mx-auto px-4 pt-6 w-full">
         <Card className="p-4 sm:p-5 premium-surface">
           <h3 className="text-sm font-semibold text-primary mb-1">Why this score is trustworthy</h3>
-          <div className="grid gap-2 sm:grid-cols-3 text-xs text-muted-foreground">
-            <p>Market baseline from same boat type, similar year and length.</p>
-            <p>Risk modifiers from engine/hull/sail condition and known issues.</p>
-            <p>Negotiation output capped to fair range with confidence indicators.</p>
+          <div className="grid gap-3 sm:grid-cols-2 text-xs text-muted-foreground">
+            <div>
+              <p className="text-foreground font-semibold mb-1">Growing market coverage</p>
+              <p>
+                We continuously import new listings into our catalog, so the market baseline keeps getting richer and the score becomes
+                more reliable over time.
+              </p>
+            </div>
+            <div>
+              <p className="text-foreground font-semibold mb-1">Comparable-based pricing</p>
+              <p>
+                Each boat is compared against same-type listings with similar year and length to build a fair range from real asking
+                prices.
+              </p>
+            </div>
+            <div>
+              <p className="text-foreground font-semibold mb-1">Risk-adjusted quality</p>
+              <p>
+                The score is adjusted with risk signals such as age, engine and hull condition, missing critical fields, and known-issue
+                indicators in listing text.
+              </p>
+            </div>
+            <div>
+              <p className="text-foreground font-semibold mb-1">Negotiation guardrails</p>
+              <p>
+                Valuation and risk are translated into practical outputs: confidence level, realistic target offer, and a clear walk-away
+                ceiling.
+              </p>
+            </div>
           </div>
         </Card>
       </section>
 
-      {/* Mobile My Story CTA */}
-      <section className="sm:hidden max-w-6xl mx-auto px-4 pt-5 w-full">
+      {/* My Story CTA */}
+      <section className="max-w-6xl mx-auto px-4 pt-5 w-full">
         <Card className="p-4">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -939,99 +994,18 @@ const Index = () => {
         </Card>
       </section>
 
-      {/* My Story Section */}
-      <section className="hidden sm:block max-w-6xl mx-auto px-4 py-10 w-full">
-        <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
-          <Heart className="w-5 h-5 text-coral" /> My Story
-        </h2>
-        <div className="flex flex-col sm:flex-row gap-6 items-start">
-          <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed flex-1 min-w-0">
-            <p>
-              That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
-              and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
-              timeless, almost stubborn charm. Built in an era when boats were made to last and to be lived with, not
-              just owned, she carries that old-school character in every line of her hull.
-            </p>
-            <p>
-              Back then, I wasn't thinking about costs, marinas, or long-term value. I was thinking about what it feels
-              like to be out there, away from routine, with a sense of complete freedom. That changed quite quickly. On
-              our first serious trip, we learned in a rather unpleasant way that the engine had reached the end of its
-              life — it failed at sea, and it became clear that a full replacement wasn't a choice, but a necessity.
-            </p>
-            <p>
-              Later, I realized that owning a boat isn't just about the romance — it's also about decisions, costs, and
-              a lot of unknowns. That experience made it very real, very fast. It's exactly why I started building this
-              project. To make the journey from "I like this boat" to "I know this is a smart decision" much easier.
-              This isn't just an app. It's something I wish I had the first time I stepped aboard that little Vivacity,
-              full of character and quiet promises of the sea.
-            </p>
-          </div>
-          <div className="shrink-0 w-44 sm:w-48 self-center sm:self-start space-y-3">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveStoryImage(myStoryImage);
-                setStoryImageOpen(true);
-              }}
-              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
-              aria-label="View full size photo"
-            >
-              <img
-                src={myStoryImage}
-                alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
-                className="w-full h-36 object-cover block"
-                loading="lazy"
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveStoryImage(myStoryWorkbenchImage);
-                setStoryImageOpen(true);
-              }}
-              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
-              aria-label="View working on boat photo"
-            >
-              <img
-                src={myStoryWorkbenchImage}
-                alt="Working on BoatBuyer from the cockpit in a marina"
-                className="w-full h-28 object-cover block"
-                loading="lazy"
-              />
-            </button>
-            <p className="text-[11px] text-muted-foreground italic">Two moments: where it started and where it is being built.</p>
-          </div>
-        </div>
-      </section>
-
-      <Dialog open={storyImageOpen} onOpenChange={setStoryImageOpen}>
-        <DialogContent className="max-w-4xl p-2 sm:p-4 bg-background">
-          <DialogHeader className="sr-only">
-            <DialogTitle>My Story — Vivacity 20</DialogTitle>
-            <DialogDescription>Full size photo of a 1975 Vivacity 20 sailboat</DialogDescription>
-          </DialogHeader>
-          <img
-            src={activeStoryImage}
-            alt={
-              activeStoryImage === myStoryWorkbenchImage
-                ? "Working on BoatBuyer from the cockpit in a marina"
-                : "Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
-            }
-            className="w-full h-auto max-h-[85vh] object-contain rounded-md"
-          />
-        </DialogContent>
-      </Dialog>
-
       {/* Articles Section */}
       <div className="max-w-6xl mx-auto px-4 py-8 w-full">
         <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
           <BookOpen className="w-5 h-5 text-coral" /> Buyer's Guides
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {ARTICLES.map((article, i) => (
+          {Array.from(new Map(BUYER_GUIDES.map((article) => [article.category, article])).values())
+            .slice(0, 4)
+            .map((article) => (
             <Card
-              key={i}
-              onClick={() => setSelectedArticle(article)}
+              key={article.id}
+              onClick={() => navigate(`/buyers-guides?article=${article.id}`)}
               className="p-4 group cursor-pointer border-transparent hover:border-primary/15 premium-card"
             >
               <div
@@ -1040,7 +1014,7 @@ const Index = () => {
                 <article.icon className="w-4 h-4" />
               </div>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${article.tagColor}`}>
-                {article.tag}
+                {article.category}
               </span>
               <h3 className="text-sm font-semibold mt-2 leading-snug font-sans">{article.title}</h3>
               <p className="text-xs text-muted-foreground mt-1.5 line-clamp-3">{article.summary}</p>
@@ -1048,45 +1022,9 @@ const Index = () => {
                 Read more →
               </span>
             </Card>
-          ))}
+            ))}
         </div>
       </div>
-
-      {/* Article Modal */}
-      <Dialog open={!!selectedArticle} onOpenChange={(open) => !open && setSelectedArticle(null)}>
-        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
-          {selectedArticle && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-3 mb-1">
-                  <div className={`w-10 h-10 rounded-lg ${selectedArticle.color} flex items-center justify-center`}>
-                    <selectedArticle.icon className="w-5 h-5" />
-                  </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedArticle.tagColor}`}>
-                    {selectedArticle.tag}
-                  </span>
-                </div>
-                <DialogTitle className="text-lg font-bold font-heading">{selectedArticle.title}</DialogTitle>
-                <DialogDescription>{selectedArticle.summary}</DialogDescription>
-              </DialogHeader>
-              <div className="prose prose-sm max-w-none text-foreground mt-2">
-                {selectedArticle.body.split("\n\n").map((paragraph, i) => (
-                  <p
-                    key={i}
-                    className="text-sm leading-relaxed text-muted-foreground mb-3"
-                    dangerouslySetInnerHTML={{
-                      __html: paragraph
-                        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-foreground">$1</strong>')
-                        .replace(/\*(.*?)\*/g, "<em>$1</em>")
-                        .replace(/\n/g, "<br />"),
-                    }}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Listings Section */}
       <div id="listings" className="max-w-6xl mx-auto px-4 pb-8 w-full flex-1 space-y-4">
@@ -1529,7 +1467,7 @@ const Index = () => {
           <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <p>© {new Date().getFullYear()} BoatBuyer. All rights reserved.</p>
             <div className="flex gap-4">
-              <Link to="/evaluate" className="hover:text-primary transition-colors">
+              <Link to="/" state={{ openImport: true }} className="hover:text-primary transition-colors">
                 Import boat
               </Link>
               <Link to="/my-boats" className="hover:text-primary transition-colors">

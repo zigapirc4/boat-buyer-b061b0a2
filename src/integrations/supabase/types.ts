@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      feedback_entries: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          page_path: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          page_path?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          page_path?: string | null
+        }
+        Relationships: []
+      }
       cached_listings: {
         Row: {
           boat_type: string | null

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Trash2, Heart } from "lucide-react";
-import { Header } from "@/components/Header";
+import { Anchor, BookOpen, Heart, List, MapPin, Ship, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Footer } from "@/components/Footer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { FeedbackButton } from "@/components/FeedbackButton";
 import { getSavedBoats, deleteBoat, getSavedListings, removeListing, type SavedBoat, type SavedListing } from "@/lib/boatStore";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,6 +52,30 @@ const MyBoats = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("details");
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [locationLabel, setLocationLabel] = useState("");
+  const savedCount = listings.length;
+
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=en`,
+            );
+            const data = await res.json();
+            const city = data?.address?.city || data?.address?.town || data?.address?.state;
+            const country = data?.address?.country;
+            setLocationLabel(city || country || "");
+          } catch {
+            setLocationLabel("");
+          }
+        },
+        () => {},
+        { timeout: 5000 },
+      );
+    }
+  }, []);
 
   useEffect(() => {
     const loadCachedListings = async () => {
@@ -216,7 +241,88 @@ const MyBoats = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header />
+      <div className="bg-gradient-to-br from-primary via-ocean to-sky text-primary-foreground">
+        <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
+          <div className="flex items-center gap-3 mb-4">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                <Anchor className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-3xl sm:text-4xl font-bold leading-tight text-white">BoatBuyer</h1>
+                <p className="text-white/75 text-sm">Smart boat purchase decisions</p>
+              </div>
+            </Link>
+            <div className="hidden sm:flex items-center gap-2 ml-auto">
+              {locationLabel && (
+                <span className="flex items-center gap-1.5 text-xs bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                  <MapPin className="w-3 h-3" /> {locationLabel}
+                </span>
+              )}
+              <FeedbackButton pagePath="/my-boats" />
+              <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer">
+                <Button
+                  size="sm"
+                  className="bg-warning hover:bg-warning/90 text-warning-foreground font-semibold text-xs gap-1.5 rounded-full px-4"
+                >
+                  <Heart className="w-3.5 h-3.5" /> Donate
+                </Button>
+              </a>
+            </div>
+          </div>
+          <div className="mt-3 max-w-2xl">
+            <p className="text-sm sm:text-base text-white/90">
+              We analyze listings, compare market peers, and show what to negotiate before you call the seller.
+            </p>
+            <p className="text-xs text-white/70 mt-1">
+              We highly value your feedback - it directly helps us make BoatBuyer better.
+            </p>
+          </div>
+          <div className="grid grid-cols-4 gap-2 sm:gap-3 mt-6">
+            <Link to="/" state={{ openImport: true }} className="group">
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                  <Ship className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold">Import boat</p>
+                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Evaluate + ownership cost</p>
+              </div>
+            </Link>
+            <Link to="/my-boats" className="group">
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                  <List className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold flex items-center gap-1 justify-center">
+                  My Boats
+                  {savedCount > 0 ? (
+                    <span className="bg-white/25 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{savedCount}</span>
+                  ) : null}
+                </p>
+                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Your shortlist</p>
+              </div>
+            </Link>
+            <Link to="/my-story" className="group">
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold">My Story</p>
+                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Why BoatBuyer exists</p>
+              </div>
+            </Link>
+            <Link to="/buyers-guides" className="group">
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 text-center hover:bg-white/20 transition-all hover:-translate-y-0.5 border border-white/10">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center mx-auto mb-2 transition-transform group-hover:scale-110">
+                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <p className="text-xs sm:text-sm font-semibold">Buyer’s Guides</p>
+                <p className="text-[10px] sm:text-xs text-white/60 mt-0.5">Expert playbooks</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </div>
       <div className="flex-1 p-4 pb-8 max-w-2xl mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-6">My Boats</h1>
 

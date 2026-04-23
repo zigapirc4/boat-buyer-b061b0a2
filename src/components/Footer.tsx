@@ -33,7 +33,7 @@ export const Footer = () => (
       <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <p>© {new Date().getFullYear()} BoatBuyer. All rights reserved.</p>
         <div className="flex gap-4">
-          <Link to="/evaluate" className="hover:text-primary transition-colors">Evaluate</Link>
+          <Link to="/" state={{ openImport: true }} className="hover:text-primary transition-colors">Import boat</Link>
           <Link to="/cost" className="hover:text-primary transition-colors">Costs</Link>
           <Link to="/my-boats" className="hover:text-primary transition-colors">My Boats</Link>
         </div>

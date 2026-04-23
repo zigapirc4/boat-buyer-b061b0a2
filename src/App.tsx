@@ -8,6 +8,7 @@ import EvaluateBoat from "./pages/EvaluateBoat";
 import OwnershipCost from "./pages/OwnershipCost";
 import MyBoats from "./pages/MyBoats";
 import MyStory from "./pages/MyStory";
+import BuyersGuides from "./pages/BuyersGuides";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
           <Route path="/cost" element={<OwnershipCost />} />
           <Route path="/my-boats" element={<MyBoats />} />
           <Route path="/my-story" element={<MyStory />} />
+          <Route path="/buyers-guides" element={<BuyersGuides />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <ChatWidget />
