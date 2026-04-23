@@ -22,6 +22,7 @@ export type Database = {
           description: string | null
           engine_hours: number | null
           engine_info: string | null
+          equipment: string[] | null
           fuel_type: string | null
           hull_material: string | null
           id: string
@@ -43,6 +44,7 @@ export type Database = {
           description?: string | null
           engine_hours?: number | null
           engine_info?: string | null
+          equipment?: string[] | null
           fuel_type?: string | null
           hull_material?: string | null
           id?: string
@@ -64,6 +66,7 @@ export type Database = {
           description?: string | null
           engine_hours?: number | null
           engine_info?: string | null
+          equipment?: string[] | null
           fuel_type?: string | null
           hull_material?: string | null
           id?: string

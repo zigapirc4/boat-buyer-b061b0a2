@@ -28,8 +28,19 @@ interface CachedListing {
   engine_hours?: number | null;
   cabins?: number | null;
   fuel_type?: string | null;
+  equipment?: string[] | null;
   source: string | null;
   scraped_at: string;
+}
+
+interface SimilarBoat {
+  title: string;
+  url: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  image_url: string | null;
 }
 
 interface Marina {
@@ -151,6 +162,10 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Similar boats state
+  const [similarBoats, setSimilarBoats] = useState<SimilarBoat[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
 
@@ -182,7 +197,39 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
     setEnrichedListing(null);
     setEnrichedExtras({});
     setFetchError(null);
+    setSimilarBoats([]);
   }, [listing?.id]);
+
+  // Fetch similar boats when modal opens for a listing
+  useEffect(() => {
+    if (!open || !listing) return;
+    let cancelled = false;
+    const run = async () => {
+      setLoadingSimilar(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("search-similar-boats", {
+          body: {
+            model: listing.title,
+            length_feet: listing.length_feet,
+            year: listing.year,
+            boat_type: listing.boat_type || "sailboat",
+          },
+        });
+        if (cancelled) return;
+        if (!error && data?.success && Array.isArray(data.data)) {
+          // Exclude the current listing itself
+          const filtered = (data.data as SimilarBoat[]).filter((b) => b.url !== listing.url).slice(0, 6);
+          setSimilarBoats(filtered);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setLoadingSimilar(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [open, listing?.id]);
 
   const needsFetch = (tab: "evaluate" | "costs") => {
     if (!effective) return false;
@@ -394,17 +441,24 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
             <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
           )}
 
-          {/* Equipment highlights from enrichment */}
-          {enrichedExtras.equipmentHighlights && enrichedExtras.equipmentHighlights.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold mb-1">Equipment</h3>
-              <div className="flex flex-wrap gap-1">
-                {enrichedExtras.equipmentHighlights.map((eq, i) => (
-                  <span key={i} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{eq}</span>
-                ))}
+          {/* Equipment — merged from scraped listing + AI enrichment */}
+          {(() => {
+            const merged = new Set<string>();
+            (effective!.equipment || []).forEach((e) => e && merged.add(e));
+            (enrichedExtras.equipmentHighlights || []).forEach((e) => e && merged.add(e));
+            const items = Array.from(merged);
+            if (items.length === 0) return null;
+            return (
+              <div>
+                <h3 className="text-sm font-semibold mb-1">Equipment</h3>
+                <div className="flex flex-wrap gap-1">
+                  {items.map((eq, i) => (
+                    <span key={i} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{eq}</span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Known issues from enrichment */}
           {enrichedExtras.knownIssues && enrichedExtras.knownIssues.length > 0 && (
@@ -650,6 +704,65 @@ export const BoatDetailModal = ({ listing, open, onOpenChange, timeAgo, isSaved,
               )}
             </div>
           )}
+
+          {/* ===== SIMILAR BOATS ===== */}
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="font-semibold text-primary flex items-center gap-2">
+              <Ship className="w-4 h-4" /> Similar Boats
+            </h3>
+            {loadingSimilar ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" /> Finding similar boats…
+              </div>
+            ) : similarBoats.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No similar boats found in the catalog yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {similarBoats.map((b) => (
+                  <a
+                    key={b.url}
+                    href={b.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block rounded-lg border border-border bg-card overflow-hidden hover:border-primary/50 hover:shadow-md transition-all"
+                  >
+                    <div className="aspect-video bg-muted overflow-hidden">
+                      {b.image_url ? (
+                        <img
+                          src={b.image_url}
+                          alt={b.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Ship className="w-6 h-6 text-muted-foreground/30" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-2 space-y-0.5">
+                      <p className="text-xs font-medium line-clamp-2 group-hover:text-primary transition-colors">{b.title}</p>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>
+                          {b.year || "—"}
+                          {b.length_feet ? ` · ${Number(b.length_feet)}ft` : ""}
+                        </span>
+                        {b.price_eur && (
+                          <span className="font-semibold text-primary">€{Number(b.price_eur).toLocaleString()}</span>
+                        )}
+                      </div>
+                      {b.location && (
+                        <p className="text-[10px] text-muted-foreground/70 line-clamp-1 flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" /> {b.location}
+                        </p>
+                      )}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
