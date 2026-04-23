@@ -432,13 +432,13 @@ const EvaluateBoat = () => {
   }, [isCombinedLoading]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen app-page-bg flex flex-col">
       <Header />
       <div className="flex-1 p-4 pb-8 max-w-lg mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-6">Evaluate a Boat</h1>
 
       {/* URL Import */}
-      <Card className="p-4 mb-6 border-dashed border-2">
+      <Card className="p-4 mb-6 section-card border-dashed border-2">
         <Label className="text-sm font-medium flex items-center gap-2 mb-2">
           <Ship className="w-4 h-4" /> Import boat
         </Label>
@@ -467,7 +467,7 @@ const EvaluateBoat = () => {
 
       {/* Imported Summary */}
       {extras.descriptionSummary && (
-        <Card className="p-3 mb-6 bg-muted/50">
+        <Card className="p-3 mb-6 section-card bg-muted/50">
           <p className="text-sm text-muted-foreground flex gap-2">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
             {extras.descriptionSummary}

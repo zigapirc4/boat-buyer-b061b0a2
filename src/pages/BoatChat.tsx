@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Send, Loader2, Bot, User, Anchor } from "lucide-react";
+import { ArrowLeft, Send, Loader2, Bot, User, Ship } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ReactMarkdown from "react-markdown";
@@ -140,15 +140,16 @@ const BoatChat = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col max-w-2xl mx-auto">
+    <div className="min-h-screen app-page-bg">
+      <div className="max-w-2xl mx-auto flex flex-col min-h-screen">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b">
+      <div className="flex items-center gap-3 p-4 border-b border-primary/15 bg-card/75 backdrop-blur-sm">
         <Link to="/" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-            <Anchor className="w-4 h-4 text-primary-foreground" />
+          <div className="w-8 h-8 rounded-full bg-primary/15 text-primary flex items-center justify-center border border-primary/25">
+            <Ship className="w-4 h-4" />
           </div>
           <div>
             <h1 className="font-semibold text-sm">BoatBuyer AI</h1>
@@ -175,7 +176,7 @@ const BoatChat = () => {
                 <button
                   key={i}
                   onClick={() => send(s)}
-                  className="text-left text-sm px-4 py-3 rounded-lg border hover:bg-muted transition-colors"
+                  className="text-left text-sm px-4 py-3 rounded-lg border border-primary/15 bg-card/70 hover:bg-card transition-colors"
                 >
                   {s}
                 </button>
@@ -195,7 +196,7 @@ const BoatChat = () => {
               className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                 msg.role === "user"
                   ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
+                  : "bg-card/85 border border-primary/10"
               }`}
             >
               {msg.role === "assistant" ? (
@@ -219,7 +220,7 @@ const BoatChat = () => {
             <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <Bot className="w-4 h-4 text-primary" />
             </div>
-            <div className="bg-muted rounded-2xl px-4 py-3">
+            <div className="bg-card/85 border border-primary/10 rounded-2xl px-4 py-3">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
             </div>
           </div>
@@ -227,7 +228,7 @@ const BoatChat = () => {
       </div>
 
       {/* Input */}
-      <div className="border-t p-4">
+      <div className="border-t border-primary/15 p-4 bg-card/75 backdrop-blur-sm">
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           className="flex gap-2"
@@ -243,6 +244,7 @@ const BoatChat = () => {
             <Send className="w-4 h-4" />
           </Button>
         </form>
+      </div>
       </div>
     </div>
   );

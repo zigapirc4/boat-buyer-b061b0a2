@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { LinkIcon, Loader2, Anchor, MapPin, Wrench, DollarSign, Ship } from "lucide-react";
+import { LinkIcon, Loader2, MapPin, Wrench, DollarSign, Ship } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -220,14 +220,14 @@ const OwnershipCost = () => {
   const categories = result ? [...new Set(result.maintenanceItems.map(i => i.category))] : [];
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen app-page-bg flex flex-col">
       <Header />
       <div className="flex-1 p-4 pb-8 max-w-2xl mx-auto w-full">
       <h1 className="text-2xl font-bold text-primary mb-2">Ownership Cost Calculator</h1>
       <p className="text-muted-foreground text-sm mb-6">Paste a listing link and select a marina to get a full annual cost breakdown.</p>
 
       {/* Step 1: Import boat */}
-      <Card className="p-4 mb-4">
+      <Card className="p-4 mb-4 section-card">
         <div className="flex items-center gap-2 mb-3">
           <Ship className="w-5 h-5 text-primary" />
           <h2 className="font-semibold">Step 1: Import Boat</h2>
@@ -259,7 +259,7 @@ const OwnershipCost = () => {
       </Card>
 
       {/* Step 2: Select marina */}
-      <Card className="p-4 mb-4">
+      <Card className="p-4 mb-4 section-card">
         <div className="flex items-center gap-2 mb-3">
           <MapPin className="w-5 h-5 text-primary" />
           <h2 className="font-semibold">Step 2: Select Marina</h2>
@@ -308,7 +308,7 @@ const OwnershipCost = () => {
       {result && (
         <div className="space-y-4 animate-fade-in">
           {/* Summary */}
-          <Card className="p-6">
+          <Card className="p-6 section-card">
             <h2 className="text-lg font-bold text-primary mb-4">Annual Cost Summary</h2>
             <div className="space-y-3">
               <div className="flex justify-between"><span className="text-muted-foreground">Marina berth</span><span className="font-medium">€{result.marina.toLocaleString()}</span></div>
@@ -325,7 +325,7 @@ const OwnershipCost = () => {
           </Card>
 
           {/* Cost breakdown chart */}
-          <Card className="p-6">
+          <Card className="p-6 section-card">
             <h2 className="text-lg font-bold text-primary mb-4">Cost Breakdown by Category</h2>
             <div className="space-y-3">
               {categories.map(cat => {
@@ -355,7 +355,7 @@ const OwnershipCost = () => {
           </Card>
 
           {/* Detailed items */}
-          <Card className="p-6">
+          <Card className="p-6 section-card">
             <h2 className="text-lg font-bold text-primary mb-4">Detailed Maintenance Items</h2>
             <div className="space-y-4">
               {categories.map(cat => (

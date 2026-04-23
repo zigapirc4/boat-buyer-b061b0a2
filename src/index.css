@@ -54,6 +54,21 @@
 }
 
 @layer components {
+  .app-page-bg {
+    background:
+      radial-gradient(1200px 500px at 10% -5%, hsl(200 75% 50% / 0.1), transparent 60%),
+      radial-gradient(900px 420px at 95% 0%, hsl(195 80% 60% / 0.08), transparent 58%),
+      hsl(var(--background));
+  }
+
+  .app-shell {
+    @apply max-w-6xl mx-auto px-4;
+  }
+
+  .section-card {
+    @apply rounded-xl border border-primary/10 bg-card/90 backdrop-blur-sm shadow-sm;
+  }
+
   .hero-header-bg {
     background-image:
       linear-gradient(135deg, hsl(210 90% 25% / 0.9), hsl(200 75% 30% / 0.72), hsl(195 80% 35% / 0.58)),
