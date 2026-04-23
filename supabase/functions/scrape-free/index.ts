@@ -58,7 +58,7 @@ const CATEGORY_PAGES: CategoryPage[] = [
         ? `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc`
         : `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc?page=${(page - 1) * 20}`,
     boatType: "sailboat",
-    pages: 10,
+    pages: 30,
   },
   {
     site: "boat24.com",
@@ -67,7 +67,7 @@ const CATEGORY_PAGES: CategoryPage[] = [
         ? `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc`
         : `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc?page=${(page - 1) * 20}`,
     boatType: "powerboat",
-    pages: 10,
+    pages: 30,
   },
 ];
 
@@ -484,6 +484,58 @@ async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string
     /* give up */
   }
   return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options?: {
+    retries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+  },
+): Promise<T> {
+  const retries = Math.max(0, options?.retries ?? 2);
+  const baseDelayMs = Math.max(50, options?.baseDelayMs ?? 300);
+  const maxDelayMs = Math.max(baseDelayMs, options?.maxDelayMs ?? 2500);
+
+  let attempt = 0;
+  let lastError: unknown = null;
+  while (attempt <= retries) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (attempt === retries) break;
+      const exp = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
+      const jitter = Math.floor(Math.random() * 160);
+      await sleep(exp + jitter);
+      attempt++;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Retryable operation failed");
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  handler: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  const maxWorkers = Math.max(1, Math.min(concurrency, items.length || 1));
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: maxWorkers }, async () => {
+    while (true) {
+      const idx = nextIndex++;
+      if (idx >= items.length) return;
+      await handler(items[idx], idx);
+    }
+  });
+
+  await Promise.all(workers);
 }
 
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
@@ -1225,37 +1277,46 @@ async function upsertListing(
   supabaseUrl: string,
   supabaseKey: string,
   row: Record<string, any>,
+  retryCount = 2,
 ): Promise<"insert" | "update" | "skip" | "error"> {
   // Quality gate: require price OR (year AND length) — same as scrape-listings-cron
   if (!row.price_eur && !(row.year && row.length_feet)) return "skip";
 
   try {
     // Try update first
-    const patch = await fetch(`${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(row.url)}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${supabaseKey}`,
-        apikey: supabaseKey,
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify(row),
-    });
+    const patch = await withRetry(
+      async () =>
+        await fetch(`${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(row.url)}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${supabaseKey}`,
+            apikey: supabaseKey,
+            "Content-Type": "application/json",
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify(row),
+        }),
+      { retries: retryCount, baseDelayMs: 220, maxDelayMs: 1800 },
+    );
     if (!patch.ok) return "error";
     const patched = await patch.json();
     if (Array.isArray(patched) && patched.length > 0) return "update";
 
     // Insert if no row
-    const ins = await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${supabaseKey}`,
-        apikey: supabaseKey,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify(row),
-    });
+    const ins = await withRetry(
+      async () =>
+        await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${supabaseKey}`,
+            apikey: supabaseKey,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal",
+          },
+          body: JSON.stringify(row),
+        }),
+      { retries: retryCount, baseDelayMs: 260, maxDelayMs: 2200 },
+    );
     return ins.ok ? "insert" : "error";
   } catch {
     return "error";
@@ -1274,6 +1335,10 @@ Deno.serve(async (req) => {
   let categoryStart = 0;
   let categoryEnd = CATEGORY_PAGES.length;
   let maxListingsPerPage = 8;
+  let listingConcurrency = 4;
+  let pageConcurrency = 2;
+  let fetchRetries = 2;
+  let upsertRetries = 2;
   let pageStart = 1;
   let pageEnd: number | null = null;
   let requestedUrls: string[] = [];
@@ -1282,6 +1347,10 @@ Deno.serve(async (req) => {
     if (typeof body.categoryStart === "number") categoryStart = body.categoryStart;
     if (typeof body.categoryEnd === "number") categoryEnd = body.categoryEnd;
     if (typeof body.maxListingsPerPage === "number") maxListingsPerPage = body.maxListingsPerPage;
+    if (typeof body.listingConcurrency === "number") listingConcurrency = Math.max(1, Math.floor(body.listingConcurrency));
+    if (typeof body.pageConcurrency === "number") pageConcurrency = Math.max(1, Math.floor(body.pageConcurrency));
+    if (typeof body.fetchRetries === "number") fetchRetries = Math.max(0, Math.floor(body.fetchRetries));
+    if (typeof body.upsertRetries === "number") upsertRetries = Math.max(0, Math.floor(body.upsertRetries));
     if (typeof body.pageStart === "number") pageStart = Math.max(1, Math.floor(body.pageStart));
     if (typeof body.pageEnd === "number") pageEnd = Math.max(1, Math.floor(body.pageEnd));
     if (Array.isArray(body.urls)) {
@@ -1292,20 +1361,33 @@ Deno.serve(async (req) => {
   const stats = { categoriesProcessed: 0, listingsFound: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
   const samples: string[] = [];
 
+  const perSiteTimeoutMs = (site: string): number => {
+    if (site === "trovobarche.it") return 14000;
+    if (site === "boat24.com") return 12000;
+    return 10000;
+  };
+
   const processListingUrl = async (
     linkUrl: string,
     site: string,
     hintType: "sailboat" | "powerboat" | "auto",
   ) => {
     try {
-      const html = await fetchHtml(linkUrl, 12000);
+      const html = await withRetry(
+        async () => {
+          const content = await fetchHtml(linkUrl, perSiteTimeoutMs(site));
+          if (!content) throw new Error("empty listing html");
+          return content;
+        },
+        { retries: fetchRetries, baseDelayMs: 280, maxDelayMs: 2200 },
+      );
       if (!html) {
         stats.errors++;
         return;
       }
       let parsed = parseListing(html, linkUrl, site, hintType);
       if (site === "boat24.com" && !parsed.location) {
-        const proxyLocation = await fetchBoat24LocationViaProxy(linkUrl, 12000);
+        const proxyLocation = await fetchBoat24LocationViaProxy(linkUrl, 10000);
         if (proxyLocation) parsed = { ...parsed, location: proxyLocation };
       }
 
@@ -1314,7 +1396,7 @@ Deno.serve(async (req) => {
         parsed.description &&
         /\.\.\./.test(parsed.description)
       ) {
-        const proxyHtml = await fetchHtmlViaProxy(linkUrl, 12000);
+          const proxyHtml = await fetchHtmlViaProxy(linkUrl, 10000);
         if (proxyHtml) {
           const proxyParsed = parseListing(proxyHtml, linkUrl, site, hintType);
           if (
@@ -1347,7 +1429,7 @@ Deno.serve(async (req) => {
         specs_raw: parsed.specs_raw,
         scraped_at: new Date().toISOString(),
       };
-      const r = await upsertListing(supabaseUrl, supabaseKey, row);
+      const r = await upsertListing(supabaseUrl, supabaseKey, row, upsertRetries);
       if (r === "insert") {
         stats.inserted++;
         if (samples.length < 5) samples.push(`+ ${linkUrl}`);
@@ -1362,7 +1444,7 @@ Deno.serve(async (req) => {
 
   if (requestedUrls.length > 0) {
     stats.listingsFound = requestedUrls.length;
-    for (const u of requestedUrls) {
+    await runWithConcurrency(requestedUrls, listingConcurrency, async (u) => {
       let site = "";
       try {
         const h = new URL(u).hostname.replace("www.", "").replace("www2.", "");
@@ -1374,7 +1456,7 @@ Deno.serve(async (req) => {
       }
       if (!site) {
         stats.errors++;
-        continue;
+        return;
       }
       const lowerUrl = u.toLowerCase();
       const hintType: "sailboat" | "powerboat" | "auto" =
@@ -1384,7 +1466,7 @@ Deno.serve(async (req) => {
             ? "powerboat"
             : "auto";
       await processListingUrl(u, site, hintType);
-    }
+    });
 
     console.log(`[scrape-free] targeted done`, stats);
     return new Response(JSON.stringify({ success: true, stats, samples }), {
@@ -1393,20 +1475,38 @@ Deno.serve(async (req) => {
   }
 
   const cats = CATEGORY_PAGES.slice(categoryStart, categoryEnd);
-  console.log(`[scrape-free] starting: ${cats.length} categories, maxListingsPerPage=${maxListingsPerPage}`);
+  console.log(
+    `[scrape-free] starting: ${cats.length} categories, maxListingsPerPage=${maxListingsPerPage}, listingConcurrency=${listingConcurrency}, pageConcurrency=${pageConcurrency}, fetchRetries=${fetchRetries}, upsertRetries=${upsertRetries}`,
+  );
 
   for (const cat of cats) {
     stats.categoriesProcessed++;
     const startPage = Math.min(pageStart, cat.pages);
     const endPage = Math.max(startPage, Math.min(pageEnd ?? cat.pages, cat.pages));
-    for (let page = startPage; page <= endPage; page++) {
+
+    const pagesToProcess: number[] = [];
+    for (let page = startPage; page <= endPage; page++) pagesToProcess.push(page);
+
+    await runWithConcurrency(pagesToProcess, pageConcurrency, async (page) => {
       const catUrl = cat.buildUrl(page);
       console.log(`[scrape-free] ${cat.site} p${page}: ${catUrl}`);
-      const indexHtml = await fetchHtml(catUrl);
+      let indexHtml: string | null = null;
+      try {
+        indexHtml = await withRetry(
+          async () => {
+            const content = await fetchHtml(catUrl, perSiteTimeoutMs(cat.site));
+            if (!content) throw new Error("empty category html");
+            return content;
+          },
+          { retries: fetchRetries, baseDelayMs: 320, maxDelayMs: 2600 },
+        );
+      } catch {
+        indexHtml = null;
+      }
       if (!indexHtml) {
         console.log(`[scrape-free] failed to fetch index ${catUrl}`);
         stats.errors++;
-        continue;
+        return;
       }
       let links = extractListingLinks(indexHtml, catUrl, cat.site);
       if (cat.titleFilter) links = links.filter((l) => cat.titleFilter!(l.title));
@@ -1414,10 +1514,10 @@ Deno.serve(async (req) => {
       stats.listingsFound += links.length;
       console.log(`[scrape-free] ${cat.site} p${page}: ${links.length} listings to process`);
 
-      for (const link of links) {
+      await runWithConcurrency(links, listingConcurrency, async (link) => {
         await processListingUrl(link.url, cat.site, cat.boatType);
-      }
-    }
+      });
+    });
   }
 
   console.log(`[scrape-free] done`, stats);
