@@ -31,6 +31,7 @@ import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import myStoryImage from "@/assets/my-story-vivacity.jpg";
+import myStoryWorkbenchImage from "@/assets/my-story-workbench.png";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -138,6 +139,7 @@ const Index = () => {
   const [selectedArticle, setSelectedArticle] = useState<(typeof ARTICLES)[number] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [storyImageOpen, setStoryImageOpen] = useState(false);
+  const [activeStoryImage, setActiveStoryImage] = useState<string>(myStoryImage);
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
@@ -417,7 +419,12 @@ const Index = () => {
 
   const topDeals = listings
     .map((listing) => ({ listing, insight: getDealInsight(listing, listings) }))
-    .filter((x) => x.insight.gapPct !== null && (x.insight.gapPct || 0) >= 12)
+    .filter(
+      (x) =>
+        x.insight.gapPct !== null &&
+        (x.insight.gapPct || 0) >= 12 &&
+        Math.abs(x.insight.gapPct || 0) <= 150,
+    )
     .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0))
     .slice(0, 3);
 
@@ -552,8 +559,25 @@ const Index = () => {
         </Card>
       </section>
 
+      {/* Mobile My Story CTA */}
+      <section className="sm:hidden max-w-6xl mx-auto px-4 pt-5 w-full">
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold flex items-center gap-1.5">
+                <Heart className="w-4 h-4 text-coral" /> My Story
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">How this app started on a 1975 Vivacity 20.</p>
+            </div>
+            <Button asChild size="sm" variant="outline" className="shrink-0 text-xs">
+              <Link to="/my-story">Read</Link>
+            </Button>
+          </div>
+        </Card>
+      </section>
+
       {/* My Story Section */}
-      <section className="max-w-6xl mx-auto px-4 py-10 w-full">
+      <section className="hidden sm:block max-w-6xl mx-auto px-4 py-10 w-full">
         <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
           <Heart className="w-5 h-5 text-coral" /> My Story
         </h2>
@@ -579,19 +603,41 @@ const Index = () => {
               full of character and quiet promises of the sea.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setStoryImageOpen(true)}
-            className="shrink-0 w-56 sm:w-56 rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg hover:scale-[1.02] transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40 self-center sm:self-start"
-            aria-label="View full size photo"
-          >
-            <img
-              src={myStoryImage}
-              alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
-              className="w-full h-auto object-cover block"
-              loading="lazy"
-            />
-          </button>
+          <div className="shrink-0 w-44 sm:w-48 self-center sm:self-start space-y-3">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveStoryImage(myStoryImage);
+                setStoryImageOpen(true);
+              }}
+              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
+              aria-label="View full size photo"
+            >
+              <img
+                src={myStoryImage}
+                alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+                className="w-full h-36 object-cover block"
+                loading="lazy"
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveStoryImage(myStoryWorkbenchImage);
+                setStoryImageOpen(true);
+              }}
+              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
+              aria-label="View working on boat photo"
+            >
+              <img
+                src={myStoryWorkbenchImage}
+                alt="Working on BoatBuyer from the cockpit in a marina"
+                className="w-full h-28 object-cover block"
+                loading="lazy"
+              />
+            </button>
+            <p className="text-[11px] text-muted-foreground italic">Two moments: where it started and where it is being built.</p>
+          </div>
         </div>
       </section>
 
@@ -602,8 +648,12 @@ const Index = () => {
             <DialogDescription>Full size photo of a 1975 Vivacity 20 sailboat</DialogDescription>
           </DialogHeader>
           <img
-            src={myStoryImage}
-            alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+            src={activeStoryImage}
+            alt={
+              activeStoryImage === myStoryWorkbenchImage
+                ? "Working on BoatBuyer from the cockpit in a marina"
+                : "Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+            }
             className="w-full h-auto max-h-[85vh] object-contain rounded-md"
           />
         </DialogContent>

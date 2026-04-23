@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Anchor, Heart, MapPin, Home, Ship, Calculator, List } from "lucide-react";
+import { Anchor, Heart, MapPin, Home, Ship, Calculator, List, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -45,6 +45,17 @@ export const Header = () => {
               <p className="text-xl sm:text-2xl font-bold leading-tight text-white">BoatBuyer</p>
               <p className="text-white/75 text-[10px] sm:text-xs">Smart boat purchase decisions</p>
             </div>
+          </Link>
+          <Link
+            to="/my-story"
+            className={cn(
+              "sm:hidden ml-auto w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+              location.pathname === "/my-story" ? "bg-white/30 text-white" : "bg-white/10 text-white/85 hover:bg-white/20",
+            )}
+            aria-label="My Story"
+            title="My Story"
+          >
+            <BookOpen className="w-4 h-4" />
           </Link>
           <div className="hidden sm:flex items-center gap-2 ml-auto">
             {locationLabel && (
