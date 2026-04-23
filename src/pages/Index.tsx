@@ -530,15 +530,32 @@ const Index = () => {
             {topDeals.map(({ listing, insight }) => (
               <Card
                 key={`deal-${listing.id}`}
-                className="p-3 border-success/30 bg-success/5 cursor-pointer premium-card"
+                className="border-success/30 bg-success/5 cursor-pointer premium-card overflow-hidden"
                 onClick={() => handleCardClick(listing)}
               >
-                <p className="text-xs font-semibold text-success">{insight.label}</p>
-                <p className="text-sm font-semibold truncate mt-1">{listing.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{insight.shortReason}</p>
-                <p className="text-xs mt-1">
-                  Price: <span className="font-medium">€{Number(listing.price_eur).toLocaleString()}</span>
-                </p>
+                {getImageUrl(listing) ? (
+                  <img
+                    src={getImageUrl(listing)!}
+                    alt={listing.title}
+                    className="w-full h-28 object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-28 bg-muted flex items-center justify-center">
+                    <Ship className="w-7 h-7 text-muted-foreground/30" />
+                  </div>
+                )}
+                <div className="p-3">
+                  <p className="text-xs font-semibold text-success">{insight.label}</p>
+                  <p className="text-sm font-semibold truncate mt-1">{listing.title}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{insight.shortReason}</p>
+                  <p className="text-xs mt-1">
+                    Price: <span className="font-medium">€{Number(listing.price_eur).toLocaleString()}</span>
+                  </p>
+                </div>
               </Card>
             ))}
           </div>
