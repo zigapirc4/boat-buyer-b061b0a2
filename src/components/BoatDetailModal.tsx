@@ -185,6 +185,7 @@ export const BoatDetailModal = ({
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evalProgress, setEvalProgress] = useState(0);
   const [evalError, setEvalError] = useState<string | null>(null);
 
   // Costs state
@@ -211,6 +212,7 @@ export const BoatDetailModal = ({
     setActiveTab(initialTab);
     setEvalResult(null);
     setIsEvaluating(false);
+    setEvalProgress(0);
     setEvalError(null);
     setCostResult(null);
     setSelectedMarinaId("");
@@ -329,6 +331,15 @@ export const BoatDetailModal = ({
     }
   }, [activeTab, effective, isFetching, isEvaluating, evalResult]);
 
+  useEffect(() => {
+    if (!isEvaluating) return;
+    setEvalProgress(12);
+    const timer = setInterval(() => {
+      setEvalProgress((prev) => (prev >= 92 ? prev : prev + 8));
+    }, 280);
+    return () => clearInterval(timer);
+  }, [isEvaluating]);
+
   // Load marinas when costs tab is activated
   useEffect(() => {
     if (activeTab === "costs" && marinas.length === 0) {
@@ -356,6 +367,7 @@ export const BoatDetailModal = ({
   const runEvaluation = async () => {
     if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
     setIsEvaluating(true);
+    setEvalProgress(15);
     setEvalError(null);
     
     // Infer conditions from listing data
@@ -404,6 +416,7 @@ export const BoatDetailModal = ({
         comparables,
       });
       setEvalResult(result);
+      setEvalProgress(100);
     } catch (e) {
       console.error("Modal evaluation error:", e);
       setEvalError("Evaluation failed. Please try again.");
@@ -590,7 +603,12 @@ export const BoatDetailModal = ({
               ) : (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
                 <p className="text-sm text-muted-foreground">Missing price, length, or year — cannot evaluate this listing.</p>
               ) : isEvaluating ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Evaluating…</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Evaluating: pricing model, condition risk, and negotiation target…
+                  </div>
+                  <Progress value={evalProgress} className="h-2" />
+                </div>
               ) : evalError ? (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">{evalError}</p>
@@ -601,7 +619,7 @@ export const BoatDetailModal = ({
               ) : (
                 <div className="space-y-4 animate-fade-in">
                   {/* Score card */}
-                  <Card className="p-6 text-center">
+                  <Card className="p-6 text-center premium-surface">
                     <p className={`text-5xl font-bold ${evalResult.color}`}>{evalResult.score}</p>
                     <p className={`text-lg font-semibold mt-1 ${evalResult.color}`}>{evalResult.verdict}</p>
                     <p className="text-sm text-muted-foreground mt-2">{evalResult.priceAssessment}</p>
@@ -610,7 +628,7 @@ export const BoatDetailModal = ({
                     </p>
                   </Card>
 
-                  <Card className="p-4">
+                  <Card className="p-4 premium-surface">
                     <h4 className="font-semibold text-primary mb-2 text-sm">Negotiation</h4>
                     <p className="text-xs text-muted-foreground">
                       Fair range: <span className="text-foreground font-medium">€{evalResult.fairPriceLow.toLocaleString()} - €{evalResult.fairPriceHigh.toLocaleString()}</span>
@@ -621,7 +639,7 @@ export const BoatDetailModal = ({
                   </Card>
 
                   {/* Score breakdown */}
-                  <Card className="p-4">
+                  <Card className="p-4 premium-surface">
                     <h4 className="font-semibold text-primary mb-3 text-sm">Score Breakdown</h4>
                     <div className="space-y-3">
                       {evalResult.categories.map((cat) => (

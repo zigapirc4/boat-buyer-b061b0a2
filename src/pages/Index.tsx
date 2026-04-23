@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
@@ -60,6 +62,14 @@ interface CachedListing {
   hull_material: string | null;
   source: string | null;
   scraped_at: string;
+}
+
+interface DealInsight {
+  fairPrice: number | null;
+  gapPct: number | null;
+  confidence: "low" | "medium" | "high";
+  label: "Great deal" | "Fair" | "Overpriced" | "No market data";
+  shortReason: string;
 }
 
 const ARTICLES = [
@@ -128,6 +138,9 @@ const Index = () => {
   const [selectedArticle, setSelectedArticle] = useState<(typeof ARTICLES)[number] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [storyImageOpen, setStoryImageOpen] = useState(false);
+  const [goodDealsOnly, setGoodDealsOnly] = useState(false);
+  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -298,6 +311,10 @@ const Index = () => {
         `${l.title} ${l.location || ""} ${l.engine_info || ""} ${l.description || ""} ${l.hull_material || ""} ${l.boat_type || ""}`.toLowerCase();
       if (!haystack.includes(q)) return false;
     }
+    if (goodDealsOnly) {
+      const insight = getDealInsight(l, listings);
+      if (!insight.gapPct || insight.gapPct < 12) return false;
+    }
     return true;
   });
 
@@ -328,6 +345,95 @@ const Index = () => {
     if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
     return null;
   };
+
+  function getDealInsight(listing: CachedListing, dataset: CachedListing[]): DealInsight {
+    if (!listing.price_eur || !listing.length_feet || !listing.year) {
+      return {
+        fairPrice: null,
+        gapPct: null,
+        confidence: "low",
+        label: "No market data",
+        shortReason: "Missing year/length/price",
+      };
+    }
+
+    const comps = dataset
+      .filter(
+        (c) =>
+          c.id !== listing.id &&
+          c.price_eur &&
+          c.length_feet &&
+          c.year &&
+          c.boat_type === listing.boat_type &&
+          Math.abs((c.year || 0) - listing.year!) <= 2 &&
+          Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
+      )
+      .slice(0, 60);
+
+    if (comps.length < 4) {
+      return {
+        fairPrice: null,
+        gapPct: null,
+        confidence: "low",
+        label: "No market data",
+        shortReason: "Too few comparables",
+      };
+    }
+
+    const sorted = comps
+      .map((c) => Number(c.price_eur))
+      .sort((a, b) => a - b);
+    const fairPrice = sorted[Math.floor(sorted.length / 2)];
+    const gapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
+    const confidence: DealInsight["confidence"] =
+      comps.length >= 18 ? "high" : comps.length >= 10 ? "medium" : "low";
+
+    if (gapPct >= 12) {
+      return {
+        fairPrice,
+        gapPct,
+        confidence,
+        label: "Great deal",
+        shortReason: `~${Math.round(gapPct)}% below peers`,
+      };
+    }
+    if (gapPct <= -10) {
+      return {
+        fairPrice,
+        gapPct,
+        confidence,
+        label: "Overpriced",
+        shortReason: `~${Math.round(Math.abs(gapPct))}% above peers`,
+      };
+    }
+    return {
+      fairPrice,
+      gapPct,
+      confidence,
+      label: "Fair",
+      shortReason: "Near market median",
+    };
+  }
+
+  const topDeals = listings
+    .map((listing) => ({ listing, insight: getDealInsight(listing, listings) }))
+    .filter((x) => x.insight.gapPct !== null && (x.insight.gapPct || 0) >= 12)
+    .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0))
+    .slice(0, 3);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) {
+        n.delete(id);
+      } else if (n.size < 4) {
+        n.add(id);
+      }
+      return n;
+    });
+  };
+
+  const compareListings = listings.filter((l) => compareIds.has(l.id));
 
   const scrollToListings = () => {
     document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
@@ -376,6 +482,12 @@ const Index = () => {
             </div>
           </div>
 
+          <div className="mt-3 max-w-2xl">
+            <p className="text-sm sm:text-base text-white/90">
+              We analyze listings, compare market peers, and show what to negotiate before you call the seller.
+            </p>
+          </div>
+
           {/* Action Cards */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-6">
             {actionCards.map((card) => (
@@ -397,6 +509,48 @@ const Index = () => {
           </div>
         </div>
       </div>
+
+      {/* Instant Value Preview */}
+      <section className="max-w-6xl mx-auto px-4 pt-6 w-full">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold">Top Deals Right Now</h2>
+          <Button variant="ghost" size="sm" className="text-xs" onClick={scrollToListings}>
+            Browse all listings
+          </Button>
+        </div>
+        {topDeals.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {topDeals.map(({ listing, insight }) => (
+              <Card
+                key={`deal-${listing.id}`}
+                className="p-3 border-success/30 bg-success/5 cursor-pointer premium-card"
+                onClick={() => handleCardClick(listing)}
+              >
+                <p className="text-xs font-semibold text-success">{insight.label}</p>
+                <p className="text-sm font-semibold truncate mt-1">{listing.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{insight.shortReason}</p>
+                <p className="text-xs mt-1">
+                  Price: <span className="font-medium">€{Number(listing.price_eur).toLocaleString()}</span>
+                </p>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="p-4 text-sm text-muted-foreground">Building market signals as new listings arrive.</Card>
+        )}
+      </section>
+
+      {/* Trust block */}
+      <section className="max-w-6xl mx-auto px-4 pt-6 w-full">
+        <Card className="p-4 sm:p-5 premium-surface">
+          <h3 className="text-sm font-semibold text-primary mb-1">Why this score is trustworthy</h3>
+          <div className="grid gap-2 sm:grid-cols-3 text-xs text-muted-foreground">
+            <p>Market baseline from same boat type, similar year and length.</p>
+            <p>Risk modifiers from engine/hull/sail condition and known issues.</p>
+            <p>Negotiation output capped to fair range with confidence indicators.</p>
+          </div>
+        </Card>
+      </section>
 
       {/* My Story Section */}
       <section className="max-w-6xl mx-auto px-4 py-10 w-full">
@@ -465,7 +619,7 @@ const Index = () => {
             <Card
               key={i}
               onClick={() => setSelectedArticle(article)}
-              className="p-4 hover:shadow-md transition-all hover:-translate-y-0.5 group cursor-pointer border-transparent hover:border-primary/15"
+              className="p-4 group cursor-pointer border-transparent hover:border-primary/15 premium-card"
             >
               <div
                 className={`w-9 h-9 rounded-lg ${article.color} flex items-center justify-center mb-3 transition-transform group-hover:scale-110`}
@@ -536,7 +690,8 @@ const Index = () => {
         </div>
 
         {/* Header + Filters */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="sticky top-0 z-20 -mx-2 px-2 py-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2 flex-wrap">
             ⛵ {locationLabel ? `Boats near ${locationLabel}` : "Latest Listings"}
             {totalCount !== null && (
@@ -582,7 +737,12 @@ const Index = () => {
                 <span className="ml-1 w-2 h-2 rounded-full bg-coral" />
               )}
             </Button>
+            <div className="flex items-center gap-2 rounded-lg border px-2 h-8 bg-card">
+              <Switch checked={goodDealsOnly} onCheckedChange={setGoodDealsOnly} />
+              <span className="text-xs text-muted-foreground">Good deals only</span>
+            </div>
           </div>
+        </div>
         </div>
 
         {showFilters && (
@@ -643,18 +803,29 @@ const Index = () => {
 
         {/* Grid */}
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-16">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading latest boats…
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 py-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Card key={`skeleton-${i}`} className="overflow-hidden">
+                <Skeleton className="h-40 w-full" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-5 w-1/2" />
+                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-7 w-full mt-2" />
+                </div>
+              </Card>
+            ))}
           </div>
         ) : paginatedListings.length > 0 ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
               {paginatedListings.map((listing) => {
                 const img = getImageUrl(listing);
+                const insight = getDealInsight(listing, listings);
                 return (
                   <Card
                     key={listing.id}
-                    className="overflow-hidden hover:shadow-lg transition-all hover:-translate-y-0.5 flex flex-col cursor-pointer group"
+                    className="overflow-hidden flex flex-col cursor-pointer group premium-card"
                     onClick={() => handleCardClick(listing)}
                   >
                     <div className="relative">
@@ -678,6 +849,17 @@ const Index = () => {
                           {listing.boat_type}
                         </span>
                       )}
+                      <span
+                        className={`absolute top-2 right-2 text-[10px] font-medium px-2 py-0.5 rounded-full shadow-sm ${
+                          insight.label === "Great deal"
+                            ? "bg-success/90 text-white"
+                            : insight.label === "Overpriced"
+                              ? "bg-destructive/90 text-white"
+                              : "bg-background/80 text-foreground"
+                        }`}
+                      >
+                        {insight.label}
+                      </span>
                     </div>
                     <div className="p-3 flex-1 flex flex-col">
                       <p className="font-semibold text-sm truncate leading-tight">{listing.title}</p>
@@ -708,6 +890,7 @@ const Index = () => {
                           <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
                         </p>
                       )}
+                      <p className="text-[11px] text-muted-foreground mt-1">{insight.shortReason}</p>
                       <div className="flex items-center gap-2 mt-auto pt-1.5">
                         <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>
                         <span className="text-[10px] text-muted-foreground/60 flex items-center gap-0.5 shrink-0">
@@ -747,6 +930,17 @@ const Index = () => {
                           }}
                         >
                           <Heart className={`w-3.5 h-3.5 ${savedIds.has(listing.id) ? "fill-coral" : ""}`} />
+                        </Button>
+                        <Button
+                          variant={compareIds.has(listing.id) ? "secondary" : "ghost"}
+                          size="sm"
+                          className="text-[10px] h-7 px-2 rounded-lg shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCompare(listing.id);
+                          }}
+                        >
+                          Compare
                         </Button>
                       </div>
                     </div>
@@ -812,11 +1006,73 @@ const Index = () => {
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No listings found. Try adjusting your filters.
-          </p>
+          <Card className="p-6 text-center">
+            <p className="text-sm text-muted-foreground">No listings found with current filters.</p>
+            <div className="flex justify-center gap-2 mt-3">
+              <Button size="sm" variant="outline" onClick={() => setGoodDealsOnly(false)}>
+                Show all deals
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setMinPrice("");
+                  setMaxPrice("");
+                  setMinLength("");
+                  setMaxLength("");
+                  setSearchQuery("");
+                }}
+              >
+                Clear filters
+              </Button>
+            </div>
+          </Card>
         )}
       </div>
+
+      {/* Compare bar */}
+      {compareIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30">
+          <Card className="px-3 py-2 shadow-lg border-primary/20 bg-background/95 backdrop-blur premium-surface">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{compareIds.size}/4 selected</span>
+              <Button size="sm" className="h-7 text-xs" disabled={compareIds.size < 2} onClick={() => setCompareOpen(true)}>
+                Compare boats
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCompareIds(new Set())}>
+                Clear
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Compare dialog */}
+      <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Boat Comparison</DialogTitle>
+            <DialogDescription>Compare shortlist side-by-side before deciding.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {compareListings.map((b) => {
+              const insight = getDealInsight(b, listings);
+              return (
+                <Card key={`cmp-${b.id}`} className="p-3 space-y-1">
+                  <p className="text-sm font-semibold line-clamp-2">{b.title}</p>
+                  <p className="text-sm text-primary font-bold">€{Number(b.price_eur || 0).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{b.year || "—"} · {b.length_feet || "—"}ft</p>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{b.location || "Unknown location"}</p>
+                  <p className="text-xs font-medium">{insight.label}</p>
+                  <Button size="sm" variant="outline" className="h-7 text-xs mt-2 w-full" onClick={() => handleCardClick(b)}>
+                    Open
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Footer */}
       <footer className="border-t bg-card/80 backdrop-blur-sm mt-auto">

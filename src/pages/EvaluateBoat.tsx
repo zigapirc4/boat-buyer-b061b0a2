@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { saveBoat } from "@/lib/boatStore";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
@@ -102,6 +103,7 @@ const EvaluateBoat = () => {
   const [selectedSimilarBoat, setSelectedSimilarBoat] = useState<SimilarBoat | null>(null);
   const [isBoatCardOpen, setIsBoatCardOpen] = useState(false);
   const [isCombinedLoading, setIsCombinedLoading] = useState(false);
+  const [evalProgress, setEvalProgress] = useState(0);
   const [detailListing, setDetailListing] = useState<CachedListingForModal | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
 
@@ -200,9 +202,11 @@ const EvaluateBoat = () => {
       setResult(evalResult);
       setComparablesUsed(comparables.slice(0, 8));
       setSimilarBoats([]);
+      setEvalProgress(15);
 
       setIsSearching(true);
       setIsCombinedLoading(true);
+      setEvalProgress(72);
       try {
         const { data, error } = await supabase.functions.invoke("search-similar-boats", {
           body: { model, length_feet: Number(length), year: Number(year), boat_type: boatType },
@@ -215,6 +219,7 @@ const EvaluateBoat = () => {
       } finally {
         setIsSearching(false);
         setIsCombinedLoading(false);
+        setEvalProgress(100);
       }
     } catch (e) {
       console.error("Evaluation error:", e);
@@ -291,6 +296,14 @@ const EvaluateBoat = () => {
     if (pct >= 0.45) return "bg-warning";
     return "bg-destructive";
   };
+
+  useEffect(() => {
+    if (!isCombinedLoading) return;
+    const timer = setInterval(() => {
+      setEvalProgress((prev) => (prev >= 92 ? prev : prev + 5));
+    }, 300);
+    return () => clearInterval(timer);
+  }, [isCombinedLoading]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -415,12 +428,18 @@ const EvaluateBoat = () => {
         )}
 
         <Button className="w-full h-12 text-base" disabled={!canEvaluate} onClick={handleEvaluate}>Evaluate Boat</Button>
+        {isCombinedLoading && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Running market + risk analysis…</p>
+            <Progress value={evalProgress} className="h-2" />
+          </div>
+        )}
       </div>
 
       {/* Results */}
       {result && (
         <div className="mt-8 space-y-4 animate-fade-in">
-          <Card className="p-6 text-center">
+          <Card className="p-6 text-center premium-surface">
             <p className={`text-6xl font-bold font-display ${result.color}`}>{result.score}</p>
             <p className={`text-xl font-semibold mt-1 ${result.color}`}>{result.verdict}</p>
             <p className="text-sm text-muted-foreground mt-2">{result.priceAssessment}</p>
@@ -430,7 +449,7 @@ const EvaluateBoat = () => {
             <p className="text-xs text-muted-foreground mt-1">{result.confidenceDetails}</p>
           </Card>
 
-          <Card className="p-5">
+          <Card className="p-5 premium-surface">
             <h3 className="font-semibold text-primary mb-2">🎯 Negotiation Range</h3>
             <p className="text-sm text-muted-foreground">
               Fair range: <span className="font-medium text-foreground">€{result.fairPriceLow.toLocaleString()} - €{result.fairPriceHigh.toLocaleString()}</span>
@@ -440,7 +459,7 @@ const EvaluateBoat = () => {
             </p>
           </Card>
 
-          <Card className="p-5">
+          <Card className="p-5 premium-surface">
             <h3 className="font-semibold text-primary mb-3">📌 What Moved The Score</h3>
             <ul className="space-y-2">
               {result.scoreDrivers.map((d, i) => (
