@@ -293,7 +293,57 @@ function resolveUrl(src: string, base: string): string {
   }
 }
 
+function extractTrovobarcheImages(html: string, baseUrl: string, max = 5): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => {
+    const normalized = resolveUrl(u, baseUrl);
+    // Keep only listing media assets, avoid logos/similar-ads noise.
+    if (!/\/storage\/media\//i.test(normalized)) return;
+    if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(normalized)) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  // Preferred source: main listing gallery in the "pics" section.
+  const picsIdx = html.search(/id=["']pics["']/i);
+  if (picsIdx >= 0) {
+    const picsBlock = captureBlock(html, picsIdx, "div", 120000);
+    const anchorRe =
+      /<a[^>]+href=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*?(?:data-thumb=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'])?[^>]*>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = anchorRe.exec(picsBlock)) !== null) {
+      // Prefer zoom/full image in href; fallback to thumb if needed.
+      push(m[1]);
+      if (m[2]) push(m[2]);
+      if (out.length >= max) return out.slice(0, max);
+    }
+  }
+
+  // Fallback: parse fotorama anchors globally.
+  const fotoramaBlockRe = /<div[^>]*class=["'][^"']*fotorama[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi;
+  let fm: RegExpExecArray | null;
+  while ((fm = fotoramaBlockRe.exec(html)) !== null) {
+    const anchorRe =
+      /<a[^>]+href=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*?(?:data-thumb=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'])?[^>]*>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = anchorRe.exec(fm[1])) !== null) {
+      push(m[1]);
+      if (m[2]) push(m[2]);
+      if (out.length >= max) return out.slice(0, max);
+    }
+  }
+
+  return out.slice(0, max);
+}
+
 function extractImages(html: string, baseUrl: string, max = 5, site?: string): string[] {
+  if (site === "trovobarche.it") {
+    const trovobarcheImages = extractTrovobarcheImages(html, baseUrl, max);
+    if (trovobarcheImages.length > 0) return trovobarcheImages;
+  }
+
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (u: string) => {
