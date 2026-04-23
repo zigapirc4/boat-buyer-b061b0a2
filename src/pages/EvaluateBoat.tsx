@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight } from "lucide-react";
+import { Save, LinkIcon, Loader2, ExternalLink, Search, Wrench, TrendingDown, MapPin, Info, ArrowRight, Copy } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
@@ -14,6 +14,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { saveBoat } from "@/lib/boatStore";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { fetchComparables } from "@/lib/fetchComparables";
+import {
+  generateNegotiationScript,
+  type NegotiationLanguage,
+  type NegotiationTone,
+} from "@/lib/negotiation";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -27,6 +32,7 @@ interface SimilarBoat {
   location: string | null;
   image_url: string | null;
   engine_info: string | null;
+  boat_type?: string | null;
 }
 
 interface ComparableBoat {
@@ -39,6 +45,7 @@ interface ComparableBoat {
   image_url?: string | null;
   engine_info?: string | null;
   description?: string;
+  boat_type?: string | null;
 }
 
 interface ImportedExtras {
@@ -106,6 +113,10 @@ const EvaluateBoat = () => {
   const [evalProgress, setEvalProgress] = useState(0);
   const [detailListing, setDetailListing] = useState<CachedListingForModal | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [scriptLang, setScriptLang] = useState<NegotiationLanguage>("en");
+  const [scriptTone, setScriptTone] = useState<NegotiationTone>("neutral");
+  const [customOffer, setCustomOffer] = useState("");
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   const canEvaluate = model && year && price && length && engine && hull && (boatType === "powerboat" || sails);
 
@@ -283,6 +294,7 @@ const EvaluateBoat = () => {
       location: c.location ?? null,
       image_url: c.image_url ?? null,
       engine_info: c.engine_info ?? null,
+      boat_type: c.boat_type ?? null,
     }));
 
   const combinedBoats: Array<SimilarBoat & { sourceTag: "Comparable" | "Similar" }> = [
@@ -296,6 +308,21 @@ const EvaluateBoat = () => {
     if (pct >= 0.45) return "bg-warning";
     return "bg-destructive";
   };
+
+  const offerForScript = customOffer ? Number(customOffer) : result?.offerRange.realistic || 0;
+  const script = result
+    ? generateNegotiationScript({
+        lang: scriptLang,
+        tone: scriptTone,
+        boatTitle: model || "boat",
+        listingPrice: Number(price),
+        fairLow: result.fairPriceLow,
+        fairHigh: result.fairPriceHigh,
+        offer: offerForScript,
+        walkAwayPrice: result.walkAwayPrice,
+        anchors: result.negotiationAnchors,
+      })
+    : null;
 
   useEffect(() => {
     if (!isCombinedLoading) return;
@@ -457,6 +484,114 @@ const EvaluateBoat = () => {
             <p className="text-sm text-muted-foreground mt-1">
               Target offer: <span className="font-medium text-primary">€{result.targetOffer.toLocaleString()}</span>
             </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md border p-2 bg-background">
+                <p className="text-muted-foreground">Aggressive</p>
+                <p className="font-semibold">€{result.offerRange.aggressive.toLocaleString()}</p>
+              </div>
+              <div className="rounded-md border p-2 bg-background">
+                <p className="text-muted-foreground">Realistic</p>
+                <p className="font-semibold">€{result.offerRange.realistic.toLocaleString()}</p>
+              </div>
+              <div className="rounded-md border p-2 bg-background col-span-2">
+                <p className="text-muted-foreground">Safe offer / walk-away cap</p>
+                <p className="font-semibold">€{result.offerRange.safe.toLocaleString()} / €{result.walkAwayPrice.toLocaleString()}</p>
+              </div>
+            </div>
+            {result.negotiationAnchors.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {result.negotiationAnchors.map((a, idx) => (
+                  <li key={idx} className="text-xs text-muted-foreground">• {a}</li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="font-semibold text-primary mb-3">✉️ Negotiation Script Generator</h3>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">Generate an English negotiation message from your current offer.</p>
+              <Button size="sm" variant="outline" className="text-xs" onClick={() => setScriptOpen((v) => !v)}>
+                {scriptOpen ? "Hide" : "Show"}
+              </Button>
+            </div>
+            {scriptOpen && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Language</Label>
+                    <Select value={scriptLang} onValueChange={(v) => setScriptLang(v as NegotiationLanguage)}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="sl">Slovenian</SelectItem>
+                        <SelectItem value="it">Italian</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                <Label className="text-xs">Tone</Label>
+                <Select value={scriptTone} onValueChange={(v) => setScriptTone(v as NegotiationTone)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="friendly">Friendly</SelectItem>
+                    <SelectItem value="neutral">Neutral</SelectItem>
+                    <SelectItem value="firm">Firm</SelectItem>
+                  </SelectContent>
+                </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Offer amount override (optional)</Label>
+                  <Input
+                    type="number"
+                    placeholder={String(result.offerRange.realistic)}
+                    value={customOffer}
+                    onChange={(e) => setCustomOffer(e.target.value)}
+                  />
+                </div>
+                {script && (
+                  <div className="space-y-2">
+                    <div className="rounded-md border p-2 bg-background">
+                      <p className="text-xs text-muted-foreground">Subject</p>
+                      <p className="text-sm">{script.subject}</p>
+                    </div>
+                    <div className="rounded-md border p-2 bg-background">
+                      <p className="text-xs text-muted-foreground mb-1">Email</p>
+                      <pre className="text-xs whitespace-pre-wrap font-sans">{script.emailBody}</pre>
+                    </div>
+                    <div className="rounded-md border p-2 bg-background">
+                      <p className="text-xs text-muted-foreground mb-1">WhatsApp</p>
+                      <pre className="text-xs whitespace-pre-wrap font-sans">{script.whatsappText}</pre>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(`${script.subject}\n\n${script.emailBody}`);
+                          toast({ title: "Copied", description: "Email script copied to clipboard." });
+                        }}
+                      >
+                        <Copy className="w-3.5 h-3.5 mr-1" /> Copy Email
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(script.whatsappText);
+                          toast({ title: "Copied", description: "WhatsApp script copied to clipboard." });
+                        }}
+                      >
+                        <Copy className="w-3.5 h-3.5 mr-1" /> Copy WhatsApp
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           <Card className="p-5 premium-surface">
@@ -530,6 +665,19 @@ const EvaluateBoat = () => {
               <p className="text-xs text-muted-foreground mt-1">
                 True cost: €{(Number(price) + result.estimatedRepairCost).toLocaleString()} (price + repairs)
               </p>
+              {result.repairEstimateBreakdown.length > 0 && (
+                <div className="mt-3 space-y-1.5">
+                  {result.repairEstimateBreakdown.map((item, idx) => (
+                    <div key={`${item.label}-${idx}`} className="rounded-md border bg-background p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium">{item.label}</p>
+                        <p className="text-xs font-semibold">€{item.estimate.toLocaleString()}</p>
+                      </div>
+                      {item.note && <p className="text-[11px] text-muted-foreground mt-0.5">{item.note}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
           )}
 
@@ -584,6 +732,7 @@ const EvaluateBoat = () => {
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                           {boat.year && <span className="text-xs text-muted-foreground">{boat.year}</span>}
                           {boat.length_feet && <span className="text-xs text-muted-foreground">{boat.length_feet}ft</span>}
+                          {boat.boat_type && <span className="text-xs text-muted-foreground capitalize">{boat.boat_type}</span>}
                           {boat.location && (
                             <span className="text-xs text-muted-foreground flex items-center gap-0.5">
                               <MapPin className="w-2.5 h-2.5" />{boat.location}
@@ -652,6 +801,7 @@ const EvaluateBoat = () => {
                 {selectedSimilarBoat.price_eur && <span className="font-semibold text-primary">€{selectedSimilarBoat.price_eur.toLocaleString()}</span>}
                 {selectedSimilarBoat.year && <span className="text-muted-foreground">{selectedSimilarBoat.year}</span>}
                 {selectedSimilarBoat.length_feet && <span className="text-muted-foreground">{selectedSimilarBoat.length_feet}ft</span>}
+                {selectedSimilarBoat.boat_type && <span className="text-muted-foreground capitalize">{selectedSimilarBoat.boat_type}</span>}
                 {selectedSimilarBoat.location && <span className="text-muted-foreground">{selectedSimilarBoat.location}</span>}
               </div>
               {selectedSimilarBoat.engine_info && (

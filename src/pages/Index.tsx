@@ -130,6 +130,9 @@ const Index = () => {
   const [maxLength, setMaxLength] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<
+    "newest" | "best_deal" | "price_low" | "price_high" | "length_high" | "year_newest"
+  >("newest");
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locationLabel, setLocationLabel] = useState<string>("");
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
@@ -300,7 +303,7 @@ const Index = () => {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [boatTypeFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery]);
+  }, [boatTypeFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery, sortBy]);
 
   const displayListings = listings.filter((l) => {
     if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
@@ -320,8 +323,21 @@ const Index = () => {
     return true;
   });
 
-  const totalPages = Math.ceil(displayListings.length / PER_PAGE);
-  const paginatedListings = displayListings.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const sortedListings = [...displayListings].sort((a, b) => {
+    if (sortBy === "price_low") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
+    if (sortBy === "price_high") return (b.price_eur ?? 0) - (a.price_eur ?? 0);
+    if (sortBy === "length_high") return (b.length_feet ?? 0) - (a.length_feet ?? 0);
+    if (sortBy === "year_newest") return (b.year ?? 0) - (a.year ?? 0);
+    if (sortBy === "best_deal") {
+      const aGap = getDealInsight(a, listings).gapPct ?? -9999;
+      const bGap = getDealInsight(b, listings).gapPct ?? -9999;
+      return bGap - aGap;
+    }
+    return new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime();
+  });
+
+  const totalPages = Math.ceil(sortedListings.length / PER_PAGE);
+  const paginatedListings = sortedListings.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
@@ -776,6 +792,19 @@ const Index = () => {
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="sailboat">Sailboats</SelectItem>
                 <SelectItem value="powerboat">Powerboats</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="w-[160px] h-8 text-xs rounded-lg">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="best_deal">Best deal first</SelectItem>
+                <SelectItem value="price_low">Price: low to high</SelectItem>
+                <SelectItem value="price_high">Price: high to low</SelectItem>
+                <SelectItem value="length_high">Length: longest first</SelectItem>
+                <SelectItem value="year_newest">Year: newest first</SelectItem>
               </SelectContent>
             </Select>
             {allSources.length > 1 && (

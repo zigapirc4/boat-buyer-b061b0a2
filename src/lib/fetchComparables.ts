@@ -11,8 +11,9 @@ function normalizeTokens(model: string): string[] {
 export async function fetchComparables(boatType: string, year: number, lengthFt: number, model: string) {
   const { data } = await supabase
     .from("cached_listings")
-    .select("price_eur, length_feet, title, year, scraped_at, url, image_url, location, engine_info, description")
+    .select("price_eur, length_feet, title, year, scraped_at, url, image_url, location, engine_info, description, boat_type")
     .eq("boat_type", boatType)
+    .not("boat_type", "is", null)
     .gte("year", year - 2)
     .lte("year", year + 2)
     .gte("length_feet", lengthFt - 4)
@@ -47,6 +48,7 @@ export async function fetchComparables(boatType: string, year: number, lengthFt:
       location: d.location || null,
       engine_info: d.engine_info || null,
       description: d.description || "",
+      boat_type: d.boat_type || null,
       _score: score,
     };
   });

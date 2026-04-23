@@ -37,6 +37,18 @@ export interface EvalResult {
   targetOffer: number;
   scoreDrivers: ScoreDriver[];
   dataQuality: DataQualityItem[];
+  offerRange: {
+    aggressive: number;
+    realistic: number;
+    safe: number;
+  };
+  walkAwayPrice: number;
+  negotiationAnchors: string[];
+  repairEstimateBreakdown: {
+    label: string;
+    estimate: number;
+    note?: string;
+  }[];
 }
 
 export interface BoatData {
@@ -105,6 +117,7 @@ export function evaluate(data: BoatData): EvalResult {
   const categories: EvalCategory[] = [];
   const recommendations: string[] = [];
   let estimatedRepairCost = 0;
+  const repairEstimateBreakdown: { label: string; estimate: number; note?: string }[] = [];
 
   // 1. Age & Depreciation (max 20)
   let ageScore = 20;
@@ -128,18 +141,33 @@ export function evaluate(data: BoatData): EvalResult {
     recommendations.push("Commission a full marine survey before purchase");
     recommendations.push("Budget for electronics upgrade (€2,000–5,000)");
     estimatedRepairCost += 3000;
+    repairEstimateBreakdown.push({
+      label: "Age-related systems refresh",
+      estimate: 3000,
+      note: "Electronics, plumbing, wiring spot replacements",
+    });
   } else if (age <= 35) {
     ageScore = 4;
     ageDetail = "Old — significant systems likely need overhaul";
     recommendations.push("Full marine survey essential — structural concerns likely");
     recommendations.push("Budget for extensive refit (€15,000–40,000+)");
     estimatedRepairCost += 20000;
+    repairEstimateBreakdown.push({
+      label: "Major age refit reserve",
+      estimate: 20000,
+      note: "Multiple core systems likely overdue",
+    });
   } else {
     ageScore = 1;
     ageDetail = "Very old — likely needs complete refit, may be uninsurable";
     recommendations.push("Insurance may be difficult to obtain for boats 35+ years old");
     recommendations.push("Budget for complete refit (€25,000–60,000+)");
     estimatedRepairCost += 35000;
+    repairEstimateBreakdown.push({
+      label: "Full legacy refit reserve",
+      estimate: 35000,
+      note: "Structural, mechanical, electrical and interior updates",
+    });
   }
   categories.push({ name: "Age & Depreciation", score: ageScore, maxScore: 20, details: ageDetail, icon: "⏳" });
 
@@ -170,6 +198,11 @@ export function evaluate(data: BoatData): EvalResult {
     recommendations.push(`Budget ${serviceCost} for engine servicing (oil, filters, impeller, belts)`);
     if (engineHours && engineHours > 3000) recommendations.push("Consider compression test and injector service");
     estimatedRepairCost += boatType === "powerboat" ? 3500 : 2000;
+    repairEstimateBreakdown.push({
+      label: "Engine service catch-up",
+      estimate: boatType === "powerboat" ? 3500 : 2000,
+      note: "Routine + wear components",
+    });
   } else {
     engineScore = Math.round(engineMax * 0.15);
     engineDetail = `Engine needs major repair or replacement${engineHours ? ` (${engineHours}h)` : ""}`;
@@ -177,6 +210,11 @@ export function evaluate(data: BoatData): EvalResult {
     recommendations.push(`Engine replacement can cost ${replaceCost}`);
     recommendations.push("Get a professional engine survey with compression and oil analysis");
     estimatedRepairCost += boatType === "powerboat" ? 15000 : 10000;
+    repairEstimateBreakdown.push({
+      label: "Engine major repair/replacement reserve",
+      estimate: boatType === "powerboat" ? 15000 : 10000,
+      note: boatType === "powerboat" ? "Inboard/twin setup risk is higher" : "Single diesel replacement scenario",
+    });
   }
 
   if (engineYear && currentYear - engineYear > 15) {
@@ -279,11 +317,20 @@ export function evaluate(data: BoatData): EvalResult {
       sailsDetail = "Sails serviceable but aging";
       recommendations.push("Plan for new sails in 2–4 years (€2,000–6,000 for a cruising set)");
       estimatedRepairCost += 1000;
+      repairEstimateBreakdown.push({
+        label: "Sail refresh reserve",
+        estimate: 1000,
+      });
     } else {
       sailsScore = 5;
       sailsDetail = "Sails worn out — replacement needed soon";
       recommendations.push("New sail set needed: mainsail €1,500–4,000, genoa €1,500–3,500");
       estimatedRepairCost += 5000;
+      repairEstimateBreakdown.push({
+        label: "Sail set replacement",
+        estimate: 5000,
+        note: "Mainsail + headsail typical cruising setup",
+      });
     }
 
     // Standing rigging age check
@@ -293,6 +340,11 @@ export function evaluate(data: BoatData): EvalResult {
       if (age > 15) {
         recommendations.push("Standing rigging replacement: €4,000–10,000 depending on boat size");
         estimatedRepairCost += 3000;
+        repairEstimateBreakdown.push({
+          label: "Standing rigging reserve",
+          estimate: 3000,
+          note: "Wire, terminals, tuning labor",
+        });
       }
     }
 
@@ -308,11 +360,19 @@ export function evaluate(data: BoatData): EvalResult {
       driveDetail = "Drive system showing wear";
       recommendations.push("Budget for outdrive/propeller service (€1,000–3,000)");
       estimatedRepairCost += 1500;
+      repairEstimateBreakdown.push({
+        label: "Drive system service",
+        estimate: 1500,
+      });
     } else {
       driveScore = 4;
       driveDetail = "Drive system needs attention";
       recommendations.push("Full drive system overhaul may be needed (€3,000–8,000)");
       estimatedRepairCost += 5000;
+      repairEstimateBreakdown.push({
+        label: "Drive system overhaul reserve",
+        estimate: 5000,
+      });
     }
     categories.push({ name: "Drive & Propulsion", score: driveScore, maxScore: 15, details: driveDetail, icon: "🔧" });
   }
@@ -331,11 +391,21 @@ export function evaluate(data: BoatData): EvalResult {
     conditionDetail = "Osmosis detected — costly treatment needed";
     recommendations.push("Osmosis treatment: €3,000–8,000 depending on severity and boat size");
     estimatedRepairCost += 5000;
+    repairEstimateBreakdown.push({
+      label: "Osmosis treatment",
+      estimate: 5000,
+      note: "Peel, dry-out, barrier recoating",
+    });
   } else {
     conditionScore = 1;
     conditionDetail = "Hull damage — structural integrity at risk";
     recommendations.push("Get a hull survey ASAP; repair costs €5,000–20,000+");
     estimatedRepairCost += 12000;
+    repairEstimateBreakdown.push({
+      label: "Hull structural repair reserve",
+      estimate: 12000,
+      note: "Fiberglass/laminate structural correction",
+    });
   }
   categories.push({
     name: "Overall Condition",
@@ -357,6 +427,11 @@ export function evaluate(data: BoatData): EvalResult {
     });
     // Estimate €1,500 per known issue
     estimatedRepairCost += knownIssues.length * 1500;
+    repairEstimateBreakdown.push({
+      label: "Known issue remediation",
+      estimate: knownIssues.length * 1500,
+      note: `${knownIssues.length} identified issues`,
+    });
   }
 
   // Recent work bonus (informational)
@@ -438,6 +513,50 @@ export function evaluate(data: BoatData): EvalResult {
   // Never suggest offering above the current listing price.
   const targetOffer = Math.max(0, Math.min(price, fairCap, preCapTargetOffer));
 
+  const missingCriticalSignals =
+    (engineHours === undefined ? 1 : 0) +
+    (hullMaterial ? 0 : 1) +
+    (comparableCount < 3 ? 1 : 0);
+  // Keep walk-away guidance slightly more flexible: apply a lighter
+  // uncertainty penalty so users still have room to close realistic deals.
+  const riskPenaltyPct = missingCriticalSignals * 0.015;
+  const walkAwayBase = Math.min(price, fairPriceHigh);
+  const walkAwayPrice = Math.max(0, Math.round(walkAwayBase * (1 - riskPenaltyPct)));
+
+  const aggressive = Math.max(0, Math.round(targetOffer - price * 0.06));
+  const realistic = targetOffer;
+  const safeGap = Math.max(1500, Math.round(price * 0.02));
+  const safeUpperBound = Math.max(0, walkAwayPrice - safeGap);
+  const safe = Math.min(safeUpperBound, Math.round(targetOffer + price * 0.08));
+  const ordered = [aggressive, realistic, safe].sort((a, b) => a - b);
+
+  const negotiationAnchors: string[] = [];
+  if (price > fairPriceHigh) {
+    negotiationAnchors.push(
+      `Current ask is about €${(price - fairPriceHigh).toLocaleString()} above the fair high estimate.`,
+    );
+  } else if (price < fairPriceLow) {
+    negotiationAnchors.push(
+      `Current ask is already below the model fair range by about €${(fairPriceLow - price).toLocaleString()}.`,
+    );
+  } else {
+    negotiationAnchors.push("Current ask sits within the estimated fair market range.");
+  }
+  if (estimatedRepairCost > 0) {
+    negotiationAnchors.push(
+      `Expected near-term repairs are estimated at roughly €${estimatedRepairCost.toLocaleString()}.`,
+    );
+  }
+  if (engineHours === undefined) {
+    negotiationAnchors.push("Engine hours are missing, so additional mechanical risk remains unpriced.");
+  }
+  if (!hullMaterial) {
+    negotiationAnchors.push("Hull material is unknown, which increases uncertainty on structural risk and maintenance.");
+  }
+  if (comparableCount < 3) {
+    negotiationAnchors.push("Comparable listings are limited, so offer should stay conservative.");
+  }
+
   const driverCandidates: ScoreDriver[] = [
     { label: "Age & Depreciation", impact: ageScore - 10, type: ageScore >= 10 ? "positive" : "negative" },
     {
@@ -496,5 +615,13 @@ export function evaluate(data: BoatData): EvalResult {
     targetOffer,
     scoreDrivers,
     dataQuality,
+    offerRange: {
+      aggressive: ordered[0],
+      realistic: ordered[1],
+      safe: ordered[2],
+    },
+    walkAwayPrice,
+    negotiationAnchors: negotiationAnchors.slice(0, 5),
+    repairEstimateBreakdown,
   };
 }

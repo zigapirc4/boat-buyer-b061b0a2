@@ -1,7 +1,7 @@
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart } from "lucide-react";
+import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart, Copy } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -10,6 +10,11 @@ import { Label } from "@/components/ui/label";
 import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
 import { fetchComparables } from "@/lib/fetchComparables";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  generateNegotiationScript,
+  type NegotiationLanguage,
+  type NegotiationTone,
+} from "@/lib/negotiation";
 
 interface CachedListing {
   id: string;
@@ -43,6 +48,7 @@ interface SimilarBoat {
   image_url: string | null;
   engine_info?: string | null;
   description?: string | null;
+  boat_type?: string | null;
 }
 
 interface Marina {
@@ -187,6 +193,11 @@ export const BoatDetailModal = ({
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalProgress, setEvalProgress] = useState(0);
   const [evalError, setEvalError] = useState<string | null>(null);
+  const [scriptLang, setScriptLang] = useState<NegotiationLanguage>("en");
+  const [scriptTone, setScriptTone] = useState<NegotiationTone>("neutral");
+  const [customOffer, setCustomOffer] = useState("");
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   // Costs state
   const [marinas, setMarinas] = useState<Marina[]>([]);
@@ -214,6 +225,11 @@ export const BoatDetailModal = ({
     setIsEvaluating(false);
     setEvalProgress(0);
     setEvalError(null);
+    setScriptLang("en");
+    setScriptTone("neutral");
+    setCustomOffer("");
+    setCopyStatus(null);
+    setScriptOpen(false);
     setCostResult(null);
     setSelectedMarinaId("");
     setEnrichedListing(null);
@@ -398,6 +414,7 @@ export const BoatDetailModal = ({
             image_url: c.image_url ?? null,
             engine_info: c.engine_info ?? null,
             description: c.description || null,
+            boat_type: c.boat_type ?? null,
           })),
       );
 
@@ -464,6 +481,21 @@ export const BoatDetailModal = ({
     ...comparablesUsed.map((b) => ({ ...b, sourceTag: "Comparable" as const })),
     ...similarBoats.map((b) => ({ ...b, sourceTag: "Similar" as const })),
   ];
+  const listingPrice = Number(effective?.price_eur || 0);
+  const offerForScript = customOffer ? Number(customOffer) : evalResult?.offerRange.realistic || 0;
+  const script = evalResult
+    ? generateNegotiationScript({
+        lang: scriptLang,
+        tone: scriptTone,
+        boatTitle: effective?.title || "boat",
+        listingPrice,
+        fairLow: evalResult.fairPriceLow,
+        fairHigh: evalResult.fairPriceHigh,
+        offer: offerForScript,
+        walkAwayPrice: evalResult.walkAwayPrice,
+        anchors: evalResult.negotiationAnchors,
+      })
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
@@ -636,6 +668,116 @@ export const BoatDetailModal = ({
                     <p className="text-xs text-muted-foreground mt-1">
                       Target offer: <span className="text-primary font-medium">€{evalResult.targetOffer.toLocaleString()}</span>
                     </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md border p-2 bg-background">
+                        <p className="text-muted-foreground">Aggressive</p>
+                        <p className="font-semibold">€{evalResult.offerRange.aggressive.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-md border p-2 bg-background">
+                        <p className="text-muted-foreground">Realistic</p>
+                        <p className="font-semibold">€{evalResult.offerRange.realistic.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-md border p-2 bg-background col-span-2">
+                        <p className="text-muted-foreground">Safe offer / walk-away cap</p>
+                        <p className="font-semibold">€{evalResult.offerRange.safe.toLocaleString()} / €{evalResult.walkAwayPrice.toLocaleString()}</p>
+                      </div>
+                    </div>
+                    {evalResult.negotiationAnchors.length > 0 && (
+                      <ul className="mt-3 space-y-1">
+                        {evalResult.negotiationAnchors.map((a, idx) => (
+                          <li key={idx} className="text-xs text-muted-foreground">• {a}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </Card>
+
+                  <Card className="p-4">
+                    <h4 className="font-semibold text-primary mb-2 text-sm">Negotiation Script Generator</h4>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">Generate an English negotiation message from your current offer.</p>
+                      <Button size="sm" variant="outline" className="text-xs" onClick={() => setScriptOpen((v) => !v)}>
+                        {scriptOpen ? "Hide" : "Show"}
+                      </Button>
+                    </div>
+                    {scriptOpen && (
+                      <div className="mt-3 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">Language</Label>
+                            <Select value={scriptLang} onValueChange={(v) => setScriptLang(v as NegotiationLanguage)}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="en">English</SelectItem>
+                                <SelectItem value="sl">Slovenian</SelectItem>
+                                <SelectItem value="it">Italian</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                        <Label className="text-xs">Tone</Label>
+                        <Select value={scriptTone} onValueChange={(v) => setScriptTone(v as NegotiationTone)}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="friendly">Friendly</SelectItem>
+                            <SelectItem value="neutral">Neutral</SelectItem>
+                            <SelectItem value="firm">Firm</SelectItem>
+                          </SelectContent>
+                        </Select>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Offer amount override (optional)</Label>
+                          <input
+                            type="number"
+                            value={customOffer}
+                            onChange={(e) => setCustomOffer(e.target.value)}
+                            className="mt-1 w-full h-8 rounded-md border bg-background px-2 text-xs"
+                            placeholder={String(evalResult.offerRange.realistic)}
+                          />
+                        </div>
+                        {script && (
+                          <div className="space-y-2">
+                            <div className="rounded-md border bg-background p-2">
+                              <p className="text-xs text-muted-foreground">Subject</p>
+                              <p className="text-xs">{script.subject}</p>
+                            </div>
+                            <div className="rounded-md border bg-background p-2">
+                              <p className="text-xs text-muted-foreground mb-1">Email</p>
+                              <pre className="text-xs whitespace-pre-wrap font-sans">{script.emailBody}</pre>
+                            </div>
+                            <div className="rounded-md border bg-background p-2">
+                              <p className="text-xs text-muted-foreground mb-1">WhatsApp</p>
+                              <pre className="text-xs whitespace-pre-wrap font-sans">{script.whatsappText}</pre>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs"
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(`${script.subject}\n\n${script.emailBody}`);
+                                  setCopyStatus("Email copied.");
+                                }}
+                              >
+                                <Copy className="w-3.5 h-3.5 mr-1" /> Copy Email
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs"
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(script.whatsappText);
+                                  setCopyStatus("WhatsApp text copied.");
+                                }}
+                              >
+                                <Copy className="w-3.5 h-3.5 mr-1" /> Copy WhatsApp
+                              </Button>
+                            </div>
+                            {copyStatus && <p className="text-[11px] text-muted-foreground">{copyStatus}</p>}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </Card>
 
                   {/* Score breakdown */}
@@ -669,6 +811,19 @@ export const BoatDetailModal = ({
                         <p className="text-xs text-muted-foreground mt-1">
                           True cost: €{(Number(effective!.price_eur) + evalResult.estimatedRepairCost).toLocaleString()} (price + repairs)
                         </p>
+                      )}
+                      {evalResult.repairEstimateBreakdown.length > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          {evalResult.repairEstimateBreakdown.map((item, idx) => (
+                            <div key={`${item.label}-${idx}`} className="rounded-md border bg-background p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-medium">{item.label}</p>
+                                <p className="text-xs font-semibold">€{item.estimate.toLocaleString()}</p>
+                              </div>
+                              {item.note && <p className="text-[11px] text-muted-foreground mt-0.5">{item.note}</p>}
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </Card>
                   )}
@@ -858,6 +1013,7 @@ export const BoatDetailModal = ({
                         <span>
                           {b.year || "—"}
                           {b.length_feet ? ` · ${Number(b.length_feet)}ft` : ""}
+                          {b.boat_type ? ` · ${b.boat_type}` : ""}
                         </span>
                         {b.price_eur && (
                           <span className="font-semibold text-primary">€{Number(b.price_eur).toLocaleString()}</span>
@@ -894,6 +1050,7 @@ export const BoatDetailModal = ({
                 {selectedRefBoat.price_eur && <span className="font-semibold text-primary">€{selectedRefBoat.price_eur.toLocaleString()}</span>}
                 {selectedRefBoat.year && <span className="text-muted-foreground">{selectedRefBoat.year}</span>}
                 {selectedRefBoat.length_feet && <span className="text-muted-foreground">{selectedRefBoat.length_feet}ft</span>}
+                {selectedRefBoat.boat_type && <span className="text-muted-foreground capitalize">{selectedRefBoat.boat_type}</span>}
                 {selectedRefBoat.location && <span className="text-muted-foreground">{selectedRefBoat.location}</span>}
               </div>
               {selectedRefBoat.engine_info && (
