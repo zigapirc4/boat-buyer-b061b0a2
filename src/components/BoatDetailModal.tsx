@@ -772,7 +772,7 @@ export const BoatDetailModal = ({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
-      <DialogContent ref={modalScrollRef} className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 [&>button]:top-3 [&>button]:right-3 [&>button]:inline-flex [&>button]:items-center [&>button]:justify-center [&>button]:h-9 [&>button]:w-9 [&>button]:rounded-full [&>button]:border [&>button]:border-border/70 [&>button]:bg-background/95 [&>button]:text-foreground [&>button]:opacity-100 [&>button]:shadow-md [&>button]:backdrop-blur-sm [&>button]:transition-colors [&>button]:hover:bg-background sm:[&>button]:h-8 sm:[&>button]:w-8">
+      <DialogContent ref={modalScrollRef} className="max-w-[95vw] sm:max-w-3xl lg:max-w-4xl max-h-[90vh] sm:max-h-none sm:top-[1rem] sm:bottom-[1rem] sm:translate-y-0 overflow-y-auto p-0 [&>button]:top-3 [&>button]:right-3 [&>button]:inline-flex [&>button]:items-center [&>button]:justify-center [&>button]:h-9 [&>button]:w-9 [&>button]:rounded-full [&>button]:border [&>button]:border-border/70 [&>button]:bg-background/95 [&>button]:text-foreground [&>button]:opacity-100 [&>button]:shadow-md [&>button]:backdrop-blur-sm [&>button]:transition-colors [&>button]:hover:bg-background sm:[&>button]:h-8 sm:[&>button]:w-8">
         {/* Image gallery */}
         {images.length > 0 ? (
           <div className="relative w-full aspect-video bg-muted">

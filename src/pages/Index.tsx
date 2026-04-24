@@ -401,7 +401,7 @@ const Index = () => {
         setSavedIds((prev) => new Set(prev).add(savedListing.id));
         setListings((prev) => [savedListing, ...prev.filter((l) => l.id !== savedListing.id)]);
         setSelectedListing(savedListing);
-        setModalInitialTab("details");
+        setModalInitialTab("evaluate");
         setModalOpen(true);
         setImportOpen(false);
         setImportUrl("");
@@ -472,7 +472,7 @@ const Index = () => {
         }
 
         setSelectedListing(existingListing);
-        setModalInitialTab("details");
+        setModalInitialTab("evaluate");
         setModalOpen(true);
         setImportOpen(false);
         setImportUrl("");
@@ -527,7 +527,7 @@ const Index = () => {
               setSavedIds((prev) => new Set(prev).add(fallbackSaved.id));
             }
             setSelectedListing(fallbackSaved);
-            setModalInitialTab("details");
+            setModalInitialTab("evaluate");
             setModalOpen(true);
             setImportOpen(false);
             setImportUrl("");
@@ -599,7 +599,7 @@ const Index = () => {
     setSavedIds((prev) => new Set(prev).add(typedListing.id));
     setListings((prev) => [typedListing, ...prev.filter((l) => l.id !== typedListing.id)]);
     setSelectedListing(typedListing);
-    setModalInitialTab("details");
+    setModalInitialTab("evaluate");
     setModalOpen(true);
     setTypePromptOpen(false);
     setPendingTypeListing(null);
