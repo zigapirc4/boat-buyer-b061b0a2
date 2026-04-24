@@ -62,7 +62,7 @@ const BuyersGuides = () => {
       <div className="hero-header-bg text-primary-foreground">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:py-10">
           <div className="sticky top-0 z-40 -mx-4 px-4 py-2 mb-4">
-            <div className="flex items-center justify-end gap-4 overflow-x-auto whitespace-nowrap scrollbar-none">
+            <div className="flex items-center justify-start sm:justify-end gap-4 pl-2 sm:pl-0 overflow-x-auto whitespace-nowrap scrollbar-none">
                 <span className="top-nav-link-active">Buyer’s Guides</span>
                 <Link to="/my-story" className="top-nav-link">My Story</Link>
                 <Link to="/my-boats" className="top-nav-link">My Boats {savedCount > 0 ? `(${savedCount})` : ""}</Link>
