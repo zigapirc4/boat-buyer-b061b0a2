@@ -85,30 +85,96 @@ const MyStory = () => {
         </h1>
 
         <Card className="p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start">
-            <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed flex-1 min-w-0">
-            <p>
-              That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
-              and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
-              timeless, almost stubborn charm. Built in an era when boats were made to last and to be lived with, not
-              just owned, she carries that old-school character in every line of her hull.
-            </p>
-            <p>
-              Back then, I wasn't thinking about costs, marinas, or long-term value. I was thinking about what it
-              feels like to be out there, away from routine, with a sense of complete freedom. That changed quite
-              quickly. On our first serious trip, we learned in a rather unpleasant way that the engine had reached the
-              end of its life — it failed at sea, and it became clear that a full replacement wasn't a choice, but a
-              necessity.
-            </p>
-            <p>
-              Later, I realized that owning a boat isn't just about the romance — it's also about decisions, costs, and
-              a lot of unknowns. That experience made it very real, very fast. It's exactly why I started building this
-              project. To make the journey from "I like this boat" to "I know this is a smart decision" much easier.
-              This isn't just an app. It's something I wish I had the first time I stepped aboard that little Vivacity,
-              full of character and quiet promises of the sea.
-            </p>
+          {/* Mobile narrative flow: image -> text -> image -> text */}
+          <div className="sm:hidden space-y-4">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveImage(myStoryImage);
+                setStoryImageOpen(true);
+              }}
+              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
+              aria-label="View full size photo"
+            >
+              <img
+                src={myStoryImage}
+                alt="Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
+                className="w-full h-56 object-cover block"
+                loading="lazy"
+              />
+            </button>
+            <p className="text-[12px] text-muted-foreground italic">Vivacity 20 (1975): the boat that started it all.</p>
+
+            <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed">
+              <p>
+                That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
+                and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
+                timeless, almost stubborn charm. Built in an era when boats were made to last and to be lived with, not
+                just owned, she carries that old-school character in every line of her hull.
+              </p>
+              <p>
+                Back then, I wasn't thinking about costs, marinas, or long-term value. I was thinking about what it
+                feels like to be out there, away from routine, with a sense of complete freedom. That changed quite
+                quickly. On our first serious trip, we learned in a rather unpleasant way that the engine had reached the
+                end of its life — it failed at sea, and it became clear that a full replacement wasn't a choice, but a
+                necessity.
+              </p>
             </div>
-            <div className="shrink-0 w-44 sm:w-48 self-center sm:self-start space-y-3">
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveImage(myStoryWorkbenchImage);
+                setStoryImageOpen(true);
+              }}
+              className="w-full rounded-lg overflow-hidden shadow-md border border-border/40 hover:shadow-lg transition-all cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
+              aria-label="View working on boat photo"
+            >
+              <img
+                src={myStoryWorkbenchImage}
+                alt="Working on BoatBuyer from the cockpit in a marina"
+                className="w-full h-56 object-cover block"
+                loading="lazy"
+              />
+            </button>
+            <p className="text-[12px] text-muted-foreground italic">Building BoatBuyer directly from life on the water.</p>
+
+            <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed">
+              <p>
+                Later, I realized that owning a boat isn't just about the romance — it's also about decisions, costs, and
+                a lot of unknowns. That experience made it very real, very fast. It's exactly why I started building this
+                project. To make the journey from "I like this boat" to "I know this is a smart decision" much easier.
+                This isn't just an app. It's something I wish I had the first time I stepped aboard that little Vivacity,
+                full of character and quiet promises of the sea.
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop layout keeps image column on the side */}
+          <div className="hidden sm:flex gap-6 items-start">
+            <div className="space-y-4 text-foreground/85 text-[15px] leading-relaxed flex-1 min-w-0">
+              <p>
+                That moment captured in this photo is where it all started — not with a perfect plan, but with curiosity
+                and a pull toward the sea. We were standing on a Vivacity 20 from 1975 — a small British cruiser with a
+                timeless, almost stubborn charm. Built in an era when boats were made to last and to be lived with, not
+                just owned, she carries that old-school character in every line of her hull.
+              </p>
+              <p>
+                Back then, I wasn't thinking about costs, marinas, or long-term value. I was thinking about what it
+                feels like to be out there, away from routine, with a sense of complete freedom. That changed quite
+                quickly. On our first serious trip, we learned in a rather unpleasant way that the engine had reached the
+                end of its life — it failed at sea, and it became clear that a full replacement wasn't a choice, but a
+                necessity.
+              </p>
+              <p>
+                Later, I realized that owning a boat isn't just about the romance — it's also about decisions, costs, and
+                a lot of unknowns. That experience made it very real, very fast. It's exactly why I started building this
+                project. To make the journey from "I like this boat" to "I know this is a smart decision" much easier.
+                This isn't just an app. It's something I wish I had the first time I stepped aboard that little Vivacity,
+                full of character and quiet promises of the sea.
+              </p>
+            </div>
+            <div className="shrink-0 w-48 self-start space-y-3">
               <button
                 type="button"
                 onClick={() => {
@@ -125,6 +191,7 @@ const MyStory = () => {
                   loading="lazy"
                 />
               </button>
+              <p className="text-[11px] text-muted-foreground italic">Vivacity 20 (1975): the boat that started it all.</p>
               <button
                 type="button"
                 onClick={() => {
@@ -141,7 +208,7 @@ const MyStory = () => {
                   loading="lazy"
                 />
               </button>
-              <p className="text-[11px] text-muted-foreground italic">Two moments: where it started and where it is being built.</p>
+              <p className="text-[11px] text-muted-foreground italic">Building BoatBuyer directly from life on the water.</p>
             </div>
           </div>
         </Card>
