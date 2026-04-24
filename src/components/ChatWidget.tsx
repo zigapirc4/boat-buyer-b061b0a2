@@ -70,11 +70,13 @@ async function streamChat({
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showIntroHint, setShowIntroHint] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [userLocation, setUserLocation] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const INTRO_HINT_KEY = "boatbuyer_chat_intro_seen_v1";
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -95,6 +97,30 @@ export const ChatWidget = () => {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem(INTRO_HINT_KEY) === "1";
+      if (!seen) setShowIntroHint(true);
+    } catch {
+      // no-op: keep widget usable even if localStorage is unavailable
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showIntroHint) return;
+    const timer = window.setTimeout(() => setShowIntroHint(false), 12000);
+    return () => window.clearTimeout(timer);
+  }, [showIntroHint]);
+
+  const markIntroSeen = () => {
+    setShowIntroHint(false);
+    try {
+      localStorage.setItem(INTRO_HINT_KEY, "1");
+    } catch {
+      // ignore storage failures
+    }
+  };
 
   const send = async (text: string) => {
     if (!text.trim() || isLoading) return;
@@ -135,9 +161,30 @@ export const ChatWidget = () => {
   return (
     <>
       {/* Floating button */}
+      {showIntroHint && !isOpen && (
+        <button
+          type="button"
+          onClick={() => {
+            markIntroSeen();
+            setIsOpen(true);
+          }}
+          className="fixed bottom-24 right-6 z-50 max-w-[260px] rounded-xl border bg-background/95 px-3 py-2 text-left shadow-xl backdrop-blur animate-in fade-in zoom-in-95 duration-300"
+          aria-label="Open boat assistant chat"
+        >
+          <p className="text-xs font-semibold text-primary">Tip: BoatBuyer AI Assistant</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Ask anything about boating, boats, ownership costs, or negotiation.
+          </p>
+        </button>
+      )}
       <button
-        onClick={() => setIsOpen(o => !o)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all flex items-center justify-center"
+        onClick={() => {
+          if (!isOpen) markIntroSeen();
+          setIsOpen((o) => !o);
+        }}
+        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all flex items-center justify-center ${
+          showIntroHint && !isOpen ? "animate-bounce" : ""
+        }`}
       >
         {isOpen ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
       </button>
