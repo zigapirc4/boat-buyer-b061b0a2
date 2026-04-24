@@ -2,7 +2,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, MapPin, Clock, ChevronLeft, ChevronRight, Ship, TrendingDown, Wrench, DollarSign, Calculator, Loader2, Search, Heart, Copy, ChevronsUpDown, Check } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -376,8 +376,13 @@ export const BoatDetailModal = ({
   initialTab = "details",
   onNavigateToListing,
 }: BoatDetailModalProps) => {
+  const DESCRIPTION_PREVIEW_LENGTH = 420;
+  const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const [imgIndex, setImgIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"details" | "evaluate" | "costs">(initialTab);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const descriptionToggleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const descriptionAnchorRef = useRef<{ prevButtonTop: number; prevScrollTop: number } | null>(null);
 
   // Enriched listing data (merged with fetched data)
   const [enrichedListing, setEnrichedListing] = useState<CachedListing | null>(null);
@@ -457,7 +462,38 @@ export const BoatDetailModal = ({
     setComparablesUsed([]);
     setSelectedRefBoat(null);
     setRefBoatOpen(false);
+    setDescriptionExpanded(false);
+    descriptionAnchorRef.current = null;
   }, [listing?.id, initialTab]);
+
+  useLayoutEffect(() => {
+    if (!descriptionAnchorRef.current) return;
+    const button = descriptionToggleButtonRef.current;
+    const scrollContainer = button?.closest('[role="dialog"]') as HTMLElement | null;
+    if (!button || !scrollContainer) {
+      descriptionAnchorRef.current = null;
+      return;
+    }
+    const { prevButtonTop, prevScrollTop } = descriptionAnchorRef.current;
+    const nextButtonTop = button.getBoundingClientRect().top;
+    const delta = nextButtonTop - prevButtonTop;
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    const targetScrollTop = Math.min(Math.max(prevScrollTop + delta, 0), maxScrollTop);
+    scrollContainer.scrollTop = targetScrollTop;
+    descriptionAnchorRef.current = null;
+  }, [descriptionExpanded]);
+
+  // Always reset modal scroll when opened so mobile starts at the top.
+  useEffect(() => {
+    if (!open) return;
+    const resetScroll = () => {
+      if (modalScrollRef.current) {
+        modalScrollRef.current.scrollTop = 0;
+      }
+    };
+    resetScroll();
+    requestAnimationFrame(resetScroll);
+  }, [open, listing?.id]);
 
   // Fetch similar boats when modal opens for a listing
   useEffect(() => {
@@ -728,10 +764,15 @@ export const BoatDetailModal = ({
         anchors: evalResult.negotiationAnchors,
       })
     : null;
+  const descriptionText = effective?.description || "";
+  const isDescriptionLong = descriptionText.length > DESCRIPTION_PREVIEW_LENGTH;
+  const descriptionPreview = isDescriptionLong
+    ? `${descriptionText.slice(0, DESCRIPTION_PREVIEW_LENGTH).trimEnd()}...`
+    : descriptionText;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+      <DialogContent ref={modalScrollRef} className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 [&>button]:top-3 [&>button]:right-3 [&>button]:inline-flex [&>button]:items-center [&>button]:justify-center [&>button]:h-9 [&>button]:w-9 [&>button]:rounded-full [&>button]:border [&>button]:border-border/70 [&>button]:bg-background/95 [&>button]:text-foreground [&>button]:opacity-100 [&>button]:shadow-md [&>button]:backdrop-blur-sm [&>button]:transition-colors [&>button]:hover:bg-background sm:[&>button]:h-8 sm:[&>button]:w-8">
         {/* Image gallery */}
         {images.length > 0 ? (
           <div className="relative w-full aspect-video bg-muted">
@@ -783,7 +824,31 @@ export const BoatDetailModal = ({
           {effective!.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {effective!.location}</p>}
           {effective!.engine_info && <p className="text-sm text-muted-foreground">⚙️ {effective!.engine_info}</p>}
           {effective!.description && (
-            <div><h3 className="text-sm font-semibold mb-1">Description</h3><p className="text-sm text-muted-foreground whitespace-pre-line">{effective!.description}</p></div>
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Description</h3>
+              <p className="text-sm text-muted-foreground whitespace-pre-line">
+                {descriptionExpanded ? descriptionText : descriptionPreview}
+              </p>
+              {isDescriptionLong && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs text-primary"
+                  ref={descriptionToggleButtonRef}
+                  onClick={(e) => {
+                    const scrollContainer = e.currentTarget.closest('[role="dialog"]') as HTMLElement | null;
+                    descriptionAnchorRef.current = {
+                      prevButtonTop: e.currentTarget.getBoundingClientRect().top,
+                      prevScrollTop: scrollContainer?.scrollTop ?? 0,
+                    };
+                    setDescriptionExpanded((prev) => !prev);
+                  }}
+                >
+                  {descriptionExpanded ? "Show less" : "Read more"}
+                </Button>
+              )}
+            </div>
           )}
 
           {/* Equipment — merged from scraped listing + AI enrichment */}

@@ -148,6 +148,7 @@ const Index = () => {
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
+  const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -661,10 +662,11 @@ const Index = () => {
     const eng = (listing.engine_info || "").toLowerCase();
 
     if (age !== null) {
-      if (age > 35) qualityScore -= 45;
-      else if (age > 30) qualityScore -= 35;
-      else if (age > 25) qualityScore -= 25;
-      else if (age > 15) qualityScore -= 10;
+      // Keep age as a risk signal, but avoid over-penalizing well-kept classic boats.
+      if (age > 35) qualityScore -= 32;
+      else if (age > 30) qualityScore -= 24;
+      else if (age > 25) qualityScore -= 16;
+      else if (age > 15) qualityScore -= 6;
     }
     if (listing.engine_info && /\b(problem|fault|needs|repair|non funzionante|issue)\b/i.test(eng)) qualityScore -= 25;
     if (listing.engine_info && /\bnew engine|rebuilt|overhauled\b/i.test(eng)) qualityScore += 8;
@@ -787,6 +789,7 @@ const Index = () => {
   };
 
   const compareListings = listings.filter((l) => compareIds.has(l.id));
+  const selectedGuideArticle = BUYER_GUIDES.find((article) => article.id === selectedGuideId) || null;
 
   const scrollToListings = () => {
     document.getElementById("listings")?.scrollIntoView({ behavior: "smooth" });
@@ -984,7 +987,7 @@ const Index = () => {
             .map((article) => (
             <Card
               key={article.id}
-              onClick={() => navigate(`/buyers-guides?article=${article.id}`)}
+              onClick={() => setSelectedGuideId(article.id)}
               className="p-4 group cursor-pointer border-transparent hover:border-primary/15 premium-card"
             >
               <div
@@ -1280,6 +1283,38 @@ const Index = () => {
           </Card>
         </div>
       )}
+
+      <Dialog open={!!selectedGuideArticle} onOpenChange={(open) => !open && setSelectedGuideId(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          {selectedGuideArticle && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3 mb-1">
+                  <div className={`w-10 h-10 rounded-lg ${selectedGuideArticle.color} flex items-center justify-center`}>
+                    <selectedGuideArticle.icon className="w-5 h-5" />
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedGuideArticle.tagColor}`}>
+                    {selectedGuideArticle.category}
+                  </span>
+                </div>
+                <DialogTitle className="text-lg font-bold">{selectedGuideArticle.title}</DialogTitle>
+                <DialogDescription>{selectedGuideArticle.summary}</DialogDescription>
+              </DialogHeader>
+              <div className="prose prose-sm max-w-none text-foreground mt-2">
+                {selectedGuideArticle.body.split("\n\n").map((paragraph, i) => (
+                  <p
+                    key={i}
+                    className="text-sm leading-relaxed text-muted-foreground mb-3"
+                    dangerouslySetInnerHTML={{
+                      __html: paragraph.replace(/\*\*(.*?)\*\*/g, '<strong class="text-foreground">$1</strong>').replace(/\n/g, "<br />"),
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Compare dialog */}
       <Dialog open={compareOpen} onOpenChange={setCompareOpen}>

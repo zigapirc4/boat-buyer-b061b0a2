@@ -132,40 +132,40 @@ export function evaluate(data: BoatData): EvalResult {
     ageScore = 15;
     ageDetail = "Proven design, some wear items may need attention";
   } else if (age <= 18) {
-    ageScore = 11;
+    ageScore = 13;
     ageDetail = "Mid-life — standing rigging, electronics, upholstery aging";
     recommendations.push("Check standing rigging age — replacement due every 10–15 years");
   } else if (age <= 25) {
-    ageScore = 7;
-    ageDetail = "Aging — expect deferred maintenance, possible refit needed";
+    ageScore = 10;
+    ageDetail = "Older but often solid when maintained — verify service history and key systems";
     recommendations.push("Commission a full marine survey before purchase");
     recommendations.push("Budget for electronics upgrade (€2,000–5,000)");
-    estimatedRepairCost += 3000;
+    estimatedRepairCost += 2000;
     repairEstimateBreakdown.push({
       label: "Age-related systems refresh",
-      estimate: 3000,
+      estimate: 2000,
       note: "Electronics, plumbing, wiring spot replacements",
     });
   } else if (age <= 35) {
-    ageScore = 4;
-    ageDetail = "Old — significant systems likely need overhaul";
-    recommendations.push("Full marine survey essential — structural concerns likely");
-    recommendations.push("Budget for extensive refit (€15,000–40,000+)");
-    estimatedRepairCost += 20000;
+    ageScore = 8;
+    ageDetail = "Classic/older boat — condition varies strongly by maintenance and upgrades";
+    recommendations.push("Full marine survey essential — prioritize structure, engine, and electrical checks");
+    recommendations.push("Budget for selective refit based on survey findings (€8,000–25,000+)");
+    estimatedRepairCost += 12000;
     repairEstimateBreakdown.push({
       label: "Major age refit reserve",
-      estimate: 20000,
+      estimate: 12000,
       note: "Multiple core systems likely overdue",
     });
   } else {
-    ageScore = 1;
-    ageDetail = "Very old — likely needs complete refit, may be uninsurable";
+    ageScore = 6;
+    ageDetail = "Very old/classic — can still be excellent if restoration and maintenance are documented";
     recommendations.push("Insurance may be difficult to obtain for boats 35+ years old");
-    recommendations.push("Budget for complete refit (€25,000–60,000+)");
-    estimatedRepairCost += 35000;
+    recommendations.push("Budget for deeper refit risk reserve (€15,000–45,000+), based on survey scope");
+    estimatedRepairCost += 22000;
     repairEstimateBreakdown.push({
       label: "Full legacy refit reserve",
-      estimate: 35000,
+      estimate: 22000,
       note: "Structural, mechanical, electrical and interior updates",
     });
   }
@@ -301,7 +301,7 @@ export function evaluate(data: BoatData): EvalResult {
   }
 
   if (age > 20 && price > 100000) {
-    valueScore = Math.max(0, valueScore - 5);
+    valueScore = Math.max(0, valueScore - 2);
     recommendations.push("High price for an older boat — ensure condition justifies it");
   }
   categories.push({ name: "Value for Money", score: valueScore, maxScore: 25, details: valueDetail, icon: "💰" });
@@ -380,12 +380,12 @@ export function evaluate(data: BoatData): EvalResult {
   // 5. Overall Condition (max 10) — inferred from hull, age, description
   let conditionScore = 10;
   let conditionDetail = "";
-  if (hull === "good" && age <= 15) {
+  if (hull === "good" && age <= 25) {
     conditionScore = 10;
     conditionDetail = `Well-maintained${hullMaterial ? ` ${hullMaterial}` : ""} hull, good overall condition`;
   } else if (hull === "good") {
-    conditionScore = 7;
-    conditionDetail = `Hull sound but age (${age}yr) means cosmetic and system wear likely`;
+    conditionScore = 8;
+    conditionDetail = `Hull sound; age (${age}yr) can still be fine if maintenance and upgrades are documented`;
   } else if (hull === "osmosis") {
     conditionScore = 3;
     conditionDetail = "Osmosis detected — costly treatment needed";
