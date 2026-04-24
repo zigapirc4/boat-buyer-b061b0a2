@@ -120,6 +120,17 @@ function parseEngineMake(text: string): string | null {
   return null;
 }
 
+function parseBrandModelFromTitle(boatModel: string | null): { brand: string | null; model: string | null } {
+  if (!boatModel) return { brand: null, model: null };
+  const cleaned = boatModel.replace(/\s+/g, " ").trim();
+  if (!cleaned) return { brand: null, model: null };
+  const tokens = cleaned.split(" ").filter(Boolean);
+  return {
+    brand: tokens.length >= 2 ? tokens[0].slice(0, 120) : null,
+    model: cleaned.slice(0, 160),
+  };
+}
+
 function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
   const u = url.toLowerCase();
   if (
@@ -300,6 +311,11 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
     const types = ([] as string[]).concat(ld["@type"] || []);
     if (types.some((t) => /Product|Vehicle|Boat|Vessel|Offer/i.test(t))) {
       if (ld.name && !result.boat_model) result.boat_model = ld.name;
+      if (!result.brand && ld.brand) {
+        const brand = typeof ld.brand === "string" ? ld.brand : ld.brand?.name;
+        if (brand) result.brand = String(brand).trim();
+      }
+      if (!result.model && ld.model) result.model = String(ld.model).trim();
       if (ld.description && !result.description_summary) result.description_summary = ld.description;
       const offers = ld.offers || ld.Offer || ld;
       const price = offers?.price || offers?.priceSpecification?.price;
@@ -341,6 +357,9 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
   result.engine_make = parseEngineMake(text);
   result.hull_material = parseHullMaterial(text);
   result.boat_type = detectBoatType(text, url);
+  const fallbackBrandModel = parseBrandModelFromTitle(result.boat_model || null);
+  if (!result.brand) result.brand = fallbackBrandModel.brand;
+  if (!result.model) result.model = fallbackBrandModel.model;
 
   // Defaults so the form is usable
   result.engine_condition = result.engine_hours
@@ -460,6 +479,8 @@ serve(async (req) => {
             : { knownIssues: [], recentWork: [], equipmentHighlights: [] };
           const cachedExtract = {
             boat_model: row.title,
+            brand: row.brand ?? null,
+            model: row.model ?? row.title ?? null,
             boat_type: row.boat_type ?? null,
             year: row.year,
             price_eur: Number(row.price_eur),
@@ -566,6 +587,8 @@ serve(async (req) => {
       if (extracted.year) updates.year = extracted.year;
       if (extracted.length_feet) updates.length_feet = extracted.length_feet;
       if (extracted.boat_type) updates.boat_type = extracted.boat_type;
+      if (extracted.brand) updates.brand = extracted.brand;
+      if (extracted.model) updates.model = extracted.model;
       if (extracted.hull_material) updates.hull_material = extracted.hull_material;
       if (extracted.engine_hours) updates.engine_hours = extracted.engine_hours;
       if (extracted.location) updates.location = extracted.location;

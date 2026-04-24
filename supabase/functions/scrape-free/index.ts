@@ -954,6 +954,32 @@ function normalizeLocationValue(raw: string | null | undefined): string | null {
   return cleaned;
 }
 
+function deriveBrandModel(title: string | null, featureMap: Record<string, string>): { brand: string | null; model: string | null } {
+  const clean = (v: string | null | undefined) => {
+    if (!v) return null;
+    const t = v.replace(/\s+/g, " ").trim();
+    return t.length > 0 ? t.slice(0, 120) : null;
+  };
+  const brandFromFeatures = clean(
+    findFeatureValue(featureMap, /\b(brand|make|builder|manufacturer|cantiere|marca)\b/i),
+  );
+  const modelFromFeatures = clean(
+    findFeatureValue(featureMap, /\b(model|modello|serie|type)\b/i),
+  );
+  if (brandFromFeatures || modelFromFeatures) {
+    return { brand: brandFromFeatures, model: modelFromFeatures };
+  }
+
+  const t = clean(title);
+  if (!t) return { brand: null, model: null };
+  const tokens = t.split(" ").filter(Boolean);
+  if (tokens.length < 2) return { brand: null, model: t };
+  return {
+    brand: tokens[0],
+    model: t,
+  };
+}
+
 function extractRichFields(
   text: string,
   featureMap: Record<string, string>,
@@ -1116,6 +1142,8 @@ function parseListing(
   hintType: "sailboat" | "powerboat" | "auto",
 ): {
   title: string;
+  brand: string | null;
+  model: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
@@ -1237,6 +1265,7 @@ function parseListing(
   }
 
   const rich = extractRichFields(text, featureMap);
+  const { brand, model } = deriveBrandModel(title, featureMap);
 
   const specsRaw =
     sanitizeSpecsRaw(featureMap) ||
@@ -1253,6 +1282,8 @@ function parseListing(
 
   return {
     title: (title || url).slice(0, 250),
+    brand,
+    model,
     price_eur: price,
     year,
     length_feet,
@@ -1411,6 +1442,8 @@ Deno.serve(async (req) => {
       const row = {
         url: linkUrl,
         title: parsed.title || linkUrl,
+        brand: parsed.brand,
+        model: parsed.model,
         source: site,
         boat_type: parsed.boat_type,
         price_eur: parsed.price_eur,
