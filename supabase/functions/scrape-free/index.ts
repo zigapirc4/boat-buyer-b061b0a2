@@ -3102,6 +3102,76 @@ function isCompleteListingForIngest(parsed: ReturnType<typeof parseListing>): bo
 
 // ---------- Persistence ----------
 
+async function getCachedListingRow(
+  supabaseUrl: string,
+  supabaseKey: string,
+  url: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(url)}&select=*&limit=1`,
+      { headers: { Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey } },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return Array.isArray(rows) && rows[0] ? (rows[0] as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function flexibleListingFromCachedRow(row: Record<string, unknown>): {
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+} {
+  const specsRaw = row.specs_raw && typeof row.specs_raw === "object"
+    ? (row.specs_raw as Record<string, unknown>)
+    : {};
+  const aiDetails = specsRaw.ai_details ?? null;
+  const lengthFeet = row.length_feet != null ? Number(row.length_feet) : null;
+  const lengthM =
+    typeof lengthFeet === "number" && Number.isFinite(lengthFeet)
+      ? Math.round(lengthFeet * 0.3048 * 100) / 100
+      : null;
+  const imgs = row.image_urls as unknown;
+  const imageUrls = Array.isArray(imgs)
+    ? imgs
+    : row.image_url
+      ? [String(row.image_url)]
+      : [];
+  const desc = String(row.description ?? "");
+  return {
+    core: {
+      title: String(row.title || "Unknown listing"),
+      price_eur: row.price_eur != null ? Number(row.price_eur) : null,
+      year: row.year != null ? Number(row.year) : null,
+      length_m: lengthM,
+      location: typeof row.location === "string" ? row.location : null,
+    },
+    specs: {
+      ...specsRaw,
+      brand: row.brand ?? specsRaw.brand ?? null,
+      model: row.model ?? specsRaw.model ?? null,
+      type: row.boat_type ?? specsRaw.type ?? null,
+      segment: row.segment ?? specsRaw.segment ?? null,
+      boat_type: row.boat_type ?? specsRaw.boat_type ?? null,
+      engine_hours: row.engine_hours ?? specsRaw.engine_hours ?? null,
+      fuel_type: row.fuel_type ?? specsRaw.fuel_type ?? null,
+      cabins: row.cabins ?? specsRaw.cabins ?? null,
+      hull_material: row.hull_material ?? specsRaw.hull_material ?? null,
+      engine_info: row.engine_info ?? specsRaw.engine_info ?? null,
+      image_urls: imageUrls.length > 0
+        ? imageUrls
+        : Array.isArray(specsRaw.image_urls)
+          ? specsRaw.image_urls
+          : [],
+      ai_details: aiDetails,
+    },
+    raw: { description: desc, full_text: desc },
+  };
+}
+
 async function upsertListing(
   supabaseUrl: string,
   supabaseKey: string,
@@ -3193,7 +3263,18 @@ Deno.serve(async (req) => {
     }
   } catch {}
 
-  const stats = { categoriesProcessed: 0, listingsFound: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
+  /** When true, listings already in `cached_listings` skip HTML fetch and all AI (cron + targeted `urls`). */
+  const skipExistingUrls = true;
+
+  const stats = {
+    categoriesProcessed: 0,
+    listingsFound: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    skipped_existing: 0,
+    errors: 0,
+  };
   const samples: string[] = [];
   const targetedResults: Array<{
     url: string;
@@ -3217,6 +3298,22 @@ Deno.serve(async (req) => {
     hintType: "sailboat" | "powerboat" | "auto",
   ) => {
     try {
+      if (skipExistingUrls) {
+        const cachedRow = await getCachedListingRow(supabaseUrl, supabaseKey, linkUrl);
+        if (cachedRow) {
+          stats.skipped_existing++;
+          if (requestedUrls.length > 0) {
+            targetedResults.push({
+              url: linkUrl,
+              data: flexibleListingFromCachedRow(cachedRow),
+              status: "skip",
+              source: "scrape-free",
+            });
+          }
+          return;
+        }
+      }
+
       const html = await withRetry(
         async () => {
           const content = await fetchHtml(linkUrl, perSiteTimeoutMs(site));

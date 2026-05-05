@@ -34,6 +34,12 @@ import { FeedbackButton } from "@/components/FeedbackButton";
 import { evaluate, type BoatType } from "@/lib/evaluateBoat";
 import { useToast } from "@/hooks/use-toast";
 import { BUYER_GUIDES } from "@/lib/buyerGuides";
+import {
+  detectScrapeFreeTargetSite,
+  normalizeListingUrl,
+  supportedListingSitesHumanList,
+} from "@scrapeShared/listingSites";
+import { interpretScrapeFreeImportResponse } from "@/lib/scrapeFreeImportOutcome";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -382,7 +388,7 @@ const Index = () => {
 
   const handleImportBoat = async () => {
     if (!importUrl.trim()) return;
-    const normalizedUrl = importUrl.trim();
+    const normalizedUrl = normalizeListingUrl(importUrl);
     setIsImporting(true);
 
     try {
@@ -420,18 +426,6 @@ const Index = () => {
         setTypePromptOpen(true);
         setImportOpen(false);
         return true;
-      };
-
-      const getSourceFromUrl = (rawUrl: string): "boat24.com" | "trovobarche.it" | "mornar.net" | "other" => {
-        try {
-          const host = new URL(rawUrl).hostname.replace("www.", "").replace("www2.", "").toLowerCase();
-          if (host.includes("boat24.com")) return "boat24.com";
-          if (host.includes("trovobarche.it")) return "trovobarche.it";
-          if (host.includes("mornar.net")) return "mornar.net";
-          return "other";
-        } catch {
-          return "other";
-        }
       };
 
       const getCachedByUrl = async (targetUrl: string) => {
@@ -484,84 +478,54 @@ const Index = () => {
         return;
       }
 
-      const source = getSourceFromUrl(normalizedUrl);
-      if (source === "other") {
+      const site = detectScrapeFreeTargetSite(normalizedUrl);
+      if (!site) {
         toast({
           title: "Unsupported source",
-          description: "We currently do not support importing from this website.",
+          description: `Supported marketplaces: ${supportedListingSitesHumanList()}.`,
           variant: "destructive",
         });
         return;
       }
 
-      if (source === "boat24.com" || source === "trovobarche.it" || source === "mornar.net") {
-        const { data, error } = await supabase.functions.invoke("scrape-free", {
-          body: { urls: [normalizedUrl] },
-        });
-        if (error || !data?.success) {
-          throw new Error(data?.error || error?.message || `Import failed for ${source}`);
-        }
-      } else {
-        const { data, error } = await supabase.functions.invoke("scrape-boat-listing", {
-          body: { url: normalizedUrl },
-        });
-        if (error || !data?.success) {
-          const fallbackSaved = await getCachedByUrl(normalizedUrl);
-
-          if (fallbackSaved) {
-            if (requireBoatTypeBeforeSave(fallbackSaved, "Listing was already cached during import and is now added to My Boats.")) {
-              return;
-            }
-            if (!isListingSaved(fallbackSaved.id)) {
-              saveListing({
-                id: fallbackSaved.id,
-                title: fallbackSaved.title,
-                url: fallbackSaved.url,
-                boat_type: fallbackSaved.boat_type,
-                price_eur: fallbackSaved.price_eur,
-                year: fallbackSaved.year,
-                length_feet: fallbackSaved.length_feet,
-                location: fallbackSaved.location,
-                image_url: fallbackSaved.image_url,
-                source: fallbackSaved.source,
-              });
-              setSavedIds((prev) => new Set(prev).add(fallbackSaved.id));
-            }
-            setSelectedListing(fallbackSaved);
-            setModalInitialTab("evaluate");
-            setModalOpen(true);
-            setImportOpen(false);
-            setImportUrl("");
-            toast({
-              title: "Boat imported",
-              description: "Listing was already cached during import and is now added to My Boats.",
-            });
-            return;
-          }
-
-          throw new Error(data?.error || error?.message || "Import failed");
-        }
+      const { data, error } = await supabase.functions.invoke("scrape-free", {
+        body: { urls: [normalizedUrl] },
+      });
+      if (error || !data?.success) {
+        throw new Error(data?.error || error?.message || `Import failed for ${site}`);
       }
 
-      // scrape-free is optimized for site crawling, so wait briefly for persistence.
+      const interpretation = interpretScrapeFreeImportResponse(data, normalizedUrl);
+      if (interpretation.outcome === "fail") {
+        throw new Error(interpretation.message);
+      }
+
+      const pollCachedListing = async (): Promise<CachedListing | null> => {
+        let savedRow: CachedListing | null = null;
+        for (let i = 0; i < 36; i++) {
+          savedRow = await getCachedByUrl(normalizedUrl);
+          if (savedRow) break;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        return savedRow;
+      };
+
       let savedRow: CachedListing | null = null;
-      for (let i = 0; i < 5; i++) {
-        savedRow = await getCachedByUrl(normalizedUrl);
-        if (savedRow) break;
-        await new Promise((resolve) => setTimeout(resolve, 700));
+      if (interpretation.outcome === "use_existing_row") {
+        savedRow = await pollCachedListing();
+        if (!savedRow) {
+          throw new Error(
+            "This listing is already in the database, but it could not be loaded yet. Wait a few seconds and use Import again, or open it from the listings grid.",
+          );
+        }
+      } else {
+        savedRow = await pollCachedListing();
       }
 
       if (!savedRow) {
-        const fallbackSaved = await getCachedByUrl(normalizedUrl);
-        if (fallbackSaved) {
-          const fallbackListing = fallbackSaved as CachedListing;
-          if (requireBoatTypeBeforeSave(fallbackListing, "Listing was already cached during import and is now added to My Boats.")) {
-            return;
-          }
-          finalizeImportedListing(fallbackListing, "Listing was already cached during import and is now added to My Boats.");
-          return;
-        }
-        throw new Error("Import completed but listing is not yet visible in cache. Please retry in a moment.");
+        throw new Error(
+          "Import ran but the listing is still not visible in the database. The scrape may have failed silently — try again, or confirm you pasted the direct listing page URL (not search results).",
+        );
       }
 
       const savedListing = savedRow as CachedListing;

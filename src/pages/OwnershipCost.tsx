@@ -12,6 +12,12 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  detectScrapeFreeTargetSite,
+  normalizeListingUrl,
+  supportedListingSitesHumanList,
+} from "@scrapeShared/listingSites";
+import { interpretScrapeFreeImportResponse } from "@/lib/scrapeFreeImportOutcome";
 
 interface Marina {
   id: string;
@@ -135,32 +141,85 @@ const OwnershipCost = () => {
   useEffect(() => {
     const url = searchParams.get("url");
     if (url) {
-      setListingUrl(url);
-      handleImport(url);
+      const normalized = normalizeListingUrl(url);
+      setListingUrl(normalized);
+      handleImport(normalized);
     }
   }, []);
 
   const handleImport = async (url?: string) => {
-    const targetUrl = url || listingUrl;
+    const targetUrl = normalizeListingUrl(url || listingUrl);
     if (!targetUrl) return;
+    const site = detectScrapeFreeTargetSite(targetUrl);
+    if (!site) {
+      toast({
+        title: "Unsupported source",
+        description: `Supported marketplaces: ${supportedListingSitesHumanList()}.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setIsScraping(true);
     setResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("scrape-boat-listing", { body: { url: targetUrl } });
+      const { data, error } = await supabase.functions.invoke("scrape-free", {
+        body: { urls: [targetUrl] },
+      });
       if (error) throw error;
-      if (!data?.success || !data.data) throw new Error(data?.error || "Could not extract boat details");
-      const d = data.data;
+      if (!data?.success) throw new Error(data?.error || "Could not extract boat details");
+
+      const interpretation = interpretScrapeFreeImportResponse(data, targetUrl);
+      if (interpretation.outcome === "fail") {
+        throw new Error(interpretation.message);
+      }
+
+      let row: Record<string, unknown> | null = null;
+      for (let i = 0; i < 36; i++) {
+        const { data: cached } = await supabase.from("cached_listings").select("*").eq("url", targetUrl).maybeSingle();
+        if (cached) {
+          row = cached as Record<string, unknown>;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!row) {
+        throw new Error(
+          "Import ran but the listing did not appear in the database. Use the full listing URL (not search results), or try again.",
+        );
+      }
+
+      const specsRaw =
+        row.specs_raw && typeof row.specs_raw === "object" && !Array.isArray(row.specs_raw)
+          ? (row.specs_raw as Record<string, unknown>)
+          : {};
+      const aiDetails =
+        specsRaw.ai_details && typeof specsRaw.ai_details === "object" && !Array.isArray(specsRaw.ai_details)
+          ? (specsRaw.ai_details as Record<string, unknown>)
+          : {};
+      const engineYearRaw = specsRaw.engine_year ?? aiDetails.engine_year;
+      let engineYearNum: number | null = null;
+      if (typeof engineYearRaw === "number" && Number.isFinite(engineYearRaw)) {
+        engineYearNum = Math.round(engineYearRaw);
+      } else if (typeof engineYearRaw === "string" && /^\d{4}$/.test(engineYearRaw.trim())) {
+        engineYearNum = parseInt(engineYearRaw.trim(), 10);
+      }
+
+      const brand = typeof row.brand === "string" ? row.brand.trim() : "";
+      const modelStr = typeof row.model === "string" ? row.model.trim() : "";
+      const title = typeof row.title === "string" ? row.title : "Unknown Boat";
+      const name = [brand, modelStr].filter(Boolean).join(" ").trim() || title;
+
       setBoat({
-        name: d.boat_model || d.title || "Unknown Boat",
-        year: d.year || null,
-        lengthM: d.length_feet ? d.length_feet * 0.3048 : null,
-        boatType: d.boat_type || "sailboat",
-        engineHours: d.engine_hours || null,
-        engineAge: d.engine_year ? new Date().getFullYear() - d.engine_year : null,
-        hullMaterial: d.hull_material || null,
+        name,
+        year: row.year != null ? Number(row.year) : null,
+        lengthM: row.length_feet != null ? Number(row.length_feet) * 0.3048 : null,
+        boatType: row.boat_type === "powerboat" ? "powerboat" : "sailboat",
+        engineHours: row.engine_hours != null ? Number(row.engine_hours) : null,
+        engineAge: engineYearNum ? new Date().getFullYear() - engineYearNum : null,
+        hullMaterial: typeof row.hull_material === "string" ? row.hull_material : null,
         hasInboard: true,
       });
-      toast({ title: "Boat imported", description: d.boat_model || d.title });
+      toast({ title: "Boat imported", description: name });
     } catch (e: any) {
       toast({ title: "Import failed", description: e.message, variant: "destructive" });
     } finally {

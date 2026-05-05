@@ -19,6 +19,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@scrapeShared/*": [
+        "./supabase/functions/_shared/*"
       ]
     },
     "skipLibCheck": true,
