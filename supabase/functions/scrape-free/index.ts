@@ -2433,6 +2433,28 @@ function normalizeAiLocation(raw: string | null | undefined): string | null {
   return null;
 }
 
+/** When inferLocationWithAi fails but scraper found a place line, still persist a normalized location. */
+function locationFallbackFromScrape(site: string, scrapedRaw: string | null | undefined): string | null {
+  const scraped = (scrapedRaw || "").replace(/\s+/g, " ").trim();
+  if (!scraped || scraped.length > 120) return null;
+
+  if (scraped.includes("->")) {
+    const n = normalizeAiLocation(scraped);
+    if (n) return n;
+  }
+
+  // mornar.net detail pages often emit only a locality/island (Croatia-heavy marketplace).
+  if (site === "mornar.net") {
+    const locality = scraped.replace(/^[,;\s]+|[,;\s]+$/g, "");
+    if (locality.length >= 2 && locality.length <= 70 && !/[.!?]{2}/.test(locality)) {
+      const paired = normalizeAiLocation(`Croatia->${locality}`);
+      if (paired) return paired;
+    }
+  }
+
+  return normalizeAiLocation(scraped);
+}
+
 function normalizeAiBrandModel(raw: unknown): { brand: string | null; model: string | null } {
   const clean = (v: unknown, max: number): string | null => {
     if (typeof v !== "string") return null;
@@ -3753,7 +3775,7 @@ Deno.serve(async (req) => {
         mergeSpec(parsed.flexible.specs, "segment", segment);
         mergeSpec(parsed.flexible.specs, "type", parsed.boat_type);
       }
-      const aiLocation = await inferLocationWithAi({
+      let aiLocation = await inferLocationWithAi({
         url: linkUrl,
         currentLocation: parsed.location || parsed.flexible.core.location,
         core: parsed.flexible.core,
@@ -3761,7 +3783,9 @@ Deno.serve(async (req) => {
         raw: parsed.flexible.raw,
       });
       if (!aiLocation) {
-        // Hard gate: persist only listings with AI-resolved location.
+        aiLocation = locationFallbackFromScrape(site, parsed.location || parsed.flexible.core.location);
+      }
+      if (!aiLocation) {
         stats.skipped++;
         if (requestedUrls.length > 0) {
           targetedResults.push({
