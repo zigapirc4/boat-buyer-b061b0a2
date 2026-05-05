@@ -3332,7 +3332,7 @@ function isCompleteListingForIngest(
   if (core.year === null || core.year < 1950) return false;
   if (core.length_m === null || core.length_m < 3 || core.length_m > 60) return false;
   if (!(raw.description || "").trim()) return false;
-  if (!raw.full_text || raw.full_text.trim().length < 300) return false;
+  if (!(raw.full_text || "").trim()) return false;
   if (!parsed.image_urls || parsed.image_urls.length < 1) return false;
 
   // Ensure we actually captured structured listing details.
