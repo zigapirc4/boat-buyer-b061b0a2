@@ -203,10 +203,10 @@ function isValidListingUrl(url: string, site: string): boolean {
     return /\/en\/[a-z0-9][a-z0-9-]*-classified-\d{4,}(?:[\/?#]|$)/i.test(url);
   }
   if (hostname.includes("scanboat.com")) {
-    // Listing detail URLs look like:
-    // https://www.scanboat.com/en/boat-market/boats/sailingboat-<slug>-<id>
-    // https://www.scanboat.com/en/boat-market/boats/motorboat-<slug>-<id>
-    return /\/en\/boat-market\/boats\/(?:sailingboat|motorboat|motorsailer)-[a-z0-9-]+-\d{5,}(?:[\/?#]|$)/i.test(url);
+    // Listing detail URLs:
+    // .../boats/sailingboat-<slug>-<id>, motorboat-..., motorsailer-...
+    // .../boats/<slug>-<id> (newer layout, e.g. live-a-board--riverboat-...-17538552)
+    return /\/en\/boat-market\/boats\/[^/?#]+-\d{5,}(?:[\/?#]|$)/i.test(url);
   }
   if (hostname.includes("blocket.se")) {
     return /\/mobility\/item\/\d{6,}(?:[/?#]|$)/i.test(url);
@@ -451,6 +451,11 @@ function parseHullMaterialFromText(text: string): string | null {
 
 function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
   const u = url.toLowerCase();
+  // Scanboat listing URLs: legacy prefixes or generic /boats/<slug>-<numericId>
+  if (/scanboat\.com/i.test(url)) {
+    if (/\/en\/boat-market\/boats\/motorboat-/i.test(u)) return "powerboat";
+    if (/\/en\/boat-market\/boats\/(?:sailingboat|motorsailer)-/i.test(u)) return "sailboat";
+  }
   if (
     /\/(motornaplovila|motorna-plovila|motorna_plovila|motor-boats?|motorboats?|powerboats?|power-?boats?)\//.test(
       u,
@@ -503,7 +508,20 @@ function detectBoatType(
 
   if (powerHits > sailHits) return "powerboat";
   if (sailHits > powerHits) return "sailboat";
-  if (fallback === "auto") return null;
+  if (fallback === "auto") {
+    // Tie-break marketing copy like "sailing capabilities" vs real rig/engine signals.
+    const motorStrong =
+      /\b(trawler|riverboat|houseboat|live\s*a[\s-]*board|motor\s*cruiser|motorboat|motoryacht|powerboat|flybridge|aft\s+deck|diesel\b(?:\s+|$)|\binboard\b|\boutboard\b|sterndrive|shaft\s+drive|\d{2,4}\s*hp\b)\b/i.test(
+        u,
+      );
+    const sailStrong =
+      /\b(sloop|ketch|cutter\b|yawl|mainsail|mizzen|spinnaker|\bgenoa\b|\bmast\b|running\s+rigging|standing\s+rigging)\b/i.test(
+        u,
+      );
+    if (motorStrong && !sailStrong) return "powerboat";
+    if (sailStrong && !motorStrong) return "sailboat";
+    return null;
+  }
   return fallback;
 }
 
@@ -3386,7 +3404,13 @@ Deno.serve(async (req) => {
       if (!isCompleteListingForIngest(parsed)) {
         stats.skipped++;
         if (requestedUrls.length > 0) {
-          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+          targetedResults.push({
+            url: linkUrl,
+            data: parsed.flexible,
+            status: "skip",
+            source: "scrape-free",
+            reason: "incomplete_listing",
+          });
         }
         return;
       }
@@ -3444,7 +3468,13 @@ Deno.serve(async (req) => {
         // Hard gate: if we cannot build evaluation payload, skip persistence.
         stats.skipped++;
         if (requestedUrls.length > 0) {
-          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+          targetedResults.push({
+            url: linkUrl,
+            data: parsed.flexible,
+            status: "skip",
+            source: "scrape-free",
+            reason: "ai_details_failed",
+          });
         }
         return;
       }
@@ -3476,7 +3506,13 @@ Deno.serve(async (req) => {
         // Hard gate: persist only listings with AI-resolved location.
         stats.skipped++;
         if (requestedUrls.length > 0) {
-          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+          targetedResults.push({
+            url: linkUrl,
+            data: parsed.flexible,
+            status: "skip",
+            source: "scrape-free",
+            reason: "ai_location_failed",
+          });
         }
         return;
       }
