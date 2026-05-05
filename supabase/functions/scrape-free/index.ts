@@ -2337,6 +2337,93 @@ function normalizeAiBrandModel(raw: unknown): { brand: string | null; model: str
   };
 }
 
+async function inferBoatTypeWithAi(input: {
+  url: string;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+}): Promise<"sailboat" | "powerboat" | null> {
+  if (!OPENAI_API_KEY) return null;
+  const systemPrompt = `Classify the listing as sailboat or powerboat only. Output JSON only:
+{"boat_type":"sailboat"} OR {"boat_type":"powerboat"}
+
+Definitions:
+- sailboat: vessel meant to sail — mast, sails, rigging as primary propulsion (cruiser, racer, daysailer, sailing catamaran).
+- powerboat: primarily motor-driven (motor cruiser, trawler, motor yacht, RIB, houseboat / liveaboard with engines, riverboat). Diesel inboard/shaft does not imply sailboat.
+
+Rules:
+- Marketing phrases like "sailing capabilities" or "seaworthy" alone do NOT make it a sailboat.
+- Motorsailer: choose sailboat only if rig/sails clearly dominate; otherwise powerboat.
+- Pick exactly one of the two allowed boat_type strings.`;
+
+  const userPrompt = `d:${JSON.stringify({
+    link: input.url,
+    core: input.core,
+    specs: input.specs,
+    description: input.raw.description,
+    text: input.raw.full_text.slice(0, 3500),
+  })}`;
+
+  const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(rawContent);
+    } catch {
+      const fenced = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/```\s*([\s\S]*?)```/i);
+      if (fenced?.[1]) {
+        try {
+          return JSON.parse(fenced[1].trim());
+        } catch {
+          /* continue */
+        }
+      }
+      const first = rawContent.indexOf("{");
+      const last = rawContent.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(rawContent.slice(first, last + 1));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") return null;
+    const obj = extractJsonObject(rawContent);
+    const bt = obj?.boat_type;
+    if (bt === "sailboat" || bt === "powerboat") return bt;
+    if (typeof bt === "string") {
+      const s = bt.toLowerCase().trim();
+      if (s === "sail" || s === "sailing") return "sailboat";
+      if (s === "motor" || s === "power" || s === "motorboat") return "powerboat";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function inferBrandModelWithAi(input: {
   url: string;
   currentBrand: string | null;
@@ -3090,10 +3177,14 @@ function parseListing(
   };
 }
 
-function isCompleteListingForIngest(parsed: ReturnType<typeof parseListing>): boolean {
+function isCompleteListingForIngest(
+  parsed: ReturnType<typeof parseListing>,
+  opts?: { minMeaningfulSpecs?: number },
+): boolean {
   const core = parsed.flexible.core;
   const specs = parsed.flexible.specs || {};
   const raw = parsed.flexible.raw || { description: "", full_text: "" };
+  const minSpecs = opts?.minMeaningfulSpecs ?? 3;
 
   // Hard quality gate requested by user:
   // reject listings that are not fully scraped.
@@ -3115,7 +3206,7 @@ function isCompleteListingForIngest(parsed: ReturnType<typeof parseListing>): bo
     if (typeof v === "string") return v.trim().length > 0;
     return true;
   });
-  if (meaningfulSpecKeys.length < 3) return false;
+  if (meaningfulSpecKeys.length < minSpecs) return false;
 
   return true;
 }
@@ -3401,7 +3492,36 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (!isCompleteListingForIngest(parsed)) {
+      if (!parsed.boat_type) {
+        const aiBoatType = await inferBoatTypeWithAi({
+          url: linkUrl,
+          core: parsed.flexible.core,
+          specs: parsed.flexible.specs,
+          raw: parsed.flexible.raw,
+        });
+        if (aiBoatType) {
+          const specsRawPatch =
+            parsed.specs_raw && typeof parsed.specs_raw === "object"
+              ? { ...(parsed.specs_raw as Record<string, unknown>), boat_type: aiBoatType }
+              : parsed.specs_raw;
+          parsed = {
+            ...parsed,
+            boat_type: aiBoatType,
+            specs_raw: specsRawPatch,
+            flexible: {
+              ...parsed.flexible,
+              specs: {
+                ...parsed.flexible.specs,
+                boat_type: aiBoatType,
+                type: aiBoatType,
+              },
+            },
+          };
+        }
+      }
+
+      const ingestMinSpecs = requestedUrls.length > 0 ? 2 : 3;
+      if (!isCompleteListingForIngest(parsed, { minMeaningfulSpecs: ingestMinSpecs })) {
         stats.skipped++;
         if (requestedUrls.length > 0) {
           targetedResults.push({
