@@ -14,12 +14,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const PLAYWRIGHT_WS_ENDPOINT =
-  Deno.env.get("PLAYWRIGHT_WS_ENDPOINT") ||
-  Deno.env.get("BROWSERLESS_WS_ENDPOINT") ||
-  Deno.env.get("PLAYWRIGHT_CDP_URL") ||
-  "";
-
 /** Trimmed OpenAI secret; throws if unset — call only after handler verifies env (503). */
 function openAiKeyStrict(): string {
   const k = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
@@ -54,30 +48,27 @@ type CategoryPage = {
 
 type SiteProfile = {
   site: string;
-  preferPlaywright: boolean;
   imageStrategy: "structured_first" | "gallery_first";
   equipmentStrategy: "strict" | "balanced";
 };
 
 const SITE_PROFILES: Record<string, SiteProfile> = {
-  "mornar.net": { site: "mornar.net", preferPlaywright: false, imageStrategy: "structured_first", equipmentStrategy: "balanced" },
+  "mornar.net": { site: "mornar.net", imageStrategy: "structured_first", equipmentStrategy: "balanced" },
   "trovobarche.it": {
     site: "trovobarche.it",
-    preferPlaywright: false,
     imageStrategy: "gallery_first",
     equipmentStrategy: "balanced",
   },
-  "boat24.com": { site: "boat24.com", preferPlaywright: true, imageStrategy: "structured_first", equipmentStrategy: "strict" },
-  "scanboat.com": { site: "scanboat.com", preferPlaywright: false, imageStrategy: "structured_first", equipmentStrategy: "strict" },
-  "yachtall.com": { site: "yachtall.com", preferPlaywright: true, imageStrategy: "gallery_first", equipmentStrategy: "strict" },
-  "nautano.com": { site: "nautano.com", preferPlaywright: true, imageStrategy: "gallery_first", equipmentStrategy: "balanced" },
+  "boat24.com": { site: "boat24.com", imageStrategy: "structured_first", equipmentStrategy: "strict" },
+  "scanboat.com": { site: "scanboat.com", imageStrategy: "structured_first", equipmentStrategy: "strict" },
+  "yachtall.com": { site: "yachtall.com", imageStrategy: "gallery_first", equipmentStrategy: "strict" },
+  "nautano.com": { site: "nautano.com", imageStrategy: "gallery_first", equipmentStrategy: "balanced" },
 };
 
 function getSiteProfile(site: string): SiteProfile {
   return (
     SITE_PROFILES[site] || {
       site,
-      preferPlaywright: false,
       imageStrategy: "structured_first",
       equipmentStrategy: "balanced",
     }
@@ -453,82 +444,6 @@ function parseHullMaterialFromText(text: string): string | null {
   if (/\b(wood|drvo|legno|holz)\b/.test(t)) return "wood";
   if (/\b(carbo[nio]|carbon)\b/.test(t)) return "carbon";
   return null;
-}
-
-function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
-  const u = url.toLowerCase();
-  // Scanboat listing URLs: legacy prefixes or generic /boats/<slug>-<numericId>
-  if (/scanboat\.com/i.test(url)) {
-    if (/\/en\/boat-market\/boats\/motorboat-/i.test(u)) return "powerboat";
-    if (/\/en\/boat-market\/boats\/(?:sailingboat|motorsailer)-/i.test(u)) return "sailboat";
-  }
-  if (
-    /\/(motornaplovila|motorna-plovila|motorna_plovila|motor-boats?|motorboats?|powerboats?|power-?boats?)\//.test(
-      u,
-    ) ||
-    /[?&]cat=2(?:[&#]|$)/.test(u) ||
-    /[?&]rubrika=1(?:[&#]|$)/.test(u) ||
-    /\/motor-boats-203(?:[/?#]|$)/.test(u) ||
-    /\/(?:type-power|motorboats?|motor-boats|flybridge|motoryacht)\b/.test(u) ||
-    /\/en\/motorboats?\b/.test(u) ||
-    /\/buy\/motor-yachts\b/.test(u) ||
-    /\/class-motor-boats\b/.test(u)
-  ) {
-    return "powerboat";
-  }
-  if (
-    /\/(jadrnice|sailboats?|sailing|vela|barca-a-vela)\//.test(u) ||
-    /[?&]cat=1(?:[&#]|$)/.test(u) ||
-    /[?&]rubrika=2(?:[&#]|$)/.test(u) ||
-    /\/sailboats-202(?:[/?#]|$)/.test(u) ||
-    /\/(?:type-sail|sailboats?|sailing-boats|catamaran)\b/.test(u) ||
-    /\/en\/sailboats?\b/.test(u) ||
-    /\/buy\/sailboats\b/.test(u) ||
-    /\/class-sailing-boats\b/.test(u)
-  ) {
-    return "sailboat";
-  }
-  return null;
-}
-
-function detectBoatType(
-  text: string,
-  url: string,
-  fallback: "sailboat" | "powerboat" | "auto",
-): "sailboat" | "powerboat" | null {
-  // Use URL/category inference only for import-targeted listings (auto mode).
-  if (fallback === "auto") {
-    const urlType = inferBoatTypeFromUrl(url);
-    if (urlType) return urlType;
-  }
-
-  const u = `${url} ${text}`.toLowerCase();
-  const sailRe =
-    /\b(sailboat|sailing|sail|segelboot|segelyacht|segelbåt|veliero|barca a vela|jedrilica|voilier|velero|jadrnic[ae]|jadrno)\b/;
-  const powerRe =
-    /\b(powerboat|motorboat|motoryacht|motorboot|motorbåt|barca a motore|gliser|motorn[ao]|motornaplovila|motorna plovila|fuoribordo|entrobordo|outboard|inboard|sterndrive|jet drive|planing)\b/;
-  const sailGearRe = /\b(mainsail|genoa|spinnaker|jib|mast|rigging)\b/;
-
-  const sailHits = Number(sailRe.test(u)) + Number(sailGearRe.test(u));
-  const powerHits = Number(powerRe.test(u));
-
-  if (powerHits > sailHits) return "powerboat";
-  if (sailHits > powerHits) return "sailboat";
-  if (fallback === "auto") {
-    // Tie-break marketing copy like "sailing capabilities" vs real rig/engine signals.
-    const motorStrong =
-      /\b(trawler|riverboat|houseboat|live\s*a[\s-]*board|motor\s*cruiser|motorboat|motoryacht|powerboat|flybridge|aft\s+deck|diesel\b(?:\s+|$)|\binboard\b|\boutboard\b|sterndrive|shaft\s+drive|\d{2,4}\s*hp\b)\b/i.test(
-        u,
-      );
-    const sailStrong =
-      /\b(sloop|ketch|cutter\b|yawl|mainsail|mizzen|spinnaker|\bgenoa\b|\bmast\b|running\s+rigging|standing\s+rigging)\b/i.test(
-        u,
-      );
-    if (motorStrong && !sailStrong) return "powerboat";
-    if (sailStrong && !motorStrong) return "sailboat";
-    return null;
-  }
-  return fallback;
 }
 
 function extractMeta(html: string, prop: string): string | null {
@@ -959,50 +874,6 @@ async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string
   return null;
 }
 
-async function fetchHtmlViaPlaywright(url: string, timeoutMs = 20000): Promise<string | null> {
-  if (!PLAYWRIGHT_WS_ENDPOINT) return null;
-  let browser: any = null;
-  let context: any = null;
-  try {
-    const { chromium } = await import("npm:playwright-core");
-    browser = await chromium.connect(PLAYWRIGHT_WS_ENDPOINT, { timeout: Math.min(timeoutMs, 20000) });
-    context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      locale: "en-US",
-    });
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-    await page.waitForTimeout(1000);
-    const html = await page.content();
-    return html && html.length > 500 ? html : null;
-  } catch (e) {
-    console.log(`[scrape-free] playwright failed ${url}: ${e}`);
-    return null;
-  } finally {
-    try {
-      if (context) await context.close();
-    } catch {
-      /* ignore */
-    }
-    try {
-      if (browser) await browser.close();
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function shouldPreferPlaywright(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
-    const matched = Object.keys(SITE_PROFILES).find((site) => hostname.includes(site));
-    return matched ? getSiteProfile(matched).preferPlaywright : false;
-  } catch {
-    return false;
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1056,11 +927,6 @@ async function runWithConcurrency<T>(
 }
 
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
-  if (shouldPreferPlaywright(url)) {
-    const renderedFirst = await fetchHtmlViaPlaywright(url, Math.max(timeoutMs, 18000));
-    if (renderedFirst) return renderedFirst;
-  }
-
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -1075,11 +941,7 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
     clearTimeout(t);
   }
 
-  // Playwright render path (requires remote websocket endpoint in env).
-  const rendered = await fetchHtmlViaPlaywright(url, Math.max(timeoutMs, 18000));
-  if (rendered) return rendered;
-
-  // Fallback: r.jina.ai proxy (free, returns rendered HTML)
+  // Fallback: r.jina.ai proxy (returns rendered HTML)
   return await fetchHtmlViaProxy(url, timeoutMs);
 }
 
@@ -2969,12 +2831,7 @@ Rules:
 
 // ---------- Parse a single listing into cached_listings shape ----------
 
-function parseListing(
-  html: string,
-  url: string,
-  site: string,
-  hintType: "sailboat" | "powerboat" | "auto",
-): {
+function parseListing(html: string, url: string, site: string): {
   title: string;
   brand: string | null;
   model: string | null;
@@ -3049,7 +2906,8 @@ function parseListing(
   let length_feet = parseLengthFeet(text);
   let images = extractImages(html, url, 8, site);
   images = sanitizeListingImageUrls(images, site, url).slice(0, 5);
-  const boat_type = detectBoatType(text, url, hintType);
+  /** Set only after `inferBoatTypeWithAi` in `processListingUrl`; scrape never assigns sail/power heuristics. */
+  const boat_type: "sailboat" | "powerboat" | null = null;
 
   // Site-specific RICH extraction for description + equipment
   let description: string | null = null;
@@ -3516,11 +3374,7 @@ Deno.serve(async (req) => {
     return 10000;
   };
 
-  const processListingUrl = async (
-    linkUrl: string,
-    site: string,
-    hintType: "sailboat" | "powerboat" | "auto",
-  ) => {
+  const processListingUrl = async (linkUrl: string, site: string) => {
     try {
       if (skipExistingUrls) {
         const cachedRow = await getCachedListingRow(supabaseUrl, supabaseKey, linkUrl);
@@ -3551,7 +3405,7 @@ Deno.serve(async (req) => {
         stats.errors++;
         return;
       }
-      let parsed = parseListing(html, linkUrl, site, hintType);
+      let parsed = parseListing(html, linkUrl, site);
       if (site === "boat24.com" && !parsed.location) {
         const proxyLocation = await fetchBoat24LocationViaProxy(linkUrl, 10000);
         if (proxyLocation) parsed = { ...parsed, location: proxyLocation };
@@ -3591,7 +3445,7 @@ Deno.serve(async (req) => {
       ) {
           const proxyHtml = await fetchHtmlViaProxy(linkUrl, 10000);
         if (proxyHtml) {
-          const proxyParsed = parseListing(proxyHtml, linkUrl, site, hintType);
+          const proxyParsed = parseListing(proxyHtml, linkUrl, site);
           if (
             proxyParsed.description &&
             proxyParsed.description.length > parsed.description.length + 40
@@ -3601,32 +3455,43 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (!parsed.boat_type) {
-        const aiBoatType = await inferBoatTypeWithAi({
-          url: linkUrl,
-          core: parsed.flexible.core,
-          specs: parsed.flexible.specs,
-          raw: parsed.flexible.raw,
-        });
-        if (aiBoatType) {
-          const specsRawPatch =
-            parsed.specs_raw && typeof parsed.specs_raw === "object"
-              ? { ...(parsed.specs_raw as Record<string, unknown>), boat_type: aiBoatType }
-              : parsed.specs_raw;
-          parsed = {
-            ...parsed,
-            boat_type: aiBoatType,
-            specs_raw: specsRawPatch,
-            flexible: {
-              ...parsed.flexible,
-              specs: {
-                ...parsed.flexible.specs,
-                boat_type: aiBoatType,
-                type: aiBoatType,
-              },
+      const aiBoatType = await inferBoatTypeWithAi({
+        url: linkUrl,
+        core: parsed.flexible.core,
+        specs: parsed.flexible.specs,
+        raw: parsed.flexible.raw,
+      });
+      if (aiBoatType) {
+        const specsRawPatch =
+          parsed.specs_raw && typeof parsed.specs_raw === "object"
+            ? { ...(parsed.specs_raw as Record<string, unknown>), boat_type: aiBoatType }
+            : parsed.specs_raw;
+        parsed = {
+          ...parsed,
+          boat_type: aiBoatType,
+          specs_raw: specsRawPatch,
+          flexible: {
+            ...parsed.flexible,
+            specs: {
+              ...parsed.flexible.specs,
+              boat_type: aiBoatType,
+              type: aiBoatType,
             },
-          };
+          },
+        };
+      }
+      if (!parsed.boat_type) {
+        stats.skipped++;
+        if (requestedUrls.length > 0) {
+          targetedResults.push({
+            url: linkUrl,
+            data: parsed.flexible,
+            status: "skip",
+            source: "scrape-free",
+            reason: "boat_type_ai_failed",
+          });
         }
+        return;
       }
 
       const ingestMinSpecs = requestedUrls.length > 0 ? 2 : 3;
@@ -3809,14 +3674,7 @@ Deno.serve(async (req) => {
         stats.errors++;
         return;
       }
-      const lowerUrl = u.toLowerCase();
-      const hintType: "sailboat" | "powerboat" | "auto" =
-        /\/(?:jadrnice|sail|sailboats?|vela|catamaran|voilier)\b/.test(lowerUrl)
-          ? "sailboat"
-          : /\/(?:motornaplovila|motor-boats?|motorboats?|power|powerboats?|motoryacht|flybridge|rib)\b/.test(lowerUrl)
-            ? "powerboat"
-            : "auto";
-      await processListingUrl(u, site, hintType);
+      await processListingUrl(u, site);
     });
 
     console.log(`[scrape-free] targeted done`, stats);
@@ -3889,7 +3747,7 @@ Deno.serve(async (req) => {
       console.log(`[scrape-free] ${cat.site} p${page}: ${links.length} listings to process`);
 
       await runWithConcurrency(links, listingConcurrency, async (link) => {
-        await processListingUrl(link.url, cat.site, cat.boatType);
+        await processListingUrl(link.url, cat.site);
       });
     });
   }

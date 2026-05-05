@@ -3,6 +3,7 @@ import { Footer } from "@/components/Footer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FeedbackButton } from "@/components/FeedbackButton";
+import { cn } from "@/lib/utils";
 import { BookOpen, Heart, List, MapPin, Ship } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -215,7 +216,16 @@ const MyStory = () => {
       </main>
 
       <Dialog open={storyImageOpen} onOpenChange={setStoryImageOpen}>
-        <DialogContent className="max-w-4xl p-2 sm:p-4 bg-background">
+        <DialogContent
+          className={cn(
+            "max-w-4xl bg-background p-2 sm:p-4",
+            // Shared Dialog keeps `bottom` pinned on mobile; sm+ still had bottom set, which stretched
+            // the panel vertically and clipped the photo — release bottom from sm upward.
+            "sm:bottom-auto",
+            // md+: shrink-wrap to image; scroll only if the asset exceeds viewport.
+            "md:w-fit md:max-w-[calc(100vw-2rem)] md:max-h-[calc(100dvh-2rem)] md:gap-0 md:overflow-y-auto md:overflow-x-hidden",
+          )}
+        >
           <DialogHeader className="sr-only">
             <DialogTitle>My Story — Vivacity 20</DialogTitle>
             <DialogDescription>Full size photo of a 1975 Vivacity 20 sailboat</DialogDescription>
@@ -227,7 +237,11 @@ const MyStory = () => {
                 ? "Working on BoatBuyer from the cockpit in a marina"
                 : "Standing on a 1975 Vivacity 20 sailboat in a Croatian marina, raising the Croatian flag"
             }
-            className="w-full h-auto max-h-[85vh] object-contain rounded-md"
+            className={cn(
+              "block h-auto w-full max-h-[min(85dvh,calc(100dvh-6rem))] rounded-md object-contain",
+              // Fit full image inside viewport; dialog chrome ~5rem (padding + close).
+              "md:mx-auto md:h-auto md:w-auto md:max-h-[calc(100dvh-5rem)] md:max-w-[calc(100vw-3rem)] md:object-contain",
+            )}
           />
         </DialogContent>
       </Dialog>

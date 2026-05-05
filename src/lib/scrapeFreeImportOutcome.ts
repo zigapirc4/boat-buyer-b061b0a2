@@ -13,6 +13,8 @@ const MESSAGES: Record<string, string> = {
     "After scraping, this page still missed required fields (price, year, length, non-empty description and page text, images, or enough specs). Use the direct listing URL (not search/category). On marketplaces with thin HTML, try another listing or site.",
   ai_details_failed:
     "AI analysis could not complete for this listing (server misconfiguration or upstream error). Try again in a moment.",
+  boat_type_ai_failed:
+    "Could not classify this listing as sailboat vs powerboat (AI unavailable or unclear response). Try again in a moment.",
   ai_location_failed:
     "A reliable boating location could not be resolved for this listing, so it was not saved.",
   persist_quality_gate:
