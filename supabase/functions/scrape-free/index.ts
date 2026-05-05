@@ -2084,9 +2084,7 @@ Rules:
 - If important fields are missing/unclear (engine hours, maintenance history, survey evidence), cap score at 64.
 - If listing has sparse specs, sparse equipment, or vague description, apply a clear confidence penalty.
 - Do NOT inflate score for brand prestige alone.
-- Prefer underestimating over overestimating when uncertain.
-- Treat "project" boats as boats that are currently not seaworthy OR require major work/refit before safe operation at sea.
-- For project boats, reflect this strongly via lower score, higher ownership risk, and clear repair burden in recommendations/repair_breakdown.`;
+- Prefer underestimating over overestimating when uncertain.`;
 
   const userPrompt = `u:${input.url}
 core:${JSON.stringify(input.core)}
