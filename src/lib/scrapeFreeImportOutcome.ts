@@ -10,7 +10,7 @@ const MESSAGES: Record<string, string> = {
   fetch_failed:
     "The listing page could not be downloaded (timeout, block, or empty response). Open the URL in your browser and paste the full listing link.",
   incomplete_listing:
-    "After scraping, this page still missed required fields (price, year, length, description, images, or enough specs). Use the direct listing URL (not search/category). On marketplaces with thin HTML, try another listing or site.",
+    "After scraping, this page still missed required fields (price, year, length, a non-empty description, images, or enough specs). Use the direct listing URL (not search/category). On marketplaces with thin HTML, try another listing or site.",
   ai_details_failed:
     "AI analysis could not complete for this listing (server misconfiguration or upstream error). Try again in a moment.",
   ai_location_failed:
