@@ -6,16 +6,14 @@ export type SailboatSegment =
   | "performance_cruiser"
   | "racing"
   | "catamaran"
-  | "luxury_cruiser"
-  | "project";
+  | "luxury_cruiser";
 export type MotorboatSegment =
   | "motor_cruiser"
   | "flybridge"
   | "sport_boat"
   | "tender"
   | "rib"
-  | "luxury_yacht"
-  | "project";
+  | "luxury_yacht";
 export type BoatSegment = SailboatSegment | MotorboatSegment;
 
 export interface EvalCategory {

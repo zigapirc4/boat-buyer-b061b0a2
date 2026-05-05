@@ -573,12 +573,34 @@ async function invokeScrapeFreeForUrl(
   supabaseUrl: string,
   fallbackApiKey: string,
   url: string,
+  options: Record<string, unknown>,
   authHeader: string | null,
   apiKeyHeader: string | null,
 ): Promise<{ success: boolean; data?: any; error?: string; source?: string }> {
   try {
     const authorization = authHeader && authHeader.trim().length > 0 ? authHeader : null;
     const apiKey = apiKeyHeader && apiKeyHeader.trim().length > 0 ? apiKeyHeader : fallbackApiKey;
+    const forwardKeys = [
+      "enableAiMediaReview",
+      "enableAiDataValidation",
+      "listingConcurrency",
+      "pageConcurrency",
+      "fetchRetries",
+      "upsertRetries",
+      "pageStart",
+      "pageEnd",
+      "categoryStart",
+      "categoryEnd",
+      "maxListingsPerPage",
+      "allowedSites",
+      "blockedSites",
+      "requestedUrls",
+      "timeoutMs",
+    ];
+    const body: Record<string, unknown> = { urls: [url] };
+    for (const k of forwardKeys) {
+      if (k in options) body[k] = options[k];
+    }
     const resp = await fetch(`${supabaseUrl}/functions/v1/scrape-free`, {
       method: "POST",
       headers: {
@@ -586,7 +608,7 @@ async function invokeScrapeFreeForUrl(
         apikey: apiKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ urls: [url] }),
+      body: JSON.stringify(body),
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
@@ -614,7 +636,8 @@ serve(async (req) => {
   }
 
   try {
-    const { url } = await req.json();
+    const body = await req.json();
+    const url = typeof body?.url === "string" ? body.url : "";
     if (!url) {
       return new Response(JSON.stringify({ success: false, error: "URL is required" }), {
         status: 400,
@@ -630,64 +653,12 @@ serve(async (req) => {
       formattedUrl = `https://${formattedUrl}`;
     }
 
-    console.log("Checking cache for URL:", formattedUrl);
-
-    // ZERO-COST PATH 1: check if we already have this listing in cached_listings
-    const cacheRes = await fetch(
-      `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(formattedUrl)}&select=*&limit=1`,
-      { headers: { Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey } }
-    );
-
-    if (cacheRes.ok) {
-      const cacheRows = await cacheRes.json();
-      if (Array.isArray(cacheRows) && cacheRows.length > 0) {
-        const row = cacheRows[0];
-        const aiDetails =
-          row.specs_raw && typeof row.specs_raw === "object"
-            ? (row.specs_raw as Record<string, unknown>).ai_details ?? null
-            : null;
-        const hasSegment = Boolean(row.segment);
-        if (row.price_eur && row.length_feet && row.year && aiDetails && hasSegment) {
-          console.log("Cache hit — returning DB row");
-          const cachedFlexible = {
-            core: {
-              title: String(row.title || "Unknown listing"),
-              price_eur: row.price_eur ? Number(row.price_eur) : null,
-              year: row.year ? Number(row.year) : null,
-              length_m: row.length_feet ? Math.round(Number(row.length_feet) * 0.3048 * 100) / 100 : null,
-              location: row.location || null,
-            },
-            specs: {
-              brand: row.brand ?? null,
-              model: row.model ?? null,
-              type: row.boat_type ?? null,
-              segment: row.segment ?? null,
-              boat_type: row.boat_type ?? null,
-              engine_hours: row.engine_hours ?? null,
-              fuel_type: row.fuel_type ?? null,
-              cabins: row.cabins ?? null,
-              hull_material: row.hull_material ?? null,
-              engine_info: row.engine_info ?? null,
-              image_urls: row.image_urls || (row.image_url ? [row.image_url] : []),
-              ai_details: aiDetails,
-            },
-            raw: {
-              description: row.description || "",
-              full_text: row.description || "",
-            },
-          };
-          return new Response(
-            JSON.stringify({ success: true, data: cachedFlexible, source: "cache" }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      }
-    }
-    console.log("Cache miss/incomplete AI — delegating to scrape-free:", formattedUrl);
+    console.log("Delegating to scrape-free with canonical pipeline:", formattedUrl);
     const delegated = await invokeScrapeFreeForUrl(
       supabaseUrl,
       supabaseKey,
       formattedUrl,
+      body && typeof body === "object" ? body : {},
       req.headers.get("authorization"),
       req.headers.get("apikey"),
     );

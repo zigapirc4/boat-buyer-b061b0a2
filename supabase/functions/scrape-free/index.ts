@@ -24,16 +24,14 @@ type SailboatSegment =
   | "performance_cruiser"
   | "racing"
   | "catamaran"
-  | "luxury_cruiser"
-  | "project";
+  | "luxury_cruiser";
 type MotorboatSegment =
   | "motor_cruiser"
   | "flybridge"
   | "sport_boat"
   | "tender"
   | "rib"
-  | "luxury_yacht"
-  | "project";
+  | "luxury_yacht";
 type BoatSegment = SailboatSegment | MotorboatSegment;
 
 // ---------- Sources (same rules as scrape-listings-cron CATEGORY_PAGES) ----------
@@ -1245,6 +1243,17 @@ function htmlToReadableText(blockHtml: string): string {
     .trim();
 }
 
+function normalizeDescriptionLayout(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const normalized = String(text)
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, "  ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function addFeature(featureMap: Record<string, string>, key: string, value: unknown) {
   if (!key || value === null || value === undefined) return;
   const k = key.trim().toLowerCase();
@@ -1368,7 +1377,7 @@ function extractTrovobarche(html: string): {
     // Legacy template fallback: text may be inside translator-content.
     const tcMatch = block.match(/class=["']translator-content[^"']*["'][^>]*>([\s\S]*?)(?:<div><button|<\/div>\s*<\/div>)/i);
     const raw = readmoreMatch?.[1] || tcMatch?.[1] || block;
-    let txt = stripTags(raw)
+    let txt = htmlToReadableText(raw)
       .replace(/\b(Read everything|Show full description|Hide full description)\b/gi, "")
       .trim();
     // Remove UI/secondary sections that can leak into older templates.
@@ -1473,8 +1482,25 @@ function extractScanboatDescriptionFromText(text: string): string | null {
     .split(/(?:Dette er en privat annonce|Detta är en privat skapad annons|Dit is een privat advertentie|Dies ist eine privat erstellte Anzeige)/i)[0]
     .split(/(?:Share Follow us Specifications|Specifications Equipment|Impressum - Contact - Scanboat\.com)/i)[0]
     .trim();
+  // Drop common intro/legal lines that pollute user-facing description.
+  body = body
+    .replace(
+      /This is a privately created ad for .*?(?:\.\s+|$)/i,
+      "",
+    )
+    .replace(
+      /For further info, as description, boat equipment list or photos for .*?(?:\.\s+|$)/i,
+      "",
+    )
+    .replace(
+      /Please notice, the seller can have more detailed description of .*?(?:Insert advert button\.?\s*)/i,
+      "",
+    )
+    .replace(/\s{2,}/g, " ")
+    .trim();
   if (body.length < 80) return null;
-  return body.slice(0, 5000);
+  // Keep scanboat descriptions concise and avoid multilingual spillover.
+  return body.slice(0, 1600);
 }
 
 function extractScanboatSpecifications(text: string): Record<string, string> {
@@ -2164,12 +2190,12 @@ function normalizeBoatSegment(
   if (!boatType || !raw) return null;
   const v = raw.trim().toLowerCase().replace(/\s+/g, "_");
   if (boatType === "sailboat") {
-    if (["cruiser", "performance_cruiser", "racing", "catamaran", "luxury_cruiser", "project"].includes(v)) {
+    if (["cruiser", "performance_cruiser", "racing", "catamaran", "luxury_cruiser"].includes(v)) {
       return v as BoatSegment;
     }
     return null;
   }
-  if (["motor_cruiser", "flybridge", "sport_boat", "tender", "rib", "luxury_yacht", "project"].includes(v)) {
+  if (["motor_cruiser", "flybridge", "sport_boat", "tender", "rib", "luxury_yacht"].includes(v)) {
     return v as BoatSegment;
   }
   return null;
@@ -2186,11 +2212,10 @@ async function classifyBoatSegmentWithAi(input: {
   const defaultSegment: BoatSegment = input.boatType === "sailboat" ? "cruiser" : "motor_cruiser";
   const systemPrompt = `Classify into one segment. Output JSON only: {"segment":"..."}.
 Allowed segments:
-- sailboat: cruiser, performance_cruiser, racing, catamaran, luxury_cruiser, project
-- powerboat: motor_cruiser, flybridge, sport_boat, rib, luxury_yacht, project
+- sailboat: cruiser, performance_cruiser, racing, catamaran, luxury_cruiser
+- powerboat: motor_cruiser, flybridge, sport_boat, rib, luxury_yacht
 Rules (strict, conservative):
 - choose exactly one allowed segment for given type
-- major refit/repair signs => project
 - speed-focused => racing (sail) or sport_boat (power)
 - luxury requires ALL: large size, very high equipment/comfort fitout, clear premium cues
 - be extra strict for older boats: age alone never implies luxury; if older and evidence is weak, pick non-luxury
@@ -2831,6 +2856,7 @@ function parseListing(
   if (!description) {
     description = extractMeta(html, "og:description") || extractMeta(html, "description");
   }
+  description = normalizeDescriptionLayout(description);
   // Cap description length to avoid bloating the DB
   if (description && description.length > 5000) description = description.slice(0, 5000) + "…";
   equipment = sanitizeEquipmentList(equipment, site);
@@ -3238,11 +3264,17 @@ Deno.serve(async (req) => {
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
-      if (aiLocation) {
-        row.location = aiLocation;
-        parsed.flexible.core.location = aiLocation;
-        mergeSpec(parsed.flexible.specs, "location", aiLocation);
+      if (!aiLocation) {
+        // Hard gate: persist only listings with AI-resolved location.
+        stats.skipped++;
+        if (requestedUrls.length > 0) {
+          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+        }
+        return;
       }
+      row.location = aiLocation;
+      parsed.flexible.core.location = aiLocation;
+      mergeSpec(parsed.flexible.specs, "location", aiLocation);
       if (enableAiDataValidation) {
         const validation = await validateListingDataWithAi({ url: linkUrl, site, parsed });
         if (validation) {
