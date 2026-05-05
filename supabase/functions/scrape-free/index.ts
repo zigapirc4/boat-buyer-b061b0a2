@@ -1387,6 +1387,27 @@ function extractBoat24(html: string): {
   return { description, equipment, featureMap };
 }
 
+/** og/meta/short JSON-LD blurbs are often <80 chars while listing prose exists in stripped page text. */
+function augmentBoat24DescriptionFromText(description: string | null, strippedPageText: string, minLen: number): string | null {
+  const seed = (description || "").trim();
+  const t = strippedPageText.replace(/\s+/g, " ").trim();
+  if (seed.length >= minLen) return seed || null;
+  if (t.length < minLen) return seed.length > 0 ? seed : null;
+
+  let tail = t;
+  if (seed.length >= 12) {
+    const needle = seed.slice(0, Math.min(40, seed.length)).toLowerCase();
+    const idx = t.toLowerCase().indexOf(needle);
+    if (idx >= 0) tail = t.slice(idx).trim();
+    else tail = `${seed} ${t}`.trim();
+  } else if (seed) {
+    tail = `${seed} ${t}`.trim();
+  }
+
+  const out = tail.slice(0, 5200).trim();
+  return out.length >= minLen ? out : null;
+}
+
 // trovobarche.it: description in `cls-description` card, equipment in
 // "Optionals and equipment" card, features in `cls-features` card.
 function extractTrovobarche(html: string): {
@@ -3184,6 +3205,10 @@ function parseListing(
   // Fallback to og:description if site-specific extraction failed
   if (!description) {
     description = extractMeta(html, "og:description") || extractMeta(html, "description");
+  }
+  if (site === "boat24.com" && description && description.trim().length < 80) {
+    const aug = augmentBoat24DescriptionFromText(description, text, 80);
+    if (aug) description = aug;
   }
   description = normalizeDescriptionLayout(description);
   // Cap description length to avoid bloating the DB
