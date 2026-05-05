@@ -2305,6 +2305,92 @@ function normalizeAiLocation(raw: string | null | undefined): string | null {
   return `${country}->${city}`;
 }
 
+function normalizeAiBrandModel(raw: unknown): { brand: string | null; model: string | null } {
+  const clean = (v: unknown, max: number): string | null => {
+    if (typeof v !== "string") return null;
+    const out = v.replace(/\s+/g, " ").trim();
+    if (!out || out.length < 2) return null;
+    return out.slice(0, max);
+  };
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    brand: clean(obj.brand, 120),
+    model: clean(obj.model, 160),
+  };
+}
+
+async function inferBrandModelWithAi(input: {
+  url: string;
+  currentBrand: string | null;
+  currentModel: string | null;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+}): Promise<{ brand: string | null; model: string | null } | null> {
+  if (!OPENAI_API_KEY) return null;
+  const systemPrompt = `Extract boat brand and model from listing data. Output JSON only:
+{"brand":"...","model":"..."}
+Rules:
+- brand must be shipyard/manufacturer only (e.g. Beneteau, Jeanneau, Bavaria)
+- model must be the marketed model designation (include series/variant when clear)
+- keep values concise and normalized
+- do not invent values; if uncertain return empty strings`;
+  const userPrompt = `d:${JSON.stringify({
+    link: input.url,
+    current_brand: input.currentBrand,
+    current_model: input.currentModel,
+    core: input.core,
+    specs: input.specs,
+    description: input.raw.description,
+    text: input.raw.full_text.slice(0, 2500),
+  })}`;
+
+  const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(rawContent);
+    } catch {
+      const first = rawContent.indexOf("{");
+      const last = rawContent.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(rawContent.slice(first, last + 1));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") return null;
+    const parsed = extractJsonObject(rawContent);
+    if (!parsed) return null;
+    return normalizeAiBrandModel(parsed);
+  } catch {
+    return null;
+  }
+}
+
 async function inferLocationWithAi(input: {
   url: string;
   currentLocation: string | null;
@@ -3086,6 +3172,7 @@ Deno.serve(async (req) => {
   let upsertRetries = 2;
   let enableAiMediaReview = false;
   let enableAiDataValidation = false;
+  let enableAiBrandModel = true;
   let pageStart = 1;
   let pageEnd: number | null = null;
   let requestedUrls: string[] = [];
@@ -3100,6 +3187,7 @@ Deno.serve(async (req) => {
     if (typeof body.upsertRetries === "number") upsertRetries = Math.max(0, Math.floor(body.upsertRetries));
     if (typeof body.enableAiMediaReview === "boolean") enableAiMediaReview = body.enableAiMediaReview;
     if (typeof body.enableAiDataValidation === "boolean") enableAiDataValidation = body.enableAiDataValidation;
+    if (typeof body.enableAiBrandModel === "boolean") enableAiBrandModel = body.enableAiBrandModel;
     if (typeof body.pageStart === "number") pageStart = Math.max(1, Math.floor(body.pageStart));
     if (typeof body.pageEnd === "number") pageEnd = Math.max(1, Math.floor(body.pageEnd));
     if (Array.isArray(body.urls)) {
@@ -3225,6 +3313,24 @@ Deno.serve(async (req) => {
         specs_raw: parsed.specs_raw,
         scraped_at: new Date().toISOString(),
       };
+      if (enableAiBrandModel) {
+        const aiBrandModel = await inferBrandModelWithAi({
+          url: linkUrl,
+          currentBrand: parsed.brand,
+          currentModel: parsed.model,
+          core: parsed.flexible.core,
+          specs: parsed.flexible.specs,
+          raw: parsed.flexible.raw,
+        });
+        if (aiBrandModel?.brand) {
+          row.brand = aiBrandModel.brand;
+          mergeSpec(parsed.flexible.specs, "brand", aiBrandModel.brand);
+        }
+        if (aiBrandModel?.model) {
+          row.model = aiBrandModel.model;
+          mergeSpec(parsed.flexible.specs, "model", aiBrandModel.model);
+        }
+      }
       const aiDetails = await generateAiBoatDetails({
         url: linkUrl,
         boatType: parsed.boat_type,

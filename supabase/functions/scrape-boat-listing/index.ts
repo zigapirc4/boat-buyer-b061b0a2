@@ -581,6 +581,7 @@ async function invokeScrapeFreeForUrl(
     const authorization = authHeader && authHeader.trim().length > 0 ? authHeader : null;
     const apiKey = apiKeyHeader && apiKeyHeader.trim().length > 0 ? apiKeyHeader : fallbackApiKey;
     const forwardKeys = [
+      "enableAiBrandModel",
       "enableAiMediaReview",
       "enableAiDataValidation",
       "listingConcurrency",
