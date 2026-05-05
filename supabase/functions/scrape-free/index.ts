@@ -2,7 +2,8 @@
 // same URL validation, same boat-type detection) but uses direct HTTP fetch + r.jina.ai
 // fallback instead of Firecrawl, so it costs zero credits and can run frequently.
 //
-// Sources covered: mornar.net (sail+power), trovobarche.it (sail+power), boat24.com (sail+power), scanboat.com (sail+power).
+// Sources covered: mornar.net (sail+power), trovobarche.it (sail+power), boat24.com (sail+power), scanboat.com (sail+power),
+// blocket.se, findaly.co, yachtall.com, nautano.com.
 // Pagination matches the existing CATEGORY_PAGES config.
 
 const corsHeaders = {
@@ -44,6 +45,38 @@ type CategoryPage = {
   pages: number;
   titleFilter?: (title: string) => boolean;
 };
+
+type SiteProfile = {
+  site: string;
+  preferPlaywright: boolean;
+  imageStrategy: "structured_first" | "gallery_first";
+  equipmentStrategy: "strict" | "balanced";
+};
+
+const SITE_PROFILES: Record<string, SiteProfile> = {
+  "mornar.net": { site: "mornar.net", preferPlaywright: false, imageStrategy: "structured_first", equipmentStrategy: "balanced" },
+  "trovobarche.it": {
+    site: "trovobarche.it",
+    preferPlaywright: false,
+    imageStrategy: "gallery_first",
+    equipmentStrategy: "balanced",
+  },
+  "boat24.com": { site: "boat24.com", preferPlaywright: true, imageStrategy: "structured_first", equipmentStrategy: "strict" },
+  "scanboat.com": { site: "scanboat.com", preferPlaywright: false, imageStrategy: "structured_first", equipmentStrategy: "strict" },
+  "yachtall.com": { site: "yachtall.com", preferPlaywright: true, imageStrategy: "gallery_first", equipmentStrategy: "strict" },
+  "nautano.com": { site: "nautano.com", preferPlaywright: true, imageStrategy: "gallery_first", equipmentStrategy: "balanced" },
+};
+
+function getSiteProfile(site: string): SiteProfile {
+  return (
+    SITE_PROFILES[site] || {
+      site,
+      preferPlaywright: false,
+      imageStrategy: "structured_first",
+      equipmentStrategy: "balanced",
+    }
+  );
+}
 
 const CATEGORY_PAGES: CategoryPage[] = [
   {
@@ -111,6 +144,40 @@ const CATEGORY_PAGES: CategoryPage[] = [
     boatType: "powerboat",
     pages: 30,
   },
+  {
+    site: "yachtall.com",
+    buildUrl: (page) =>
+      page === 1 ? `https://www.yachtall.com/en/sailboats` : `https://www.yachtall.com/en/sailboats?page=${page}`,
+    boatType: "sailboat",
+    pages: 20,
+  },
+  {
+    site: "yachtall.com",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.yachtall.com/en/motorboats`
+        : `https://www.yachtall.com/en/motorboats?page=${page}`,
+    boatType: "powerboat",
+    pages: 20,
+  },
+  {
+    site: "nautano.com",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.nautano.com/en/sailboats/`
+        : `https://www.nautano.com/en/sailboats/?page=${page}`,
+    boatType: "sailboat",
+    pages: 20,
+  },
+  {
+    site: "nautano.com",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.nautano.com/en/motorboats/`
+        : `https://www.nautano.com/en/motorboats/?page=${page}`,
+    boatType: "powerboat",
+    pages: 20,
+  },
 ];
 
 // ---------- URL validation (mirror of scrape-listings-cron) ----------
@@ -125,6 +192,9 @@ function isValidListingUrl(url: string, site: string): boolean {
   if (!hostname.includes(site)) return false;
 
   if (hostname.includes("boat24.com")) return /\/detail\/\d+/i.test(url);
+  if (hostname.includes("boatshop24")) {
+    return /\/boat\/[a-z0-9-]+-\d{5,}(?:[/?#]|$)/i.test(url);
+  }
   if (hostname.includes("mornar.net")) {
     return (/\/[Ss]how\/boat\.asp/i.test(url) && /ID=\d+/i.test(url)) || /\/oglas[a-z\-]*\/\d+/i.test(url);
   }
@@ -137,6 +207,34 @@ function isValidListingUrl(url: string, site: string): boolean {
     // https://www.scanboat.com/en/boat-market/boats/sailingboat-<slug>-<id>
     // https://www.scanboat.com/en/boat-market/boats/motorboat-<slug>-<id>
     return /\/en\/boat-market\/boats\/(?:sailingboat|motorboat|motorsailer)-[a-z0-9-]+-\d{5,}(?:[\/?#]|$)/i.test(url);
+  }
+  if (hostname.includes("blocket.se")) {
+    return /\/mobility\/item\/\d{6,}(?:[/?#]|$)/i.test(url);
+  }
+  if (hostname.includes("findaly.co")) {
+    const m = url.match(/\/buy\/([a-z0-9-]+)(?:[/?#]|$)/i);
+    if (!m?.[1]) return false;
+    const slug = m[1].toLowerCase();
+    if (
+      [
+        "sailboats",
+        "motorboats",
+        "motor-yachts",
+        "catamarans",
+        "boats",
+        "yachts",
+        "buy",
+      ].includes(slug)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  if (hostname.includes("yachtall.com")) {
+    return /\/en\/boat\/[a-z0-9-]+-s\d{4,}(?:[/?#]|$)/i.test(url);
+  }
+  if (hostname.includes("nautano.com")) {
+    return /\/en\/ship\/[a-z0-9-]{8,}(?:[/?#]|$)/i.test(url);
   }
   return false;
 }
@@ -188,6 +286,10 @@ function parsePriceWithCurrency(text: string): { eur: number | null } {
     { re: /£\s*([\d.,\s]{3,})/i, cur: "GBP" },
     { re: /\$\s*([\d.,\s]{3,})/i, cur: "USD" },
     { re: /CHF\s*([\d.,\s]{3,})/i, cur: "CHF" },
+    { re: /SEK\s*([\d.,\s]{3,})/i, cur: "SEK" },
+    { re: /NOK\s*([\d.,\s]{3,})/i, cur: "NOK" },
+    { re: /DKK\s*([\d.,\s]{3,})/i, cur: "DKK" },
+    { re: /([\d.,\s]{3,})\s*kr\b/i, cur: "SEK" },
   ];
   for (const { re, cur } of patterns) {
     const m = text.match(re);
@@ -209,7 +311,7 @@ function parseLengthFeet(text: string): number | null {
     const meters = parseFloat(m[1].replace(",", "."));
     if (meters > 3 && meters < 50) return Math.round(meters * 3.281 * 10) / 10;
   }
-  const f = text.match(/\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(ft|feet|foot)\b/i);
+  const f = text.match(/\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(ft|feet|foot|fot)\b/i);
   if (f) {
     const ft = parseFloat(f[1].replace(",", "."));
     if (ft > 10 && ft < 200) return Math.round(ft * 10) / 10;
@@ -355,7 +457,11 @@ function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
     ) ||
     /[?&]cat=2(?:[&#]|$)/.test(u) ||
     /[?&]rubrika=1(?:[&#]|$)/.test(u) ||
-    /\/motor-boats-203(?:[/?#]|$)/.test(u)
+    /\/motor-boats-203(?:[/?#]|$)/.test(u) ||
+    /\/(?:type-power|motorboats?|motor-boats|flybridge|motoryacht)\b/.test(u) ||
+    /\/en\/motorboats?\b/.test(u) ||
+    /\/buy\/motor-yachts\b/.test(u) ||
+    /\/class-motor-boats\b/.test(u)
   ) {
     return "powerboat";
   }
@@ -363,7 +469,11 @@ function inferBoatTypeFromUrl(url: string): "sailboat" | "powerboat" | null {
     /\/(jadrnice|sailboats?|sailing|vela|barca-a-vela)\//.test(u) ||
     /[?&]cat=1(?:[&#]|$)/.test(u) ||
     /[?&]rubrika=2(?:[&#]|$)/.test(u) ||
-    /\/sailboats-202(?:[/?#]|$)/.test(u)
+    /\/sailboats-202(?:[/?#]|$)/.test(u) ||
+    /\/(?:type-sail|sailboats?|sailing-boats|catamaran)\b/.test(u) ||
+    /\/en\/sailboats?\b/.test(u) ||
+    /\/buy\/sailboats\b/.test(u) ||
+    /\/class-sailing-boats\b/.test(u)
   ) {
     return "sailboat";
   }
@@ -383,9 +493,9 @@ function detectBoatType(
 
   const u = `${url} ${text}`.toLowerCase();
   const sailRe =
-    /\b(sailboat|sailing|sail|segelboot|segelyacht|veliero|barca a vela|jedrilica|voilier|velero|jadrnic[ae]|jadrno)\b/;
+    /\b(sailboat|sailing|sail|segelboot|segelyacht|segelbåt|veliero|barca a vela|jedrilica|voilier|velero|jadrnic[ae]|jadrno)\b/;
   const powerRe =
-    /\b(powerboat|motorboat|motoryacht|motorboot|barca a motore|gliser|motorn[ao]|motornaplovila|motorna plovila|fuoribordo|entrobordo|outboard|inboard|sterndrive|jet drive|planing)\b/;
+    /\b(powerboat|motorboat|motoryacht|motorboot|motorbåt|barca a motore|gliser|motorn[ao]|motornaplovila|motorna plovila|fuoribordo|entrobordo|outboard|inboard|sterndrive|jet drive|planing)\b/;
   const sailGearRe = /\b(mainsail|genoa|spinnaker|jib|mast|rigging)\b/;
 
   const sailHits = Number(sailRe.test(u)) + Number(sailGearRe.test(u));
@@ -505,6 +615,113 @@ function extractScanboatImages(html: string, baseUrl: string, max = 5): string[]
   return out.slice(0, max);
 }
 
+function extractYachtallImages(html: string, baseUrl: string, max = 5): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => {
+    const normalized = resolveUrl(u, baseUrl);
+    if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(normalized)) return;
+    if (
+      /\b(logo|icon|sprite|placeholder|pixel|tracking|avatar|banner|ads?|advert|facebook|instagram|linkedin|youtube)\b/i.test(
+        normalized,
+      )
+    ) {
+      return;
+    }
+    if (/(thumb|thumbnail|small|icon|header|footer)/i.test(normalized) && /\/(image|images|photos?|media)\//i.test(normalized)) {
+      return;
+    }
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  // Prefer structured listing images when present.
+  const lds = extractJsonLd(html);
+  for (const ld of lds) {
+    const types = ([] as string[]).concat(ld?.["@type"] || []);
+    const isListingLike = types.some((t) => /Product|Vehicle|Boat|Vessel|Offer/i.test(String(t)));
+    if (!isListingLike) continue;
+    if (ld?.image) {
+      const imgs = Array.isArray(ld.image) ? ld.image : [ld.image];
+      for (const img of imgs) {
+        if (typeof img === "string") push(img);
+        if (out.length >= max) return out.slice(0, max);
+      }
+    }
+  }
+
+  const og = extractMeta(html, "og:image");
+  if (og) push(og);
+  const tw = extractMeta(html, "twitter:image");
+  if (tw) push(tw);
+  if (out.length >= max) return out.slice(0, max);
+
+  // Gallery anchors are usually cleaner than all page <img> tags.
+  const aRe = /<a[^>]+href=["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = aRe.exec(html)) !== null) {
+    push(m[1]);
+    if (out.length >= max + 3) break;
+  }
+
+  return out.slice(0, max);
+}
+
+function extractFindalyImages(html: string, baseUrl: string, max = 5): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => {
+    const normalized = resolveUrl(u, baseUrl);
+    if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(normalized)) return;
+    if (/\/_next\/image/i.test(normalized)) return;
+    if (
+      /\b(logo|icon|sprite|placeholder|pixel|tracking|avatar|banner|ads?|advert|facebook|instagram|linkedin|youtube)\b/i.test(
+        normalized,
+      )
+    ) {
+      return;
+    }
+    if (/(thumb|thumbnail|small|icon|header|footer)/i.test(normalized) && /\/(image|images|photos?|media)\//i.test(normalized)) {
+      return;
+    }
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  // Prefer structured listing images.
+  const lds = extractJsonLd(html);
+  for (const ld of lds) {
+    const types = ([] as string[]).concat(ld?.["@type"] || []);
+    const isListingLike = types.some((t) => /Product|Vehicle|Boat|Vessel|Offer/i.test(String(t)));
+    if (!isListingLike) continue;
+    if (ld?.image) {
+      const imgs = Array.isArray(ld.image) ? ld.image : [ld.image];
+      for (const img of imgs) {
+        if (typeof img === "string") push(img);
+        if (out.length >= max) return out.slice(0, max);
+      }
+    }
+  }
+
+  const og = extractMeta(html, "og:image");
+  if (og) push(og);
+  const tw = extractMeta(html, "twitter:image");
+  if (tw) push(tw);
+  if (out.length >= max) return out.slice(0, max);
+
+  // Fallback to direct media links in the page (findaly commonly uses blob storage links).
+  const mediaRe = /(https?:\/\/[^\s"'()]+?\.(?:jpe?g|png|webp)(?:\?[^\s"'()]*)?)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = mediaRe.exec(html)) !== null) {
+    push(m[1]);
+    if (out.length >= max + 5) break;
+  }
+
+  return out.slice(0, max);
+}
+
 function extractImages(html: string, baseUrl: string, max = 5, site?: string): string[] {
   if (site === "trovobarche.it") {
     const trovobarcheImages = extractTrovobarcheImages(html, baseUrl, max);
@@ -514,25 +731,60 @@ function extractImages(html: string, baseUrl: string, max = 5, site?: string): s
     const scanboatImages = extractScanboatImages(html, baseUrl, max);
     if (scanboatImages.length > 0) return scanboatImages;
   }
+  if (site === "yachtall.com") {
+    const yachtallImages = extractYachtallImages(html, baseUrl, max);
+    if (yachtallImages.length > 0) return yachtallImages;
+  }
+  if (site === "findaly.co") {
+    const findalyImages = extractFindalyImages(html, baseUrl, max);
+    if (findalyImages.length > 0) return findalyImages;
+  }
 
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (u: string) => {
-    if (!seen.has(u)) {
-      seen.add(u);
-      out.push(u);
+    const normalized = resolveUrl(u, baseUrl);
+    if (
+      site &&
+      ["blocket.se", "findaly.co", "yachtall.com", "nautano.com", "boatshop24"].includes(site)
+    ) {
+      if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(normalized)) return;
+      if (/\b(logo|icon|sprite|placeholder|pixel|tracking|avatar|googleads|doubleclick)\b/i.test(normalized)) return;
+      if (/(thumb|thumbnail|small|icon)/i.test(normalized) && /\/(image|images|photos?|media)\//i.test(normalized)) {
+        return;
+      }
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      out.push(normalized);
     }
   };
 
   const og = extractMeta(html, "og:image");
-  if (og) push(resolveUrl(og, baseUrl));
+  if (og) push(og);
   const re = /<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp))(?:\?[^"']*)?["']/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
-    const u = resolveUrl(m[1], baseUrl);
+    const u = m[1];
     if (/\b(logo|icon|sprite|placeholder|pixel|tracking|favicon|avatar)\b/i.test(u)) continue;
     push(u);
     if (out.length >= max + 5) break;
+  }
+  if (out.length === 0) {
+    const mdImgRe = /!\[[^\]]*]\((https?:\/\/[^)]+\.(?:jpe?g|png|webp)(?:\?[^)]*)?)\)/gi;
+    while ((m = mdImgRe.exec(html)) !== null) {
+      const clean = m[1].split(/\s+/)[0];
+      push(clean);
+      if (out.length >= max + 5) break;
+    }
+  }
+  if (out.length === 0 && site === "blocket.se") {
+    const blocketCdnRe = /(https?:\/\/images\.blocketcdn\.se\/[^\s)"']+)/gi;
+    while ((m = blocketCdnRe.exec(html)) !== null) {
+      const clean = m[1].split(/\s+/)[0];
+      push(clean);
+      if (out.length >= max + 5) break;
+    }
   }
 
   // mornar.net: first image on listing pages is the site header logo banner — drop it.
@@ -541,6 +793,117 @@ function extractImages(html: string, baseUrl: string, max = 5, site?: string): s
     result = result.slice(1);
   }
   return result.slice(0, max);
+}
+
+function extractSectionFromReadableText(text: string, startLabels: string[], stopLabels: string[]): string {
+  if (!text) return "";
+  const normalized = text.replace(/\r/g, "").trim();
+  const startRegex = new RegExp(`\\b(?:${startLabels.join("|")})\\b`, "i");
+  const startMatch = normalized.match(startRegex);
+  if (!startMatch || startMatch.index === undefined) return "";
+  const rest = normalized.slice(startMatch.index + startMatch[0].length).trim();
+  if (!rest) return "";
+  const stopRegex = new RegExp(`\\b(?:${stopLabels.join("|")})\\b`, "i");
+  const stopMatch = rest.match(stopRegex);
+  return (stopMatch ? rest.slice(0, stopMatch.index) : rest).trim();
+}
+
+function extractEquipmentFromTextSection(section: string, max = 120): string[] {
+  if (!section) return [];
+  const lines = section
+    .split(/\n+/)
+    .map((l) => l.replace(/^[•·\-\*\s]+/, "").trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (line.length < 2 || line.length > 120) continue;
+    if (/^(specifications?|description|technical data)$/i.test(line)) continue;
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+function extractFeatureMapFromTextSection(section: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!section) return out;
+  const lines = section
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const m = line.match(/^([A-Za-z][A-Za-z0-9 /()&+.,-]{1,70})\s*[:\-]\s*(.{1,180})$/);
+    if (!m) continue;
+    const key = m[1].toLowerCase().trim();
+    const value = m[2].replace(/\s+/g, " ").trim();
+    if (!key || !value) continue;
+    out[key] = value;
+  }
+  for (let i = 0; i < lines.length - 1; i++) {
+    const k = lines[i];
+    const v = lines[i + 1];
+    if (!k || !v) continue;
+    if (k.length < 2 || k.length > 70 || v.length < 1 || v.length > 180) continue;
+    if (!/^[A-Za-z][A-Za-z0-9 /()&+.,-]+$/.test(k)) continue;
+    if (/[:\-]/.test(k)) continue;
+    if (/^(description|specifications|equipment|features|contact)$/i.test(k)) continue;
+    out[k.toLowerCase().trim()] = v;
+  }
+  return out;
+}
+
+function extractMarketplaceSections(html: string, text: string): {
+  description: string | null;
+  equipment: string[];
+  featureMap: Record<string, string>;
+} {
+  const fullText = htmlToReadableText(html);
+  const descriptionSection =
+    extractSectionFromReadableText(fullText, ["Description", "About this boat", "Omschrijving"], [
+      "Specifications",
+      "Technical data",
+      "Equipment",
+      "Features",
+      "Contact",
+    ]) || null;
+  const specsSection = extractSectionFromReadableText(fullText, ["Specifications", "Technical data", "Details"], [
+    "Equipment",
+    "Description",
+    "Contact",
+  ]);
+  const equipmentSection = extractSectionFromReadableText(fullText, ["Equipment", "Features", "Inventory"], [
+    "Description",
+    "Contact",
+    "Location",
+  ]);
+
+  const featureMap = {
+    ...extractFeatureMapFromHtml(html),
+    ...extractFeatureMapFromTextSection(specsSection),
+  };
+  const equipment = extractEquipmentFromTextSection(equipmentSection, 120);
+  const description = descriptionSection && descriptionSection.length > 50 ? descriptionSection.slice(0, 5000) : null;
+  if (equipment.length === 0) {
+    const bulletLines = fullText
+      .split(/\n+/)
+      .map((l) => l.trim())
+      .filter((l) => /^[-*•]\s+.{2,120}$/.test(l))
+      .map((l) => l.replace(/^[-*•]\s+/, "").trim());
+    for (const item of bulletLines) {
+      if (equipment.length >= 120) break;
+      if (!equipment.includes(item)) equipment.push(item);
+    }
+  }
+
+  if (!description && text.length > 120) {
+    const md = extractMeta(html, "description") || extractMeta(html, "og:description");
+    if (md && md.length > 50) return { description: md.slice(0, 5000), equipment, featureMap };
+  }
+  return { description, equipment, featureMap };
 }
 
 // ---------- Fetch with proxy fallback ----------
@@ -606,6 +969,16 @@ async function fetchHtmlViaPlaywright(url: string, timeoutMs = 20000): Promise<s
   }
 }
 
+function shouldPreferPlaywright(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+    const matched = Object.keys(SITE_PROFILES).find((site) => hostname.includes(site));
+    return matched ? getSiteProfile(matched).preferPlaywright : false;
+  } catch {
+    return false;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -659,6 +1032,11 @@ async function runWithConcurrency<T>(
 }
 
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
+  if (shouldPreferPlaywright(url)) {
+    const renderedFirst = await fetchHtmlViaPlaywright(url, Math.max(timeoutMs, 18000));
+    if (renderedFirst) return renderedFirst;
+  }
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -723,17 +1101,82 @@ async function fetchBoat24LocationViaProxy(url: string, timeoutMs = 12000): Prom
 function extractListingLinks(html: string, baseUrl: string, site: string): { url: string; title: string }[] {
   const out: { url: string; title: string }[] = [];
   const seen = new Set<string>();
+  const add = (rawUrl: string, rawTitle: string) => {
+    const href = resolveUrl(rawUrl, baseUrl);
+    if (seen.has(href)) return;
+    if (!isValidListingUrl(href, site)) return;
+    seen.add(href);
+    out.push({ url: href, title: (rawTitle || "").slice(0, 200) });
+  };
+
   const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
-    const href = resolveUrl(m[1], baseUrl);
-    if (seen.has(href)) continue;
-    if (!isValidListingUrl(href, site)) continue;
-    seen.add(href);
-    const title = stripTags(m[2]).slice(0, 200);
-    out.push({ url: href, title });
+    add(m[1], stripTags(m[2]));
+  }
+
+  // r.jina.ai or markdown-like index pages may not preserve <a> tags.
+  const mdRe = /\[([^\]]{1,220})\]\((https?:\/\/[^)\s]+)\)/g;
+  while ((m = mdRe.exec(html)) !== null) {
+    add(m[2], m[1]);
+  }
+
+  const rawUrlRe = /(https?:\/\/[^\s)]+(?:\/mobility\/item\/\d+|\/en\/boat\/[a-z0-9-]+-s\d+|\/en\/ship\/[A-Za-z0-9-]+|\/buy\/[a-z0-9-]+|\/boat\/[a-z0-9-]+-\d{5,}))/gi;
+  while ((m = rawUrlRe.exec(html)) !== null) {
+    add(m[1], "");
   }
   return out;
+}
+
+function extractBlocket(text: string): { description: string | null; equipment: string[]; featureMap: Record<string, string> } {
+  const featureMap: Record<string, string> = {};
+  const equipment: string[] = [];
+  const clean = text.replace(/\r/g, "");
+
+  const descSection = clean.match(/##\s*Beskrivning\s*([\s\S]*?)(?:##\s*Specifikationer|##\s*Plats|$)/i)?.[1] || "";
+  const specsSection = clean.match(/##\s*Specifikationer\s*([\s\S]*?)(?:##\s*Plats|$)/i)?.[1] || "";
+  const equipmentSection = descSection.match(/-+\s*Utrustning\s*-+([\s\S]*?)(?:##|$)/i)?.[1] || "";
+
+  for (const line of specsSection.split(/\n+/)) {
+    const kv = line.match(/^([A-Za-zÅÄÖåäö ]{2,40})\s*[-:]?\s*(.{1,140})$/);
+    if (!kv) continue;
+    featureMap[kv[1].toLowerCase().trim()] = kv[2].trim();
+  }
+
+  for (const line of equipmentSection.split(/\n+/)) {
+    const item = line.replace(/^[•·\-\*\s]+/, "").trim();
+    if (item.length >= 2 && item.length <= 120) equipment.push(item);
+  }
+
+  const imageMatches = Array.from(clean.matchAll(/https:\/\/images\.blocketcdn\.se\/[^\s)]+/gi)).map((m) =>
+    m[0].split(/\s+/)[0],
+  );
+  if (imageMatches.length > 0) featureMap["image_urls"] = Array.from(new Set(imageMatches)).join(" | ");
+
+  const description = descSection.replace(/\n{3,}/g, "\n\n").trim();
+  return { description: description || null, equipment, featureMap };
+}
+
+function extractFindaly(text: string): { description: string | null; equipment: string[]; featureMap: Record<string, string> } {
+  const featureMap: Record<string, string> = {};
+  const equipment: string[] = [];
+  const clean = text.replace(/\r/g, "");
+  const details = clean.match(/#\s+[^\n]+\n([\s\S]*?)DescriptionSpecificationsFeatures/i)?.[1] || "";
+  const body = clean.match(/DescriptionSpecificationsFeatures\s*([\s\S]*?)###\s*Listing details/i)?.[1] || "";
+  const desc = body.replace(/\n{3,}/g, "\n\n").trim();
+  const yr = clean.match(/\bYear\s*(\d{4})\b/i)?.[1];
+  if (yr) featureMap["year"] = yr;
+  const cab = clean.match(/\bCabins\s*(\d{1,2})\b/i)?.[1];
+  if (cab) featureMap["cabins"] = cab;
+  const len = clean.match(/\bLength\s*([0-9]+(?:[.,][0-9]+)?)\s*m\b/i)?.[1];
+  if (len) featureMap["length"] = `${len} m`;
+  const loc = clean.match(/\bLocation\s*([^\n]{2,80})\n/i)?.[1]?.trim();
+  if (loc && loc !== "—") featureMap["location"] = loc;
+  for (const m of clean.matchAll(/https:\/\/uj6nijlotulxboxg\.public\.blob\.vercel-storage\.com\/[^\s)]+/gi)) {
+    equipment.push(m[0]);
+  }
+  if (details) featureMap["listing_details"] = details.replace(/\s+/g, " ").trim().slice(0, 180);
+  return { description: desc || null, equipment: [], featureMap };
 }
 
 // ---------- Site-specific description + equipment extractors ----------
@@ -1226,6 +1669,142 @@ function buildSpecsRawFallback(input: {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function extractRecentWorkFromListing(
+  text: string,
+  featureMap: Record<string, string>,
+  equipment: string[] | null,
+  site: string,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (v: string | null | undefined) => {
+    const clean = String(v || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!clean || clean.length < 8 || clean.length > 180) return;
+    const k = clean.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(clean);
+  };
+
+  // Feature map cues across multilingual listings.
+  for (const [kRaw, vRaw] of Object.entries(featureMap)) {
+    const k = kRaw.toLowerCase();
+    if (
+      /\b(recent work|service|serviced|maintenance|maintained|refit|overhaul|renewed|new\s+\w+|updated|replaced|restored|renovated|last service|revisione|manutenzione|obnov|servis|refit)\b/i.test(
+        k,
+      )
+    ) {
+      push(vRaw);
+      if (out.length >= 8) return out;
+    }
+  }
+
+  // Equipment lines can contain meaningful "recently replaced/updated" notes.
+  for (const item of equipment || []) {
+    if (
+      /\b(updated|replaced|new|renewed|serviced|maintained|refit|overhaul|restored|renovated|upgraded)\b/i.test(item)
+    ) {
+      push(item);
+      if (out.length >= 8) return out;
+    }
+  }
+
+  // Description fallback: capture short sentences with work/maintenance cues.
+  const sentences = text
+    .replace(/\r/g, " ")
+    .split(/[.!?\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const s of sentences) {
+    if (
+      /\b(updated|replaced|new|renewed|serviced|maintained|refit|overhaul|restored|renovated|upgraded|winterized|anti-fouling|antifouling)\b/i.test(
+        s,
+      )
+    ) {
+      push(s);
+      if (out.length >= 8) break;
+    }
+  }
+
+  // For noisy marketplace pages keep this conservative.
+  if (site === "findaly.co" || site === "blocket.se") {
+    return out.filter((v) => !/\b(popular|explore|all listings|pages?)\b/i.test(v)).slice(0, 6);
+  }
+  return out.slice(0, 8);
+}
+
+function withStandardSpecSections(specs: Record<string, unknown>): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...specs };
+  const requiredKeys = [
+    "brand",
+    "model",
+    "type",
+    "boat_type",
+    "engine_hours",
+    "fuel_type",
+    "cabins",
+    "hull_material",
+    "engine_info",
+    "equipment",
+    "recent_work",
+    "image_urls",
+    "field_confidence",
+    "field_source",
+    "ai_details",
+    "ai_validation",
+  ];
+  for (const key of requiredKeys) {
+    if (!(key in base)) base[key] = null;
+  }
+  return base;
+}
+
+function buildFieldQualityMeta(input: {
+  site: string;
+  brand: string | null;
+  model: string | null;
+  rich: { engine_hours: number | null; fuel_type: string | null; cabins: number | null; hull_material: string | null; engine_info: string | null };
+  equipment: string[];
+  recentWork: string[];
+  images: string[];
+  location: string | null;
+  featureMap: Record<string, string>;
+}): { confidence: Record<string, "high" | "medium" | "low" | "none">; source: Record<string, string> } {
+  const profile = getSiteProfile(input.site);
+  const confidence: Record<string, "high" | "medium" | "low" | "none"> = {};
+  const source: Record<string, string> = {};
+  const set = (k: string, present: boolean, src: string, conf: "high" | "medium" | "low" | "none") => {
+    source[k] = src;
+    confidence[k] = present ? conf : "none";
+  };
+
+  set("brand", !!input.brand, input.featureMap.brand ? "feature_map" : "title_derived", input.featureMap.brand ? "high" : "medium");
+  set("model", !!input.model, input.featureMap.model ? "feature_map" : "title_derived", input.featureMap.model ? "high" : "medium");
+  set("engine_hours", input.rich.engine_hours !== null, "feature_map_or_text", input.rich.engine_hours !== null ? "medium" : "none");
+  set("fuel_type", !!input.rich.fuel_type, "feature_map_or_text", input.rich.fuel_type ? "medium" : "none");
+  set("cabins", input.rich.cabins !== null, "feature_map_or_text", input.rich.cabins !== null ? "medium" : "none");
+  set("hull_material", !!input.rich.hull_material, "feature_map_or_text", input.rich.hull_material ? "medium" : "none");
+  set("engine_info", !!input.rich.engine_info, "feature_map_or_text", input.rich.engine_info ? "medium" : "none");
+  set(
+    "equipment",
+    input.equipment.length > 0,
+    "site_section_parser",
+    profile.equipmentStrategy === "strict" ? (input.equipment.length >= 4 ? "high" : "low") : input.equipment.length >= 2 ? "medium" : "low",
+  );
+  set("recent_work", input.recentWork.length > 0, "work_signal_parser", input.recentWork.length > 0 ? "medium" : "none");
+  set(
+    "image_urls",
+    input.images.length > 0,
+    profile.imageStrategy === "gallery_first" ? "gallery_extractor" : "structured_extractor",
+    input.images.length >= 3 ? "high" : input.images.length > 0 ? "medium" : "none",
+  );
+  set("location", !!input.location, "feature_map_or_text", input.location ? "medium" : "none");
+
+  return { confidence, source };
+}
+
 function normalizeSpecKey(key: string): string {
   return key
     .toLowerCase()
@@ -1394,11 +1973,11 @@ function normalizeAiBreakdownAndRecommendations(
   let recommendations = dedup(ai.recommendations || []);
   if (recommendations.length < 3) {
     const defaults = [
-      "Request full maintenance and service documentation before final offer.",
-      "Use identified risk items as leverage during negotiation.",
-      "Arrange a professional pre-purchase marine survey.",
-      "Confirm equipment condition with a live onboard demo.",
-      "Keep a clear walk-away price discipline during negotiation.",
+      "Ask for original invoices for engine, standing rigging, and hull works to verify what is actually recent.",
+      "Negotiate with line-item deductions tied to unresolved defects (survey, electronics, safety gear), not one global discount.",
+      "Request a cold-start sea trial and insist on full RPM range proof under load before agreeing final price.",
+      "Price in near-term ownership costs (mooring, insurance, routine refit) and fold them into your offer ceiling.",
+      "Set a strict walk-away trigger around hidden structural/mechanical risk discovered after survey.",
     ];
     recommendations = dedup([...recommendations, ...defaults]);
   }
@@ -1493,7 +2072,21 @@ Rules:
 - sailboat category names exactly: Market Position; Sails & Rigging; Hull & Structure; Equipment & Comfort; Ownership Risk.
 - powerboat category names exactly: Market Position; Engine & Propulsion; Hull & Structure; Equipment & Comfort; Ownership Risk.
 - each category details: 1-2 sentences.
-- recommendations: 3-5 items.`;
+- recommendations: 3-5 items.
+- recommendations must be specific, non-generic, and reference concrete listing risks/specs.
+- Be strict on scoring calibration (buyer-protective): default to lower scores unless strong evidence supports high confidence.
+- Score band guidance:
+  - 85-100: exceptional listing with strong evidence of condition, maintenance, and price advantage (rare).
+  - 70-84: good listing with mostly positive evidence but at least minor risks.
+  - 55-69: average/uncertain listing (this should be the default band when data is incomplete).
+  - 40-54: risky listing with multiple concerns or poor data quality.
+  - 0-39: high-risk listing with major red flags.
+- If important fields are missing/unclear (engine hours, maintenance history, survey evidence), cap score at 64.
+- If listing has sparse specs, sparse equipment, or vague description, apply a clear confidence penalty.
+- Do NOT inflate score for brand prestige alone.
+- Prefer underestimating over overestimating when uncertain.
+- Treat "project" boats as boats that are currently not seaworthy OR require major work/refit before safe operation at sea.
+- For project boats, reflect this strongly via lower score, higher ownership risk, and clear repair burden in recommendations/repair_breakdown.`;
 
   const userPrompt = `u:${input.url}
 core:${JSON.stringify(input.core)}
@@ -1758,6 +2351,78 @@ Rules:
   }
 }
 
+function isSubsetOf(original: string[], candidate: string[]): boolean {
+  const base = new Set(original.map((v) => v.trim()));
+  return candidate.every((v) => base.has(v.trim()));
+}
+
+async function reviewImagesAndEquipmentWithAi(input: {
+  url: string;
+  site: string;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+  image_urls: string[];
+  equipment: string[];
+}): Promise<{ image_urls: string[]; equipment: string[] } | null> {
+  if (!OPENAI_API_KEY) return null;
+  if (!["blocket.se", "findaly.co", "yachtall.com", "nautano.com", "boatshop24"].includes(input.site)) return null;
+  if (input.image_urls.length === 0 && input.equipment.length === 0) return null;
+
+  const systemPrompt = `You clean scraped listing media/equipment. Output JSON only:
+{"image_urls":[],"equipment":[]}
+Rules:
+- Keep ONLY items that clearly belong to the listed boat ad.
+- Remove UI/social/logo/banner/tracking/media-kit items.
+- Remove equipment entries that are actions/navigation/contact/CTA or metadata.
+- Remove category/navigation words like: popular, explore, all listings, pages, brands, models, countries.
+- Remove strings that look like page titles/SEO headlines.
+- Output must be strict subsets of provided arrays (do not invent/rewrite strings).
+- Preserve original order from input arrays.`;
+
+  const userPrompt = `d:${JSON.stringify({
+    url: input.url,
+    site: input.site,
+    core: input.core,
+    specs: input.specs,
+    description: input.raw.description,
+    text: input.raw.full_text.slice(0, 3000),
+    image_urls: input.image_urls,
+    equipment: input.equipment,
+  })}`;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") return null;
+    const parsed = JSON.parse(rawContent) as Record<string, unknown>;
+    const aiImages = Array.isArray(parsed.image_urls) ? parsed.image_urls.filter((v) => typeof v === "string") : null;
+    const aiEquipment = Array.isArray(parsed.equipment) ? parsed.equipment.filter((v) => typeof v === "string") : null;
+    if (!aiImages || !aiEquipment) return null;
+    if (!isSubsetOf(input.image_urls, aiImages) || !isSubsetOf(input.equipment, aiEquipment)) return null;
+    return { image_urls: aiImages, equipment: aiEquipment };
+  } catch {
+    return null;
+  }
+}
+
 // mornar.net: boat detail pages render a vertical content area with paragraph
 // description and a feature/equipment table. We try common containers.
 function extractMornar(html: string): { description: string | null; equipment: string[] } {
@@ -1828,6 +2493,170 @@ function extractMornar(html: string): { description: string | null; equipment: s
   return { description, equipment };
 }
 
+function sanitizeListingImageUrls(images: string[], site: string, listingUrl?: string): string[] {
+  if (!images || images.length === 0) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const badTokenRe =
+    /\b(logo|icon|sprite|placeholder|pixel|tracking|avatar|banner|ads?|advert|facebook|instagram|linkedin|youtube|favicon)\b/i;
+
+  const siteSpecificRejectRe: Record<string, RegExp[]> = {
+    "findaly.co": [/\/_next\/image/i, /\b(opengraph|og-image|twitter-image)\b/i],
+    "yachtall.com": [/\b(breadcrumb|hero|header|footer|newsletter|hamburger)\b/i, /static\.yachtall\.com\/image\/layout\//i],
+    "nautano.com": [/\b(default|fallback|no-image)\b/i],
+    "boatshop24": [/\b(default|no-photo|not-available)\b/i],
+    "blocket.se": [/\bstatic\/icons?\b/i],
+  };
+
+  let nautanoShipId: string | null = null;
+  if (site === "nautano.com" && listingUrl) {
+    const m = listingUrl.match(/\/ship\/([A-Za-z0-9-]+)/i);
+    nautanoShipId = m?.[1] || null;
+  }
+
+  for (const raw of images) {
+    const u = (raw || "").trim().replace(/(\.(?:jpe?g|png|webp))\1(?=\?|$)/i, "$1");
+    if (!u) continue;
+    if (!/^https?:\/\//i.test(u)) continue;
+    if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(u)) continue;
+    if (badTokenRe.test(u)) continue;
+    const rejects = siteSpecificRejectRe[site] || [];
+    if (rejects.some((re) => re.test(u))) continue;
+    if (site === "yachtall.com" && !/image\.yachtall\.com\/image\/(?:sboat|mboat)\//i.test(u)) continue;
+    if (site === "findaly.co" && !/public\.blob\.vercel-storage\.com\/listings\//i.test(u)) continue;
+    if (site === "nautano.com" && nautanoShipId && !new RegExp(`/${nautanoShipId}/`, "i").test(u)) continue;
+    if (site === "nautano.com" && /_400\./i.test(u)) continue;
+
+    const key = u.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function sanitizeEquipmentList(items: string[], site: string): string[] {
+  if (!items || items.length === 0) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const genericReject = [
+    /\b(buy|for sale)\b/i,
+    /\b(contact|call|phone|message|whatsapp|email|seller|dealer)\b/i,
+    /\b(share|print|save|favorite|report|cookie|privacy|terms)\b/i,
+    /\b(similar boats?|related boats?|listing details?|description|specifications?|features?)\b/i,
+    /\b(views?|watchlist|financing|insurance|delivery|transport)\b/i,
+    /\b(photos?|images?|gallery|video|brochure|pdf)\b/i,
+    /^(price|boat id|boat model|vat|currency)\s*:?$/i,
+    /\b(vat|boat id|boat model)\b/i,
+    /\b(€|\$|£)\s*\d/i,
+    /^https?:\/\//i,
+  ];
+
+  const siteReject: Record<string, RegExp[]> = {
+    "blocket.se": [/\b(spara|anmäl|dela|visa nummer|köp nu)\b/i],
+    "findaly.co": [/\b(listing details?|discover|view listing|buy now|popular|explore|all listings|browse all|countries|brands|models|pages\.?|→)\b/i],
+    "yachtall.com": [
+      /\b(contact broker|send inquiry|book viewing|boat data|price:|updated in the last)\b/i,
+      /^(manufacturer|boat type|boat category|category|year built)\s*:?$/i,
+      /^[sm]\d{5,}$/i,
+    ],
+    "nautano.com": [/\b(show phone|ask question|send message)\b/i],
+    boatshop24: [/\b(request price|ask dealer|dealer info)\b/i],
+  };
+
+  for (const raw of items) {
+    const v = (raw || "")
+      .replace(/\s+/g, " ")
+      .replace(/^[•·\-\*\d\.\)\s]+/, "")
+      .trim();
+    if (!v) continue;
+    if (v.length < 2 || v.length > 120) continue;
+    if (!/[a-zA-Z]/.test(v)) continue;
+    if (/^[\W_]+$/.test(v)) continue;
+    if (genericReject.some((re) => re.test(v))) continue;
+    if (site === "yachtall.com" && /:\s*$/.test(v)) continue;
+    if (site === "yachtall.com") {
+      const compact = v.toLowerCase().trim();
+      if (
+        /^(powerboat|sailboat|motor yacht|used boat|new boat|charter|boat|yacht)$/.test(compact) ||
+        (!/,/.test(v) && !/\d/.test(v) && compact.split(/\s+/).length <= 3)
+      ) {
+        continue;
+      }
+    }
+    if ((siteReject[site] || []).some((re) => re.test(v))) continue;
+
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+    if (out.length >= 120) break;
+  }
+  return out;
+}
+
+async function validateListingDataWithAi(input: {
+  url: string;
+  site: string;
+  parsed: ReturnType<typeof parseListing>;
+}): Promise<Record<string, unknown> | null> {
+  if (!OPENAI_API_KEY) return null;
+  const systemPrompt = `Validate boat scrape quality. Output JSON only with keys:
+{
+  "overall_ok": boolean,
+  "issues": [{"severity":"high|medium|low","field":"...","note":"..."}],
+  "missing_but_present": [{"field":"...","evidence":"..."}],
+  "suggested_fixes": ["..."]
+}
+Rules:
+- Use only provided listing data.
+- If a field seems missing but likely present in text/specs, include it in missing_but_present.
+- Keep issues concise and technical.`;
+  const userPrompt = `d:${JSON.stringify({
+    url: input.url,
+    site: input.site,
+    title: input.parsed.title,
+    brand: input.parsed.brand,
+    model: input.parsed.model,
+    price_eur: input.parsed.price_eur,
+    year: input.parsed.year,
+    length_feet: input.parsed.length_feet,
+    boat_type: input.parsed.boat_type,
+    location: input.parsed.location,
+    image_urls: input.parsed.image_urls,
+    equipment: input.parsed.equipment || [],
+    specs_raw: input.parsed.specs_raw,
+    flexible: input.parsed.flexible,
+  })}`;
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") return null;
+    return JSON.parse(rawContent) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- Parse a single listing into cached_listings shape ----------
 
 function parseListing(
@@ -1867,6 +2696,23 @@ function parseListing(
     const t = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     if (t) title = decodeEntities(t[1]).trim();
   }
+  if (!title) {
+    const h = text.match(/(?:^|\n)#\s+([^\n]{3,140})/);
+    if (h?.[1]) title = h[1].trim();
+  }
+  if (!title) {
+    const tm = text.match(/(?:^|\n)Title:\s*([^\n]{3,160})/i);
+    if (tm?.[1]) title = tm[1].trim();
+  }
+  if (title && /buy a sailboat|buy a motorboat|boats for sale/i.test(title)) {
+    const fromUrl = url.match(/\/(?:boat|ship|yacht)\/([a-z0-9-]+)/i)?.[1];
+    if (fromUrl) {
+      title = fromUrl
+        .replace(/-s\d{4,}$/i, "")
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
 
   let price: number | null = null;
   const lds = extractJsonLd(html);
@@ -1891,7 +2737,8 @@ function parseListing(
 
   const year = parseYear(text);
   let length_feet = parseLengthFeet(text);
-  const images = extractImages(html, url, 5, site);
+  let images = extractImages(html, url, 8, site);
+  images = sanitizeListingImageUrls(images, site, url).slice(0, 5);
   const boat_type = detectBoatType(text, url, hintType);
 
   // Site-specific RICH extraction for description + equipment
@@ -1948,6 +2795,39 @@ function parseListing(
         length_feet = Math.round(numericLen * 3.281 * 10) / 10;
       }
     }
+  } else if (
+    site === "blocket.se" ||
+    site === "findaly.co" ||
+    site === "yachtall.com" ||
+    site === "nautano.com" ||
+    site === "boatshop24"
+  ) {
+    const r = extractMarketplaceSections(html, text);
+    description = r.description;
+    equipment = r.equipment;
+    featureMap = r.featureMap;
+    if (site === "blocket.se") {
+      const b = extractBlocket(text);
+      description = b.description || description;
+      equipment = [...equipment, ...b.equipment];
+      featureMap = { ...featureMap, ...b.featureMap };
+    }
+    if (site === "findaly.co") {
+      const f = extractFindaly(text);
+      description = f.description || description;
+      equipment = [...equipment, ...f.equipment];
+      featureMap = { ...featureMap, ...f.featureMap };
+    }
+    if (!length_feet) {
+      length_feet = parseLengthFromFeatureMap(featureMap);
+    }
+    if (!length_feet) {
+      length_feet = parseLengthFromLabeledText(text);
+    }
+    if (site === "nautano.com") {
+      const strictLength = parseLengthFromFeatureMap(featureMap);
+      if (strictLength) length_feet = strictLength;
+    }
   }
   // Fallback to og:description if site-specific extraction failed
   if (!description) {
@@ -1955,6 +2835,7 @@ function parseListing(
   }
   // Cap description length to avoid bloating the DB
   if (description && description.length > 5000) description = description.slice(0, 5000) + "…";
+  equipment = sanitizeEquipmentList(equipment, site);
 
   // Location heuristics per site
   let location: string | null = null;
@@ -1995,6 +2876,8 @@ function parseListing(
   const rich = extractRichFields(text, featureMap);
   const { brand, model } = deriveBrandModel(title, featureMap);
 
+  const recentWork = extractRecentWorkFromListing(text, featureMap, equipment.length > 0 ? equipment : null, site);
+
   const specsRaw =
     sanitizeSpecsRaw(featureMap) ||
     buildSpecsRawFallback({
@@ -2007,6 +2890,12 @@ function parseListing(
       hull_material: rich.hull_material,
       location,
     });
+  const specsRawWithSections: Record<string, unknown> | null = {
+    ...(specsRaw && typeof specsRaw === "object" ? specsRaw : {}),
+    equipment: equipment.length > 0 ? equipment : [],
+    recent_work: recentWork.length > 0 ? recentWork : null,
+    image_urls: images,
+  };
 
   const dynamicSpecs: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(featureMap)) {
@@ -2021,7 +2910,23 @@ function parseListing(
   mergeSpec(dynamicSpecs, "cabins", rich.cabins);
   mergeSpec(dynamicSpecs, "hull_material", rich.hull_material);
   mergeSpec(dynamicSpecs, "engine_info", rich.engine_info);
+  mergeSpec(dynamicSpecs, "equipment", equipment.length > 0 ? equipment : null);
+  mergeSpec(dynamicSpecs, "recent_work", recentWork.length > 0 ? recentWork : null);
   mergeSpec(dynamicSpecs, "image_urls", images);
+  const standardizedSpecs = withStandardSpecSections(dynamicSpecs);
+  const qualityMeta = buildFieldQualityMeta({
+    site,
+    brand,
+    model,
+    rich,
+    equipment,
+    recentWork,
+    images,
+    location,
+    featureMap,
+  });
+  standardizedSpecs.field_confidence = qualityMeta.confidence;
+  standardizedSpecs.field_source = qualityMeta.source;
 
   const flexible = buildFlexibleListingOutput({
     title: (title || url).slice(0, 250),
@@ -2031,7 +2936,7 @@ function parseListing(
     location,
     description: description || null,
     full_text: text,
-    dynamicSpecs,
+    dynamicSpecs: standardizedSpecs,
   });
 
   return {
@@ -2052,9 +2957,39 @@ function parseListing(
     cabins: rich.cabins,
     hull_material: rich.hull_material,
     engine_info: rich.engine_info,
-    specs_raw: specsRaw,
+    specs_raw: specsRawWithSections,
     flexible,
   };
+}
+
+function isCompleteListingForIngest(parsed: ReturnType<typeof parseListing>): boolean {
+  const core = parsed.flexible.core;
+  const specs = parsed.flexible.specs || {};
+  const raw = parsed.flexible.raw || { description: "", full_text: "" };
+
+  // Hard quality gate requested by user:
+  // reject listings that are not fully scraped.
+  if (!core.title || core.title.trim().length < 8) return false;
+  if (!parsed.boat_type) return false;
+  if (core.price_eur === null || core.price_eur <= 0) return false;
+  if (core.year === null || core.year < 1950) return false;
+  if (core.length_m === null || core.length_m < 3 || core.length_m > 60) return false;
+  if (!raw.description || raw.description.trim().length < 80) return false;
+  if (!raw.full_text || raw.full_text.trim().length < 300) return false;
+  if (!parsed.image_urls || parsed.image_urls.length < 1) return false;
+
+  // Ensure we actually captured structured listing details.
+  const meaningfulSpecKeys = Object.keys(specs).filter((k) => {
+    if (k === "ai_details") return false;
+    const v = (specs as Record<string, unknown>)[k];
+    if (v === null || v === undefined) return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "string") return v.trim().length > 0;
+    return true;
+  });
+  if (meaningfulSpecKeys.length < 3) return false;
+
+  return true;
 }
 
 // ---------- Persistence ----------
@@ -2125,6 +3060,8 @@ Deno.serve(async (req) => {
   let pageConcurrency = 2;
   let fetchRetries = 2;
   let upsertRetries = 2;
+  let enableAiMediaReview = false;
+  let enableAiDataValidation = false;
   let pageStart = 1;
   let pageEnd: number | null = null;
   let requestedUrls: string[] = [];
@@ -2137,6 +3074,8 @@ Deno.serve(async (req) => {
     if (typeof body.pageConcurrency === "number") pageConcurrency = Math.max(1, Math.floor(body.pageConcurrency));
     if (typeof body.fetchRetries === "number") fetchRetries = Math.max(0, Math.floor(body.fetchRetries));
     if (typeof body.upsertRetries === "number") upsertRetries = Math.max(0, Math.floor(body.upsertRetries));
+    if (typeof body.enableAiMediaReview === "boolean") enableAiMediaReview = body.enableAiMediaReview;
+    if (typeof body.enableAiDataValidation === "boolean") enableAiDataValidation = body.enableAiDataValidation;
     if (typeof body.pageStart === "number") pageStart = Math.max(1, Math.floor(body.pageStart));
     if (typeof body.pageEnd === "number") pageEnd = Math.max(1, Math.floor(body.pageEnd));
     if (Array.isArray(body.urls)) {
@@ -2155,8 +3094,10 @@ Deno.serve(async (req) => {
 
   const perSiteTimeoutMs = (site: string): number => {
     if (site === "trovobarche.it") return 14000;
-    if (site === "boat24.com") return 12000;
+    if (site === "boat24.com") return 17000;
     if (site === "scanboat.com") return 14000;
+    if (site === "boatshop24") return 15000;
+    if (site === "nautano.com" || site === "yachtall.com" || site === "findaly.co") return 14000;
     return 10000;
   };
 
@@ -2183,6 +3124,33 @@ Deno.serve(async (req) => {
         const proxyLocation = await fetchBoat24LocationViaProxy(linkUrl, 10000);
         if (proxyLocation) parsed = { ...parsed, location: proxyLocation };
       }
+      if (enableAiMediaReview) {
+        const aiReview = await reviewImagesAndEquipmentWithAi({
+          url: linkUrl,
+          site,
+          core: parsed.flexible.core,
+          specs: parsed.flexible.specs,
+          raw: parsed.flexible.raw,
+          image_urls: parsed.image_urls,
+          equipment: parsed.equipment || [],
+        });
+        if (aiReview) {
+          parsed = {
+            ...parsed,
+            image_urls: aiReview.image_urls,
+            image_url: aiReview.image_urls[0] || null,
+            equipment: aiReview.equipment.length > 0 ? aiReview.equipment : null,
+            flexible: {
+              ...parsed.flexible,
+              specs: {
+                ...parsed.flexible.specs,
+                image_urls: aiReview.image_urls,
+                equipment: aiReview.equipment.length > 0 ? aiReview.equipment : null,
+              },
+            },
+          };
+        }
+      }
 
       if (
         site === "trovobarche.it" &&
@@ -2199,6 +3167,14 @@ Deno.serve(async (req) => {
             parsed = { ...parsed, description: proxyParsed.description };
           }
         }
+      }
+
+      if (!isCompleteListingForIngest(parsed)) {
+        stats.skipped++;
+        if (requestedUrls.length > 0) {
+          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+        }
+        return;
       }
 
       const row = {
@@ -2232,13 +3208,19 @@ Deno.serve(async (req) => {
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
-      if (aiDetails) {
-        row.specs_raw = {
-          ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
-          ai_details: aiDetails,
-        };
-        parsed.flexible.specs.ai_details = aiDetails;
+      if (!aiDetails) {
+        // Hard gate: if we cannot build evaluation payload, skip persistence.
+        stats.skipped++;
+        if (requestedUrls.length > 0) {
+          targetedResults.push({ url: linkUrl, data: parsed.flexible, status: "skip", source: "scrape-free" });
+        }
+        return;
       }
+      row.specs_raw = {
+        ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
+        ai_details: aiDetails,
+      };
+      parsed.flexible.specs.ai_details = aiDetails;
       const segment = await classifyBoatSegmentWithAi({
         url: linkUrl,
         boatType: parsed.boat_type,
@@ -2262,6 +3244,16 @@ Deno.serve(async (req) => {
         row.location = aiLocation;
         parsed.flexible.core.location = aiLocation;
         mergeSpec(parsed.flexible.specs, "location", aiLocation);
+      }
+      if (enableAiDataValidation) {
+        const validation = await validateListingDataWithAi({ url: linkUrl, site, parsed });
+        if (validation) {
+          row.specs_raw = {
+            ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
+            ai_validation: validation,
+          };
+          parsed.flexible.specs.ai_validation = validation;
+        }
       }
       const r = await upsertListing(supabaseUrl, supabaseKey, row, upsertRetries);
       if (r === "insert") {
@@ -2301,6 +3293,11 @@ Deno.serve(async (req) => {
         else if (h.includes("mornar.net")) site = "mornar.net";
         else if (h.includes("boat24.com")) site = "boat24.com";
         else if (h.includes("scanboat.com")) site = "scanboat.com";
+        else if (h.includes("blocket.se")) site = "blocket.se";
+        else if (h.includes("findaly.co")) site = "findaly.co";
+        else if (h.includes("yachtall.com")) site = "yachtall.com";
+        else if (h.includes("nautano.com")) site = "nautano.com";
+        else if (h.includes("boatshop24")) site = "boatshop24";
       } catch {
         /* ignore */
       }
@@ -2310,9 +3307,9 @@ Deno.serve(async (req) => {
       }
       const lowerUrl = u.toLowerCase();
       const hintType: "sailboat" | "powerboat" | "auto" =
-        /\/(?:jadrnice|sail|sailboats?|vela|vela)\b/.test(lowerUrl)
+        /\/(?:jadrnice|sail|sailboats?|vela|catamaran|voilier)\b/.test(lowerUrl)
           ? "sailboat"
-          : /\/(?:motornaplovila|motor-boats?|motorboats?|power|powerboats?)\b/.test(lowerUrl)
+          : /\/(?:motornaplovila|motor-boats?|motorboats?|power|powerboats?|motoryacht|flybridge|rib)\b/.test(lowerUrl)
             ? "powerboat"
             : "auto";
       await processListingUrl(u, site, hintType);
@@ -2369,6 +3366,13 @@ Deno.serve(async (req) => {
       }
       let links = extractListingLinks(indexHtml, catUrl, cat.site);
       if (cat.titleFilter) links = links.filter((l) => cat.titleFilter!(l.title));
+      if (cat.site === "findaly.co") {
+        if (cat.boatType === "sailboat") {
+          links = links.filter((l) => !/\bmy\d|motor|motoryacht\b/i.test(l.title));
+        } else if (cat.boatType === "powerboat") {
+          links = links.filter((l) => /\bmy\d|motor|motoryacht|fly\b/i.test(l.title));
+        }
+      }
       if (cat.site === "scanboat.com") {
         if (cat.boatType === "sailboat") {
           links = links.filter((l) => /\/sailingboat-/i.test(l.url));
