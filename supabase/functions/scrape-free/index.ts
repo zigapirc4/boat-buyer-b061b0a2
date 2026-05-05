@@ -2036,6 +2036,28 @@ function normalizeAiBreakdownAndRecommendations(
   };
 }
 
+/** Avoid oversized / noisy JSON in the ai_details prompt (tokens + parse failures). */
+function slimSpecsForAiDetails(specs: Record<string, unknown>): Record<string, unknown> {
+  const skip = new Set(["field_confidence", "field_source", "image_urls", "ai_details", "ai_validation"]);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(specs)) {
+    if (skip.has(k)) continue;
+    if (k === "equipment" && Array.isArray(v)) {
+      out[k] = v.slice(0, 45).map((item) => {
+        if (typeof item !== "string") return item;
+        return item.length > 240 ? `${item.slice(0, 240)}…` : item;
+      });
+      continue;
+    }
+    if (typeof v === "string" && v.length > 900) {
+      out[k] = `${v.slice(0, 900)}…`;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
 function sanitizeAiBoatDetails(
   input: unknown,
   boatType: "sailboat" | "powerboat" | null,
@@ -2101,6 +2123,48 @@ function sanitizeAiBoatDetails(
   return normalizeAiBreakdownAndRecommendations(normalized, boatType);
 }
 
+function buildFallbackAiBoatDetails(input: {
+  boatType: "sailboat" | "powerboat" | null;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+}): AiBoatDetails {
+  const price = input.core.price_eur ?? 0;
+  const spread = Math.max(Math.round(price * 0.12), price > 0 ? 1500 : 0);
+  const low = Math.max(0, Math.round(price - spread));
+  const high = Math.max(low, Math.round(price + spread));
+  const obj = {
+    score: 52,
+    verdict: "Fair Deal",
+    confidence_score: 28,
+    price_assessment:
+      "Automated AI scoring did not complete (timeout or API error). Bands below are rough placeholders from the scraped asking price only — not a full market analysis. Retry import or open Evaluate after saving.",
+    fair_price_low: low,
+    fair_price_high: high,
+    target_offer: Math.max(0, Math.round(price - spread * 0.35)),
+    walk_away_price: Math.round(price + spread * 1.15),
+    offer_range: {
+      aggressive: Math.max(0, Math.round(price - spread * 0.55)),
+      realistic: Math.max(0, Math.round(price - spread * 0.22)),
+      safe: Math.round(price + spread * 0.08),
+    },
+    negotiation_anchors: ["Survey before commitment", "Verify engine hours and service records", "Budget for deferred maintenance"],
+    recommendations: [
+      "The importer could not finish AI analysis — try again in a few minutes if you need full scoring.",
+      "Treat price bands as placeholders until automated evaluation succeeds.",
+      "Compare similar listings manually; placeholder scores do not replace inspection.",
+    ],
+    estimated_repair_cost: 0,
+    repair_breakdown: [] as Array<{ label: string; estimate: number; note?: string }>,
+    categories: [] as Array<{ name: string; score: number; max_score: number; details: string; icon: string }>,
+    condition: { engine: "unknown", hull: "unknown", sails: "unknown" },
+    known_issues: [] as string[],
+    recent_work: [] as string[],
+    equipment_highlights: [] as string[],
+    negotiating_tips: [] as string[],
+  };
+  const done = sanitizeAiBoatDetails(obj, input.boatType);
+  return done!;
+}
+
 async function generateAiBoatDetails(input: {
   url: string;
   boatType: "sailboat" | "powerboat" | null;
@@ -2109,32 +2173,6 @@ async function generateAiBoatDetails(input: {
   raw: { description: string; full_text: string };
 }): Promise<AiBoatDetails | null> {
   if (!OPENAI_API_KEY) return null;
-  const systemPrompt = `Buyer-side boat analyst. Output JSON only.
-Use only given data; no seller-friendly framing.
-Schema keys required:
-score, verdict, confidence_score, price_assessment, fair_price_low, fair_price_high, target_offer, walk_away_price, offer_range{aggressive,realistic,safe}, negotiation_anchors, recommendations, estimated_repair_cost, repair_breakdown[{label,estimate,note}], categories[{name,score,max_score,details,icon}], condition{engine,hull,sails}, known_issues, recent_work, equipment_highlights, negotiating_tips.
-Rules:
-- categories: EXACTLY 5 items.
-- sailboat category names exactly: Market Position; Sails & Rigging; Hull & Structure; Equipment & Comfort; Ownership Risk.
-- powerboat category names exactly: Market Position; Engine & Propulsion; Hull & Structure; Equipment & Comfort; Ownership Risk.
-- each category details: 1-2 sentences.
-- recommendations: 3-5 items.
-- recommendations must be specific, non-generic, and reference concrete listing risks/specs.
-- Score must be fully evidence-driven and may use the full 0-100 range; avoid central clustering.
-- Different listings must receive meaningfully different scores when risk/reward evidence differs.
-- Do NOT use fixed caps (no hard cap rules); reflect uncertainty through confidence_score and category details instead.
-- Scoring focus (most important first): structural/engine risk, maintenance evidence, completeness/quality of specs, equipment quality, pricing vs condition, age/depreciation, and data reliability.
-- Sparse specs, vague description, or missing critical maintenance context should reduce score and confidence, but not force an artificial default band.
-- price_assessment, fair_price range, and recommendations must be coherent with the final score.
-- category scores must not be near-identical unless evidence truly supports that.
-- Do NOT inflate score for brand prestige alone.
-- Keep reasoning buyer-protective but realistic (avoid automatic pessimism).`;
-
-  const userPrompt = `u:${input.url}
-core:${JSON.stringify(input.core)}
-specs:${JSON.stringify(input.specs)}
-desc:${input.raw.description || ""}
-text:${input.raw.full_text.slice(0, 3500)}`;
 
   const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
     try {
@@ -2161,7 +2199,49 @@ text:${input.raw.full_text.slice(0, 3500)}`;
     }
   };
 
-  try {
+  const attemptOnce = async (): Promise<AiBoatDetails | null> => {
+  const systemPrompt = `Buyer-side boat analyst. Output JSON only.
+Use only given data; no seller-friendly framing.
+Schema keys required:
+score, verdict, confidence_score, price_assessment, fair_price_low, fair_price_high, target_offer, walk_away_price, offer_range{aggressive,realistic,safe}, negotiation_anchors, recommendations, estimated_repair_cost, repair_breakdown[{label,estimate,note}], categories[{name,score,max_score,details,icon}], condition{engine,hull,sails}, known_issues, recent_work, equipment_highlights, negotiating_tips.
+Rules:
+- categories: EXACTLY 5 items.
+- sailboat category names exactly: Market Position; Sails & Rigging; Hull & Structure; Equipment & Comfort; Ownership Risk.
+- powerboat category names exactly: Market Position; Engine & Propulsion; Hull & Structure; Equipment & Comfort; Ownership Risk.
+- each category details: 1-2 sentences.
+- recommendations: 3-5 items.
+- recommendations must be specific, non-generic, and reference concrete listing risks/specs.
+- Score must be fully evidence-driven and may use the full 0-100 range; avoid central clustering.
+- Different listings must receive meaningfully different scores when risk/reward evidence differs.
+- Do NOT use fixed caps (no hard cap rules); reflect uncertainty through confidence_score and category details instead.
+- Scoring focus (most important first): structural/engine risk, maintenance evidence, completeness/quality of specs, equipment quality, pricing vs condition, age/depreciation, and data reliability.
+- Sparse specs, vague description, or missing critical maintenance context should reduce score and confidence, but not force an artificial default band.
+- price_assessment, fair_price range, and recommendations must be coherent with the final score.
+- category scores must not be near-identical unless evidence truly supports that.
+- Do NOT inflate score for brand prestige alone.
+- Keep reasoning buyer-protective but realistic (avoid automatic pessimism).`;
+
+    let specsPayload: Record<string, unknown> = slimSpecsForAiDetails(input.specs || {});
+    let userPrompt = JSON.stringify({
+      url: input.url,
+      core: input.core,
+      specs: specsPayload,
+      description: (input.raw.description || "").slice(0, 4500),
+      full_text_excerpt: input.raw.full_text.slice(0, 3500),
+    });
+    if (userPrompt.length > 48000) {
+      specsPayload = slimSpecsForAiDetails(
+        Object.fromEntries(Object.entries(specsPayload).slice(0, 25)),
+      );
+      userPrompt = JSON.stringify({
+        url: input.url,
+        core: input.core,
+        specs: specsPayload,
+        description: (input.raw.description || "").slice(0, 3200),
+        full_text_excerpt: input.raw.full_text.slice(0, 2800),
+      });
+    }
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -2195,6 +2275,15 @@ text:${input.raw.full_text.slice(0, 3500)}`;
       return null;
     }
     return sanitizeAiBoatDetails(parsed, input.boatType);
+  };
+
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 450 * attempt));
+      const got = await attemptOnce();
+      if (got) return got;
+    }
+    return null;
   } catch (e) {
     console.log(`[scrape-free] ai details generation failed for ${input.url}: ${e}`);
     return null;
@@ -3577,15 +3666,23 @@ Deno.serve(async (req) => {
           mergeSpec(parsed.flexible.specs, "model", aiBrandModel.model);
         }
       }
-      const aiDetails = await generateAiBoatDetails({
+      let aiDetailsUsedFallback = false;
+      let aiDetails = await generateAiBoatDetails({
         url: linkUrl,
         boatType: parsed.boat_type,
         core: parsed.flexible.core,
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
+      if (!aiDetails && requestedUrls.length > 0 && parsed.boat_type) {
+        aiDetails = buildFallbackAiBoatDetails({
+          boatType: parsed.boat_type,
+          core: parsed.flexible.core,
+        });
+        aiDetailsUsedFallback = true;
+        console.log(`[scrape-free] ai_details fallback used for targeted import ${linkUrl}`);
+      }
       if (!aiDetails) {
-        // Hard gate: if we cannot build evaluation payload, skip persistence.
         stats.skipped++;
         if (requestedUrls.length > 0) {
           targetedResults.push({
@@ -3601,6 +3698,7 @@ Deno.serve(async (req) => {
       row.specs_raw = {
         ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
         ai_details: aiDetails,
+        ...(aiDetailsUsedFallback ? { ai_details_fallback: true } : {}),
       };
       parsed.flexible.specs.ai_details = aiDetails;
       const segment = await classifyBoatSegmentWithAi({
