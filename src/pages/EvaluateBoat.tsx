@@ -21,7 +21,7 @@ import {
 } from "@/lib/negotiation";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { normalizeListingUrl } from "@scrapeShared/listingSites";
+import { cachedListingUrlVariants, normalizeListingUrl } from "@scrapeShared/listingSites";
 
 interface SimilarBoat {
   title: string;
@@ -186,7 +186,7 @@ const EvaluateBoat = () => {
         .select(
           "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
         )
-        .eq("url", normalizedUrl)
+        .in("url", cachedListingUrlVariants(normalizedUrl))
         .limit(1)
         .maybeSingle();
 
@@ -377,7 +377,12 @@ const EvaluateBoat = () => {
   };
 
   const openEvaluateFromReference = async (url: string) => {
-    const { data } = await supabase.from("cached_listings").select("*").eq("url", url).limit(1).maybeSingle();
+    const { data } = await supabase
+      .from("cached_listings")
+      .select("*")
+      .in("url", cachedListingUrlVariants(url))
+      .limit(1)
+      .maybeSingle();
     if (!data) {
       toast({ title: "Boat not found", description: "Could not load boat details from cache.", variant: "destructive" });
       return;

@@ -52,3 +52,16 @@ export function detectScrapeFreeTargetSite(rawUrl: string): ScrapeFreeTargetSite
 export function supportedListingSitesHumanList(): string {
   return SCRAPE_FREE_TARGET_SITE_SUFFIXES.join(", ");
 }
+
+/** Matches rows saved as `.../608427` vs `.../608427/` (same listing). */
+export function cachedListingUrlVariants(url: string): string[] {
+  const base = url.trim().split("#")[0];
+  const set = new Set<string>();
+  set.add(base);
+  const stripped = base.replace(/\/+$/, "");
+  if (stripped.length > 8) {
+    set.add(stripped);
+    set.add(`${stripped}/`);
+  }
+  return [...set];
+}

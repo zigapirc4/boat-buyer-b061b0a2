@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
+  cachedListingUrlVariants,
   detectScrapeFreeTargetSite,
   normalizeListingUrl,
   supportedListingSitesHumanList,
@@ -175,7 +176,12 @@ const OwnershipCost = () => {
 
       let row: Record<string, unknown> | null = null;
       for (let i = 0; i < 36; i++) {
-        const { data: cached } = await supabase.from("cached_listings").select("*").eq("url", targetUrl).maybeSingle();
+        const { data: cached } = await supabase
+          .from("cached_listings")
+          .select("*")
+          .in("url", cachedListingUrlVariants(targetUrl))
+          .limit(1)
+          .maybeSingle();
         if (cached) {
           row = cached as Record<string, unknown>;
           break;

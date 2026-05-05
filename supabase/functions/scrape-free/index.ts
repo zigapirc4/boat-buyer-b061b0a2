@@ -6,6 +6,8 @@
 // blocket.se, findaly.co, yachtall.com, nautano.com.
 // Pagination matches the existing CATEGORY_PAGES config.
 
+import { cachedListingUrlVariants } from "../_shared/listingSites.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -3107,17 +3109,20 @@ async function getCachedListingRow(
   supabaseKey: string,
   url: string,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(url)}&select=*&limit=1`,
-      { headers: { Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey } },
-    );
-    if (!res.ok) return null;
-    const rows = await res.json();
-    return Array.isArray(rows) && rows[0] ? (rows[0] as Record<string, unknown>) : null;
-  } catch {
-    return null;
+  for (const u of cachedListingUrlVariants(url)) {
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(u)}&select=*&limit=1`,
+        { headers: { Authorization: `Bearer ${supabaseKey}`, apikey: supabaseKey } },
+      );
+      if (!res.ok) continue;
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows[0]) return rows[0] as Record<string, unknown>;
+    } catch {
+      /* next variant */
+    }
   }
+  return null;
 }
 
 function flexibleListingFromCachedRow(row: Record<string, unknown>): {
@@ -3281,6 +3286,7 @@ Deno.serve(async (req) => {
     data: any;
     status: "insert" | "update" | "skip" | "error";
     source: "scrape-free";
+    reason?: string;
   }> = [];
 
   const perSiteTimeoutMs = (site: string): number => {
@@ -3308,6 +3314,7 @@ Deno.serve(async (req) => {
               data: flexibleListingFromCachedRow(cachedRow),
               status: "skip",
               source: "scrape-free",
+              reason: "skipped_existing",
             });
           }
           return;

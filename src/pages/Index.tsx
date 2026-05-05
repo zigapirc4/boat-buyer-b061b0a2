@@ -35,6 +35,7 @@ import { evaluate, type BoatType } from "@/lib/evaluateBoat";
 import { useToast } from "@/hooks/use-toast";
 import { BUYER_GUIDES } from "@/lib/buyerGuides";
 import {
+  cachedListingUrlVariants,
   detectScrapeFreeTargetSite,
   normalizeListingUrl,
   supportedListingSitesHumanList,
@@ -374,9 +375,14 @@ const Index = () => {
   };
 
   const handleNavigateToListing = async (url: string, initialTab: "details" | "evaluate" | "costs" = "details") => {
-    let target = listings.find((l) => l.url === url) || null;
+    let target = listings.find((l) => l.url === url || cachedListingUrlVariants(url).includes(l.url)) || null;
     if (!target) {
-      const { data } = await supabase.from("cached_listings").select("*").eq("url", url).limit(1).maybeSingle();
+      const { data } = await supabase
+        .from("cached_listings")
+        .select("*")
+        .in("url", cachedListingUrlVariants(url))
+        .limit(1)
+        .maybeSingle();
       if (data) target = data as CachedListing;
     }
     if (!target) return;
@@ -432,7 +438,7 @@ const Index = () => {
         const { data } = await supabase
           .from("cached_listings")
           .select("*")
-          .eq("url", targetUrl)
+          .in("url", cachedListingUrlVariants(targetUrl))
           .limit(1)
           .maybeSingle();
         return data as CachedListing | null;
@@ -441,7 +447,7 @@ const Index = () => {
       const { data: existing } = await supabase
         .from("cached_listings")
         .select("*")
-        .eq("url", normalizedUrl)
+        .in("url", cachedListingUrlVariants(normalizedUrl))
         .limit(1)
         .maybeSingle();
 
