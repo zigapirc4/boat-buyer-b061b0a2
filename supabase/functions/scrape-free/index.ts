@@ -2408,12 +2408,29 @@ Rules (strict, conservative):
 function normalizeAiLocation(raw: string | null | undefined): string | null {
   if (!raw || typeof raw !== "string") return null;
   const clean = raw.replace(/\s+/g, " ").trim();
-  const parts = clean.split("->").map((p) => p.trim()).filter(Boolean);
-  if (parts.length !== 2) return null;
-  const [country, city] = parts;
-  if (country.length < 2 || city.length < 2) return null;
-  if (country.length > 60 || city.length > 80) return null;
-  return `${country}->${city}`;
+  if (!clean) return null;
+
+  if (clean.includes("->")) {
+    const parts = clean.split("->").map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 2) {
+      const [country, city] = parts;
+      if (country.length < 2 || city.length < 2) return null;
+      if (country.length > 60 || city.length > 80) return null;
+      if (!/[a-z]/i.test(country)) return null;
+      return `${country}->${city}`;
+    }
+    // "Germany->" style → country only
+    if (parts.length === 1 && parts[0].length >= 2 && parts[0].length <= 60 && /[a-z]/i.test(parts[0])) {
+      return parts[0];
+    }
+    return null;
+  }
+
+  // Country only (no city / no arrow)
+  if (clean.length >= 2 && clean.length <= 60 && /[a-z]/i.test(clean)) {
+    return clean;
+  }
+  return null;
 }
 
 function normalizeAiBrandModel(raw: unknown): { brand: string | null; model: string | null } {
@@ -2594,12 +2611,15 @@ async function inferLocationWithAi(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<string | null> {
-  const systemPrompt = `Extract boat location. Output JSON only: {"location":"Country->City"}.
-Rules:
-- format strictly Country->City
-- use best inferred country and city from listing text/specs
-- no region, no postal code, no extra text
-- if uncertain, return {"location":""}`;
+  const systemPrompt = `Extract boat location. Output JSON only: {"location":"..."}.
+
+Format (pick one):
+- If both country and a plausible city/locality are known: use exactly "Country->City" (English names preferred).
+- If only the country is known or the city cannot be inferred reliably: return ONLY the country name (no "->", no comma suffix).
+- Do not invent a city to satisfy a pattern.
+- Omit region and postal codes from the string.
+- URL locale/path may hint country (e.g. /si/ …) when it matches the listing text.
+- If completely uncertain, return {"location":""}.`;
   const userPrompt = `d:${JSON.stringify({
     link: input.url,
     current_location: input.currentLocation,
@@ -2613,6 +2633,14 @@ Rules:
     try {
       return JSON.parse(rawContent);
     } catch {
+      const fenced = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/```\s*([\s\S]*?)```/i);
+      if (fenced?.[1]) {
+        try {
+          return JSON.parse(fenced[1].trim());
+        } catch {
+          /* continue */
+        }
+      }
       const first = rawContent.indexOf("{");
       const last = rawContent.lastIndexOf("}");
       if (first >= 0 && last > first) {
