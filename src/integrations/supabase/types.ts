@@ -55,6 +55,7 @@ export type Database = {
           model: string | null
           price_eur: number | null
           scraped_at: string
+          segment: string | null
           source: string | null
           specs_raw: Json | null
           title: string
@@ -80,6 +81,7 @@ export type Database = {
           model?: string | null
           price_eur?: number | null
           scraped_at?: string
+          segment?: string | null
           source?: string | null
           specs_raw?: Json | null
           title: string
@@ -105,6 +107,7 @@ export type Database = {
           model?: string | null
           price_eur?: number | null
           scraped_at?: string
+          segment?: string | null
           source?: string | null
           specs_raw?: Json | null
           title?: string

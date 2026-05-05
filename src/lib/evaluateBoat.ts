@@ -1,6 +1,22 @@
 const currentYear = new Date().getFullYear();
 
 export type BoatType = "sailboat" | "powerboat";
+export type SailboatSegment =
+  | "cruiser"
+  | "performance_cruiser"
+  | "racing"
+  | "catamaran"
+  | "luxury_cruiser"
+  | "project";
+export type MotorboatSegment =
+  | "motor_cruiser"
+  | "flybridge"
+  | "sport_boat"
+  | "tender"
+  | "rib"
+  | "luxury_yacht"
+  | "project";
+export type BoatSegment = SailboatSegment | MotorboatSegment;
 
 export interface EvalCategory {
   name: string;
@@ -53,6 +69,8 @@ export interface EvalResult {
 
 export interface BoatData {
   boatType: BoatType;
+  segment?: BoatSegment | null;
+  conditionScore?: number;
   year: number;
   price: number;
   lengthFt: number;
@@ -75,6 +93,8 @@ export interface BoatData {
     location?: string | null;
     engine_info?: string | null;
     description?: string;
+    segment?: string | null;
+    condition_score?: number | null;
   }[];
 }
 
@@ -99,6 +119,8 @@ function percentile(values: number[], p: number): number {
 export function evaluate(data: BoatData): EvalResult {
   const {
     boatType,
+    segment,
+    conditionScore,
     year,
     price,
     lengthFt,
@@ -234,69 +256,62 @@ export function evaluate(data: BoatData): EvalResult {
   categories.push({ name: "Engine", score: engineScore, maxScore: engineMax, details: engineDetail, icon: "⚙️" });
 
   // 3. Price/Value (max 25)
-  const pricePerFoot = price / lengthFt;
+  const lengthM = Math.max(0.1, lengthFt * 0.3048);
+  const pricePerMeter = price / lengthM;
   let valueScore = 25;
   let valueDetail = "";
 
-  // Market rate analysis — prefer real comparable listings (same type, ±2 years)
+  // Market rate analysis based on cohort:
+  // segment + year + length + condition score proximity.
   const comparableRows = (comparables || []).filter((c) => c.price_eur > 0 && c.length_feet > 0);
-  const comparableCount = comparableRows.length;
-  let expectedPpf: number;
-  if (comparableCount >= 3) {
-    const ppfs = comparableRows.map((c) => c.price_eur / c.length_feet);
-    const q1 = percentile(ppfs, 0.25);
-    const q3 = percentile(ppfs, 0.75);
-    const iqr = q3 - q1;
-    const lower = q1 - 1.5 * iqr;
-    const upper = q3 + 1.5 * iqr;
-    const filtered = ppfs.filter((v) => v >= lower && v <= upper);
-    expectedPpf = median(filtered.length >= 3 ? filtered : ppfs);
-  } else {
-    // Fallback to hardcoded estimates
-    expectedPpf =
-      boatType === "powerboat"
-        ? age <= 5
-          ? 4000
-          : age <= 10
-            ? 2800
-            : age <= 20
-              ? 1800
-              : age <= 30
-                ? 1000
-                : 600
-        : age <= 5
-          ? 3500
-          : age <= 10
-            ? 2500
-            : age <= 20
-              ? 1500
-              : age <= 30
-                ? 800
-                : 400;
+  const strictCohort = comparableRows.filter((c) => {
+    const segOk = !segment || !c.segment || c.segment === segment;
+    const yearOk = !c.year || Math.abs(c.year - year) <= 3;
+    const lenOk = Math.abs(c.length_feet - lengthFt) <= 2.5;
+    const condOk =
+      conditionScore === undefined || conditionScore === null || c.condition_score === null || c.condition_score === undefined
+        ? true
+        : Math.abs(c.condition_score - conditionScore) <= 15;
+    return segOk && yearOk && lenOk && condOk;
+  });
+  const relaxedCohort = comparableRows.filter((c) => {
+    const segOk = !segment || !c.segment || c.segment === segment;
+    const yearOk = !c.year || Math.abs(c.year - year) <= 5;
+    const lenOk = Math.abs(c.length_feet - lengthFt) <= 4;
+    return segOk && yearOk && lenOk;
+  });
+  const cohort = strictCohort.length >= 4 ? strictCohort : relaxedCohort;
+  const comparableCount = cohort.length;
+
+  const comparablePpm = cohort.map((c) => c.price_eur / (c.length_feet * 0.3048)).filter((v) => Number.isFinite(v) && v > 0);
+  let fairLow = 0;
+  let fairHigh = 0;
+  let fairMid = 0;
+  let priceRatio = 1;
+  if (comparablePpm.length >= 4) {
+    fairLow = percentile(comparablePpm, 0.25);
+    fairMid = median(comparablePpm);
+    fairHigh = percentile(comparablePpm, 0.75);
+    priceRatio = pricePerMeter / Math.max(1, fairMid);
   }
 
-  const priceRatio = pricePerFoot / expectedPpf;
-  const expectedTotalPrice = expectedPpf * lengthFt;
-
-  if (priceRatio <= 0.6) {
-    valueScore = 25;
-    valueDetail = `€${Math.round(pricePerFoot).toLocaleString()}/ft — significantly below market (${Math.round((1 - priceRatio) * 100)}% under)`;
-    recommendations.push("🔍 Price is very low — inspect thoroughly for hidden problems");
-    recommendations.push("Check for liens, outstanding debts, or title issues");
-  } else if (priceRatio <= 0.85) {
-    valueScore = 23;
-    valueDetail = `€${Math.round(pricePerFoot).toLocaleString()}/ft — good value, below market average`;
-    recommendations.push("Good price — still negotiate, sellers often have 10–15% margin");
-  } else if (priceRatio <= 1.15) {
-    valueScore = 18;
-    valueDetail = `€${Math.round(pricePerFoot).toLocaleString()}/ft — market-rate pricing`;
-  } else if (priceRatio <= 1.4) {
+  if (comparablePpm.length < 4) {
     valueScore = 12;
-    valueDetail = `€${Math.round(pricePerFoot).toLocaleString()}/ft — above market (${Math.round((priceRatio - 1) * 100)}% over)`;
+    valueDetail = "Insufficient comparable boats for robust cohort pricing";
+  } else if (priceRatio <= 0.85) {
+    valueScore = 25;
+    valueDetail = `€${Math.round(pricePerMeter).toLocaleString()}/m is below cohort median (segment/size/year/condition)`;
+    recommendations.push("Good price — still negotiate, sellers often have 10–15% margin");
+  } else if (priceRatio <= 1.15 && pricePerMeter <= fairHigh) {
+    valueScore = 18;
+    valueDetail = `€${Math.round(pricePerMeter).toLocaleString()}/m is within fair cohort range`;
+  } else if (priceRatio <= 1.35) {
+    valueScore = 12;
+    valueDetail = `€${Math.round(pricePerMeter).toLocaleString()}/m is above similar boats`;
     recommendations.push("Price is above average — negotiate or verify premium features justify the cost");
   } else {
     valueScore = 5;
-    valueDetail = `€${Math.round(pricePerFoot).toLocaleString()}/ft — significantly overpriced (${Math.round((priceRatio - 1) * 100)}% over market)`;
+    valueDetail = `€${Math.round(pricePerMeter).toLocaleString()}/m is strongly above comparable cohort`;
     recommendations.push("Price is well above market — strong negotiation recommended");
   }
 
@@ -378,16 +393,16 @@ export function evaluate(data: BoatData): EvalResult {
   }
 
   // 5. Overall Condition (max 10) — inferred from hull, age, description
-  let conditionScore = 10;
+  let conditionCategoryScore = 10;
   let conditionDetail = "";
   if (hull === "good" && age <= 25) {
-    conditionScore = 10;
+    conditionCategoryScore = 10;
     conditionDetail = `Well-maintained${hullMaterial ? ` ${hullMaterial}` : ""} hull, good overall condition`;
   } else if (hull === "good") {
-    conditionScore = 8;
+    conditionCategoryScore = 8;
     conditionDetail = `Hull sound; age (${age}yr) can still be fine if maintenance and upgrades are documented`;
   } else if (hull === "osmosis") {
-    conditionScore = 3;
+    conditionCategoryScore = 3;
     conditionDetail = "Osmosis detected — costly treatment needed";
     recommendations.push("Osmosis treatment: €3,000–8,000 depending on severity and boat size");
     estimatedRepairCost += 5000;
@@ -397,7 +412,7 @@ export function evaluate(data: BoatData): EvalResult {
       note: "Peel, dry-out, barrier recoating",
     });
   } else {
-    conditionScore = 1;
+    conditionCategoryScore = 1;
     conditionDetail = "Hull damage — structural integrity at risk";
     recommendations.push("Get a hull survey ASAP; repair costs €5,000–20,000+");
     estimatedRepairCost += 12000;
@@ -409,7 +424,7 @@ export function evaluate(data: BoatData): EvalResult {
   }
   categories.push({
     name: "Overall Condition",
-    score: conditionScore,
+    score: conditionCategoryScore,
     maxScore: 10,
     details: conditionDetail,
     icon: "🔍",
@@ -446,16 +461,16 @@ export function evaluate(data: BoatData): EvalResult {
 
   // Price assessment summary
   let priceAssessment = "";
-  if (priceRatio <= 0.6) {
-    priceAssessment = "🔍 Very low price — proceed with caution, inspect thoroughly";
+  if (comparablePpm.length < 4) {
+    priceAssessment = "⚪ Not enough similar boats for reliable overpriced verdict";
   } else if (priceRatio <= 0.85) {
     priceAssessment = "👍 Below market — potential bargain if condition checks out";
-  } else if (priceRatio <= 1.15) {
-    priceAssessment = "✅ Market-rate pricing for this size and age";
-  } else if (priceRatio <= 1.4) {
-    priceAssessment = "💰 Above market — negotiate or verify premium features";
+  } else if (priceRatio <= 1.15 && pricePerMeter <= fairHigh) {
+    priceAssessment = "✅ Fair pricing vs boats with similar segment/length/year/condition";
+  } else if (priceRatio <= 1.35) {
+    priceAssessment = "💰 Somewhat overpriced vs comparable cohort";
   } else {
-    priceAssessment = "⚠️ Significantly overpriced for comparable boats";
+    priceAssessment = "⚠️ Overpriced vs comparable segment/length/year/condition cohort";
   }
 
   totalScore = Math.max(0, Math.min(100, totalScore));
@@ -491,13 +506,12 @@ export function evaluate(data: BoatData): EvalResult {
   if ((knownIssues && knownIssues.length > 0) || (recentWork && recentWork.length > 0)) confidence += 7;
   const confidenceScore = Math.max(0, Math.min(100, confidence));
   const confidenceDetails =
-    comparableCount >= 3
-      ? `Based on ${comparableCount} comparable listings and extracted technical details`
-      : `Limited comparables (${comparableCount}); price analysis relies more on fallback market curves`;
+    comparableCount >= 4
+      ? `Based on ${comparableCount} boats matched by segment, size, year, and condition`
+      : `Limited cohort matches (${comparableCount}) for segment/size/year/condition pricing`;
 
-  const fairBandPct = comparableCount >= 10 ? 0.1 : comparableCount >= 5 ? 0.15 : 0.25;
-  const fairPriceLow = Math.max(0, Math.round(expectedTotalPrice * (1 - fairBandPct)));
-  const fairPriceHigh = Math.max(fairPriceLow, Math.round(expectedTotalPrice * (1 + fairBandPct)));
+  const fairPriceLow = comparablePpm.length >= 4 ? Math.max(0, Math.round(fairLow * lengthM)) : Math.max(0, Math.round(price * 0.85));
+  const fairPriceHigh = comparablePpm.length >= 4 ? Math.max(fairPriceLow, Math.round(fairHigh * lengthM)) : Math.max(fairPriceLow, Math.round(price * 1.15));
   const repairNegotiationBuffer = Math.round(estimatedRepairCost * 0.3);
   const marketNegotiationBuffer = Math.round(fairPriceLow * 0.05);
   const rawTargetOffer = Math.max(0, fairPriceLow - Math.max(repairNegotiationBuffer, marketNegotiationBuffer));
@@ -554,7 +568,7 @@ export function evaluate(data: BoatData): EvalResult {
     negotiationAnchors.push("Hull material is unknown, which increases uncertainty on structural risk and maintenance.");
   }
   if (comparableCount < 3) {
-    negotiationAnchors.push("Comparable listings are limited, so offer should stay conservative.");
+    negotiationAnchors.push("Cohort matches are limited for segment/size/year/condition, so keep negotiation conservative.");
   }
 
   const driverCandidates: ScoreDriver[] = [
@@ -565,7 +579,11 @@ export function evaluate(data: BoatData): EvalResult {
       type: engineScore >= Math.round(engineMax * 0.6) ? "positive" : "negative",
     },
     { label: "Value vs market comps", impact: valueScore - 15, type: valueScore >= 15 ? "positive" : "negative" },
-    { label: "Overall condition", impact: conditionScore - 5, type: conditionScore >= 5 ? "positive" : "negative" },
+    {
+      label: "Overall condition",
+      impact: conditionCategoryScore - 5,
+      type: conditionCategoryScore >= 5 ? "positive" : "negative",
+    },
   ];
   const scoreDrivers = driverCandidates
     .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
@@ -592,11 +610,11 @@ export function evaluate(data: BoatData): EvalResult {
     },
     {
       field: "Market comparables",
-      status: comparableCount >= 3 ? "available" : "inferred",
+      status: comparableCount >= 4 ? "available" : "inferred",
       note:
-        comparableCount >= 3
-          ? `${comparableCount} comparable listings used`
-          : "Fallback market curve used due to low comparable count",
+        comparableCount >= 4
+          ? `${comparableCount} cohort-matched listings used`
+          : "Too few cohort matches (segment/length/year/condition)",
     },
   ];
 

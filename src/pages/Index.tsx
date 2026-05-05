@@ -54,6 +54,7 @@ interface CachedListing {
   title: string;
   url: string;
   boat_type: string | null;
+  segment?: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
@@ -704,6 +705,7 @@ const Index = () => {
     const inferredSails = listing.boat_type === "powerboat" ? "none" : "average";
     const evalScore = evaluate({
       boatType: (listing.boat_type === "powerboat" ? "powerboat" : "sailboat") as BoatType,
+      segment: listing.segment || null,
       year: listing.year,
       price: Number(listing.price_eur),
       lengthFt: Number(listing.length_feet),

@@ -23,6 +23,7 @@ interface CachedListing {
   title: string;
   url: string;
   boat_type: string;
+  segment?: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
@@ -38,6 +39,7 @@ interface CachedListing {
   equipment?: string[] | null;
   source: string | null;
   scraped_at: string;
+  specs_raw?: any;
 }
 
 interface SimilarBoat {
@@ -366,6 +368,14 @@ interface BoatDetailModalProps {
   onNavigateToListing?: (url: string, initialTab?: "details" | "evaluate" | "costs") => void;
 }
 
+function formatSegmentLabel(segment: string): string {
+  return segment
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export const BoatDetailModal = ({
   listing,
   open,
@@ -394,6 +404,7 @@ export const BoatDetailModal = ({
     recentWork?: string[];
     equipmentHighlights?: string[];
     descriptionSummary?: string;
+    aiDetails?: any;
   }>({});
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -435,6 +446,21 @@ export const BoatDetailModal = ({
 
   // The effective listing (enriched if available, else original)
   const effective = enrichedListing || listing;
+
+  useEffect(() => {
+    const ai = effective?.specs_raw?.ai_details;
+    if (!ai) return;
+    setEnrichedExtras((prev) => ({
+      ...prev,
+      aiDetails: ai,
+      engineCondition: prev.engineCondition || ai?.condition?.engine,
+      hullCondition: prev.hullCondition || ai?.condition?.hull,
+      sailsCondition: prev.sailsCondition || ai?.condition?.sails,
+      knownIssues: prev.knownIssues || ai?.known_issues,
+      recentWork: prev.recentWork || ai?.recent_work,
+      equipmentHighlights: prev.equipmentHighlights || ai?.equipment_highlights,
+    }));
+  }, [effective?.id, effective?.specs_raw]);
 
   // Reset state when listing changes
   useEffect(() => {
@@ -546,30 +572,36 @@ export const BoatDetailModal = ({
         return;
       }
       const d = data.data;
+      const core = d?.core || {};
+      const specs = d?.specs || {};
+      const raw = d?.raw || {};
       setEnrichedListing({
         ...listing,
-        price_eur: listing.price_eur ?? d.price_eur ?? null,
-        year: listing.year ?? d.year ?? null,
-        length_feet: listing.length_feet ?? d.length_feet ?? null,
-        boat_type: listing.boat_type || d.boat_type || "sailboat",
-        hull_material: listing.hull_material ?? d.hull_material ?? null,
-        engine_hours: listing.engine_hours ?? d.engine_hours ?? null,
-        engine_info: listing.engine_info ?? (d.engine_make ? `${d.engine_make} ${d.engine_model || ""} ${d.engine_hp ? d.engine_hp + "hp" : ""}`.trim() : null),
-        cabins: listing.cabins ?? d.cabins ?? null,
-        fuel_type: listing.fuel_type ?? d.engine_type ?? null,
-        location: listing.location ?? d.location ?? null,
-        description: listing.description ?? d.description_summary ?? null,
-        image_url: listing.image_url ?? (d.images?.[0] || null),
-        image_urls: listing.image_urls?.length ? listing.image_urls : (d.images || null),
+        price_eur: listing.price_eur ?? core.price_eur ?? null,
+        year: listing.year ?? core.year ?? null,
+        length_feet: listing.length_feet ?? (core.length_m ? Number(core.length_m) * 3.28084 : null),
+        boat_type: listing.boat_type || specs.boat_type || "sailboat",
+        segment: listing.segment ?? specs.segment ?? null,
+        hull_material: listing.hull_material ?? specs.hull_material ?? null,
+        engine_hours: listing.engine_hours ?? specs.engine_hours ?? null,
+        engine_info: listing.engine_info ?? specs.engine_info ?? null,
+        cabins: listing.cabins ?? specs.cabins ?? null,
+        fuel_type: listing.fuel_type ?? specs.fuel_type ?? null,
+        location: listing.location ?? core.location ?? null,
+        description: listing.description ?? raw.description ?? null,
+        image_url: listing.image_url ?? (Array.isArray(specs.image_urls) ? specs.image_urls[0] : null),
+        image_urls: listing.image_urls?.length ? listing.image_urls : (Array.isArray(specs.image_urls) ? specs.image_urls : null),
+        specs_raw: listing.specs_raw ?? { ai_details: specs.ai_details ?? null },
       });
       setEnrichedExtras({
-        engineCondition: d.engine_condition,
-        hullCondition: d.hull_condition,
-        sailsCondition: d.sails_condition,
-        knownIssues: d.known_issues,
-        recentWork: d.recent_work,
-        equipmentHighlights: d.equipment_highlights,
-        descriptionSummary: d.description_summary,
+        engineCondition: specs?.ai_details?.condition?.engine,
+        hullCondition: specs?.ai_details?.condition?.hull,
+        sailsCondition: specs?.ai_details?.condition?.sails,
+        knownIssues: specs?.ai_details?.known_issues,
+        recentWork: specs?.ai_details?.recent_work,
+        equipmentHighlights: specs?.ai_details?.equipment_highlights,
+        descriptionSummary: raw.description,
+        aiDetails: specs?.ai_details,
       });
     } catch {
       setFetchError("Failed to fetch listing details.");
@@ -679,10 +711,74 @@ export const BoatDetailModal = ({
     setEvalProgress(15);
     setEvalError(null);
     
-    // Infer conditions from listing data
-    const engine = enrichedExtras.engineCondition || inferEngineCondition(effective!.engine_hours, effective!.year, effective!.engine_info);
-    const hull = enrichedExtras.hullCondition || inferHullCondition(effective!.hull_material, effective!.year, effective!.description);
-    const sails = effective!.boat_type === "powerboat" ? "none" : (enrichedExtras.sailsCondition || inferSailsCondition(effective!.year, effective!.description));
+    const ai = enrichedExtras.aiDetails || effective?.specs_raw?.ai_details;
+    if (ai) {
+      const normalizeConfidence = (raw: unknown): number => {
+        const n = Number(raw ?? 50);
+        if (!Number.isFinite(n)) return 50;
+        // Older cached AI payloads sometimes use 0..1 confidence.
+        if (n >= 0 && n <= 1) return Math.round(n * 100);
+        return Math.max(0, Math.min(100, Math.round(n)));
+      };
+      const normalizeCategory = (rawScore: unknown, rawMax: unknown): { score: number; maxScore: number } => {
+        const score = Number(rawScore ?? 0);
+        const maxScore = Number(rawMax ?? 10);
+        const safeScore = Number.isFinite(score) ? score : 0;
+        const safeMax = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 10;
+        // If max is 100 but score looks like 0..10 scale, expand score.
+        if (safeMax >= 100 && safeScore >= 0 && safeScore <= 10) {
+          return { score: Math.round(safeScore * 10), maxScore: safeMax };
+        }
+        return { score: safeScore, maxScore: safeMax };
+      };
+      const mapped: EvalResult = {
+        score: Number(ai.score || 50),
+        verdict: String(ai.verdict || "Fair Deal"),
+        color:
+          Number(ai.score || 50) >= 65 ? "text-success" : Number(ai.score || 50) >= 50 ? "text-warning" : "text-destructive",
+        categories: Array.isArray(ai.categories)
+          ? ai.categories.map((c: any) => ({
+              ...(normalizeCategory(c.score, c.max_score)),
+              name: String(c.name || "Category"),
+              details: String(c.details || ""),
+              icon: String(c.icon || "•"),
+            }))
+          : [],
+        recommendations: Array.isArray(ai.recommendations) ? ai.recommendations : [],
+        priceAssessment: String(ai.price_assessment || ""),
+        estimatedRepairCost: Number(ai.estimated_repair_cost || 0),
+        confidenceScore: normalizeConfidence(ai.confidence_score),
+        confidenceDetails: "Generated by AI during listing sync",
+        fairPriceLow: Number(ai.fair_price_low || 0),
+        fairPriceHigh: Number(ai.fair_price_high || 0),
+        targetOffer: Number(ai.target_offer || 0),
+        scoreDrivers: [],
+        dataQuality: [],
+        offerRange: {
+          aggressive: Number(ai.offer_range?.aggressive || 0),
+          realistic: Number(ai.offer_range?.realistic || 0),
+          safe: Number(ai.offer_range?.safe || 0),
+        },
+        walkAwayPrice: Number(ai.walk_away_price || 0),
+        negotiationAnchors: Array.isArray(ai.negotiation_anchors) ? ai.negotiation_anchors : [],
+        repairEstimateBreakdown: Array.isArray(ai.repair_breakdown)
+          ? ai.repair_breakdown.map((r: any) => ({
+              label: String(r.label || "Repair item"),
+              estimate: Number(r.estimate || 0),
+              note: r.note ? String(r.note) : undefined,
+            }))
+          : [],
+      };
+      setEvalResult(mapped);
+      setEvalProgress(100);
+      setIsEvaluating(false);
+      return;
+    }
+
+    // Fallback (for listings that predate AI sync output)
+    const engine = inferEngineCondition(effective!.engine_hours, effective!.year, effective!.engine_info);
+    const hull = inferHullCondition(effective!.hull_material, effective!.year, effective!.description);
+    const sails = effective!.boat_type === "powerboat" ? "none" : inferSailsCondition(effective!.year, effective!.description);
     try {
       const comparables = await Promise.race([
         fetchComparables(
@@ -713,6 +809,7 @@ export const BoatDetailModal = ({
 
       const result = evaluate({
         boatType: (effective!.boat_type || "sailboat") as BoatType,
+        segment: effective?.segment || effective?.specs_raw?.ai_details?.segment || null,
         year: effective!.year,
         price: effective!.price_eur,
         lengthFt: effective!.length_feet,
@@ -769,6 +866,11 @@ export const BoatDetailModal = ({
   const descriptionPreview = isDescriptionLong
     ? `${descriptionText.slice(0, DESCRIPTION_PREVIEW_LENGTH).trimEnd()}...`
     : descriptionText;
+  const aiRecentWork = Array.isArray(enrichedExtras.aiDetails?.recent_work)
+    ? enrichedExtras.aiDetails.recent_work
+    : Array.isArray(effective?.specs_raw?.ai_details?.recent_work)
+      ? effective.specs_raw.ai_details.recent_work
+      : [];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setImgIndex(0); }}>
@@ -815,6 +917,7 @@ export const BoatDetailModal = ({
             {effective!.year && <span className="text-sm bg-muted px-3 py-1 rounded-full">Year: {effective!.year}</span>}
             {effective!.length_feet && <span className="text-sm bg-muted px-3 py-1 rounded-full">{Number(effective!.length_feet)} ft</span>}
             {effective!.boat_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.boat_type}</span>}
+            {effective!.segment && <span className="text-sm bg-muted px-3 py-1 rounded-full">{formatSegmentLabel(effective!.segment)}</span>}
             {effective!.hull_material && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.hull_material}</span>}
             {effective!.cabins && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.cabins} cabins</span>}
             {effective!.fuel_type && <span className="text-sm bg-muted px-3 py-1 rounded-full capitalize">{effective!.fuel_type}</span>}
@@ -880,11 +983,11 @@ export const BoatDetailModal = ({
             </Card>
           )}
 
-          {/* Recent work from enrichment */}
-          {enrichedExtras.recentWork && enrichedExtras.recentWork.length > 0 && (
+          {/* Recent work from AI analysis */}
+          {aiRecentWork.length > 0 && (
             <Card className="p-3 border-primary/30 bg-primary/5">
               <p className="text-xs font-semibold text-primary mb-1">✅ Recent Work</p>
-              {enrichedExtras.recentWork.map((work, i) => (
+              {aiRecentWork.map((work, i) => (
                 <p key={i} className="text-xs text-muted-foreground">• {work}</p>
               ))}
             </Card>

@@ -11,6 +11,30 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const PLAYWRIGHT_WS_ENDPOINT =
+  Deno.env.get("PLAYWRIGHT_WS_ENDPOINT") ||
+  Deno.env.get("BROWSERLESS_WS_ENDPOINT") ||
+  Deno.env.get("PLAYWRIGHT_CDP_URL") ||
+  "";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
+
+type SailboatSegment =
+  | "cruiser"
+  | "performance_cruiser"
+  | "racing"
+  | "catamaran"
+  | "luxury_cruiser"
+  | "project";
+type MotorboatSegment =
+  | "motor_cruiser"
+  | "flybridge"
+  | "sport_boat"
+  | "tender"
+  | "rib"
+  | "luxury_yacht"
+  | "project";
+type BoatSegment = SailboatSegment | MotorboatSegment;
+
 // ---------- Sources (same rules as scrape-listings-cron CATEGORY_PAGES) ----------
 
 type CategoryPage = {
@@ -167,6 +191,12 @@ function parseLengthFeet(text: string): number | null {
     if (ft > 10 && ft < 200) return Math.round(ft * 10) / 10;
   }
   return null;
+}
+
+function parseNumber(raw: string): number | null {
+  const normalized = raw.replace(/\s/g, "").replace(/[.,](?=\d{3}\b)/g, "");
+  const value = Number.parseFloat(normalized.replace(",", "."));
+  return Number.isFinite(value) ? value : null;
 }
 
 const DECIMAL_NUMBER_RE = /(\d{1,2}(?:[.,]\d{1,2})?)/;
@@ -486,6 +516,40 @@ async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string
   return null;
 }
 
+async function fetchHtmlViaPlaywright(url: string, timeoutMs = 20000): Promise<string | null> {
+  if (!PLAYWRIGHT_WS_ENDPOINT) return null;
+  let browser: any = null;
+  let context: any = null;
+  try {
+    const { chromium } = await import("npm:playwright-core");
+    browser = await chromium.connect(PLAYWRIGHT_WS_ENDPOINT, { timeout: Math.min(timeoutMs, 20000) });
+    context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      locale: "en-US",
+    });
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForTimeout(1000);
+    const html = await page.content();
+    return html && html.length > 500 ? html : null;
+  } catch (e) {
+    console.log(`[scrape-free] playwright failed ${url}: ${e}`);
+    return null;
+  } finally {
+    try {
+      if (context) await context.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (browser) await browser.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -552,6 +616,10 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
   } finally {
     clearTimeout(t);
   }
+
+  // Playwright render path (requires remote websocket endpoint in env).
+  const rendered = await fetchHtmlViaPlaywright(url, Math.max(timeoutMs, 18000));
+  if (rendered) return rendered;
 
   // Fallback: r.jina.ai proxy (free, returns rendered HTML)
   return await fetchHtmlViaProxy(url, timeoutMs);
@@ -1023,8 +1091,8 @@ function extractRichFields(
   return { engine_hours, fuel_type, cabins, hull_material, engine_info };
 }
 
-function sanitizeSpecsRaw(featureMap: Record<string, string>): Record<string, string> | null {
-  const out: Record<string, string> = {};
+function sanitizeSpecsRaw(featureMap: Record<string, string>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
   for (const [kRaw, vRaw] of Object.entries(featureMap)) {
     const key = kRaw.trim().toLowerCase();
     const value = vRaw.trim();
@@ -1044,8 +1112,8 @@ function buildSpecsRawFallback(input: {
   cabins: number | null;
   hull_material: string | null;
   location: string | null;
-}): Record<string, string> | null {
-  const out: Record<string, string> = {};
+}): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
   if (input.year !== null) out.year = String(input.year);
   if (input.length_feet !== null) out.length_feet = String(input.length_feet);
   if (input.engine_info) out.engine_info = input.engine_info;
@@ -1061,6 +1129,457 @@ function buildSpecsRawFallback(input: {
     out.location = input.location;
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+function normalizeSpecKey(key: string): string {
+  return key
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .slice(0, 80);
+}
+
+function cleanSpecValue(raw: unknown): unknown {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number" || typeof raw === "boolean") return raw;
+  if (Array.isArray(raw)) return raw.map((v) => cleanSpecValue(v)).filter((v) => v !== null);
+
+  const text = String(raw).replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  const eurPatterns = [/€\s*([\d.,\s]{3,})/i, /EUR\s*([\d.,\s]{3,})/i, /([\d.,\s]{3,})\s*€/i, /([\d.,\s]{3,})\s*EUR/i];
+  for (const re of eurPatterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    const num = parseNumber(m[1]);
+    if (num && num > 0) return Math.round(num);
+  }
+
+  const ftMatch = text.match(/\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(ft|feet|foot)\b/i);
+  if (ftMatch) {
+    const ft = parseNumber(ftMatch[1]);
+    if (ft && ft > 1) return Math.round(ft * 0.3048 * 100) / 100;
+  }
+
+  const meterMatch = text.match(/\b(\d{1,2}(?:[.,]\d{1,2})?)\s*(m|meter|metre|meters|metres)\b/i);
+  if (meterMatch) {
+    const m = parseNumber(meterMatch[1]);
+    if (m && m > 0) return Math.round(m * 100) / 100;
+  }
+
+  const numericLike = text.match(/^([\d.,\s]{1,20})\s*(?:hp|kw|h|hours?|cm|mm|kg|kn|nm)?$/i);
+  if (numericLike) {
+    const num = parseNumber(numericLike[1]);
+    if (num !== null) return Number.isInteger(num) ? Math.trunc(num) : Number(num.toFixed(2));
+  }
+
+  return text.slice(0, 500);
+}
+
+function mergeSpec(specs: Record<string, unknown>, key: string, value: unknown) {
+  const normalizedKey = normalizeSpecKey(key);
+  if (!normalizedKey) return;
+  const cleaned = cleanSpecValue(value);
+  if (cleaned === null) return;
+  specs[normalizedKey] = cleaned;
+}
+
+function buildFlexibleListingOutput(input: {
+  title: string;
+  price_eur: number | null;
+  year: number | null;
+  length_feet: number | null;
+  location: string | null;
+  description: string | null;
+  full_text: string;
+  dynamicSpecs: Record<string, unknown>;
+}): {
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+} {
+  return {
+    core: {
+      title: String(input.title || "").trim() || "Unknown listing",
+      price_eur: typeof input.price_eur === "number" && Number.isFinite(input.price_eur) ? input.price_eur : null,
+      year: typeof input.year === "number" && Number.isFinite(input.year) ? input.year : null,
+      length_m:
+        typeof input.length_feet === "number" && Number.isFinite(input.length_feet)
+          ? Math.round(input.length_feet * 0.3048 * 100) / 100
+          : null,
+      location: typeof input.location === "string" && input.location.trim() ? input.location.trim() : null,
+    },
+    specs: input.dynamicSpecs,
+    raw: {
+      description: String(input.description || "").trim(),
+      full_text: input.full_text,
+    },
+  };
+}
+
+type AiBoatDetails = {
+  score: number;
+  verdict: string;
+  confidence_score: number;
+  price_assessment: string;
+  fair_price_low: number;
+  fair_price_high: number;
+  target_offer: number;
+  walk_away_price: number;
+  offer_range: { aggressive: number; realistic: number; safe: number };
+  negotiation_anchors: string[];
+  recommendations: string[];
+  estimated_repair_cost: number;
+  repair_breakdown: Array<{ label: string; estimate: number; note?: string }>;
+  categories: Array<{ name: string; score: number; max_score: number; details: string; icon: string }>;
+  condition: { engine: string; hull: string; sails: string };
+  known_issues: string[];
+  recent_work: string[];
+  equipment_highlights: string[];
+  negotiating_tips: string[];
+};
+
+function getScoreBreakdownTemplate(boatType: "sailboat" | "powerboat" | null): Array<{ name: string; icon: string }> {
+  if (boatType === "powerboat") {
+    return [
+      { name: "Market Position", icon: "💰" },
+      { name: "Engine & Propulsion", icon: "⚙️" },
+      { name: "Hull & Structure", icon: "🛡️" },
+      { name: "Equipment & Comfort", icon: "🧰" },
+      { name: "Ownership Risk", icon: "📉" },
+    ];
+  }
+  return [
+    { name: "Market Position", icon: "💰" },
+    { name: "Sails & Rigging", icon: "⛵" },
+    { name: "Hull & Structure", icon: "🛡️" },
+    { name: "Equipment & Comfort", icon: "🧰" },
+    { name: "Ownership Risk", icon: "📉" },
+  ];
+}
+
+function normalizeAiBreakdownAndRecommendations(
+  ai: AiBoatDetails,
+  boatType: "sailboat" | "powerboat" | null,
+): AiBoatDetails {
+  const normalizeOneToTwoSentences = (text: string, fallback: string): string => {
+    const clean = (text || "").replace(/\s+/g, " ").trim();
+    const base = clean || fallback;
+    const parts = base.match(/[^.!?]+[.!?]?/g)?.map((p) => p.trim()).filter(Boolean) || [];
+    const selected = parts.slice(0, 2).join(" ").trim();
+    return selected || fallback;
+  };
+
+  const template = getScoreBreakdownTemplate(boatType);
+  const byName = new Map(
+    (ai.categories || []).map((c) => [c.name.toLowerCase().trim(), c] as const),
+  );
+  const fallbackScore = Math.max(35, Math.min(95, Math.round(ai.score || 50)));
+  const categories = template.map((slot) => {
+    const existing =
+      byName.get(slot.name.toLowerCase()) ||
+      byName.get(slot.name.toLowerCase().replace(/\s*&\s*/g, " & ")) ||
+      byName.get(slot.name.toLowerCase().replace(/\s+/g, " "));
+    return {
+      name: slot.name,
+      icon: slot.icon,
+      score: existing?.score ?? fallbackScore,
+      max_score: 100,
+      details: normalizeOneToTwoSentences(
+        existing?.details || "",
+        `Assessment based on listing data for ${slot.name.toLowerCase()}. Condition and market context support this score.`,
+      ),
+    };
+  });
+
+  const dedup = (arr: string[]) => Array.from(new Set(arr.map((s) => s.trim()).filter(Boolean)));
+  let recommendations = dedup(ai.recommendations || []);
+  if (recommendations.length < 3) {
+    const defaults = [
+      "Request full maintenance and service documentation before final offer.",
+      "Use identified risk items as leverage during negotiation.",
+      "Arrange a professional pre-purchase marine survey.",
+      "Confirm equipment condition with a live onboard demo.",
+      "Keep a clear walk-away price discipline during negotiation.",
+    ];
+    recommendations = dedup([...recommendations, ...defaults]);
+  }
+  recommendations = recommendations.slice(0, 5);
+
+  return {
+    ...ai,
+    categories,
+    recommendations,
+  };
+}
+
+function sanitizeAiBoatDetails(
+  input: unknown,
+  boatType: "sailboat" | "powerboat" | null,
+): AiBoatDetails | null {
+  if (!input || typeof input !== "object") return null;
+  const v = input as Record<string, unknown>;
+  const toNum = (x: unknown, fallback = 0) => (typeof x === "number" && Number.isFinite(x) ? x : fallback);
+  const toStr = (x: unknown, fallback = "") => (typeof x === "string" ? x : fallback);
+  const toStrArr = (x: unknown, limit = 8) =>
+    Array.isArray(x) ? x.filter((i): i is string => typeof i === "string").slice(0, limit) : [];
+  const categories = Array.isArray(v.categories)
+    ? v.categories
+        .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+        .slice(0, 8)
+        .map((c) => ({
+          name: toStr(c.name, "Category"),
+          score: toNum(c.score, 0),
+          max_score: toNum(c.max_score, 10),
+          details: toStr(c.details, ""),
+          icon: toStr(c.icon, "•"),
+        }))
+    : [];
+  const repairBreakdown = Array.isArray(v.repair_breakdown)
+    ? v.repair_breakdown
+        .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+        .slice(0, 10)
+        .map((r) => ({
+          label: toStr(r.label, "Repair item"),
+          estimate: toNum(r.estimate, 0),
+          note: toStr(r.note, ""),
+        }))
+    : [];
+
+  const normalized: AiBoatDetails = {
+    score: Math.max(0, Math.min(100, toNum(v.score, 50))),
+    verdict: toStr(v.verdict, "Fair Deal"),
+    confidence_score: Math.max(0, Math.min(100, toNum(v.confidence_score, 50))),
+    price_assessment: toStr(v.price_assessment, ""),
+    fair_price_low: Math.max(0, toNum(v.fair_price_low, 0)),
+    fair_price_high: Math.max(0, toNum(v.fair_price_high, 0)),
+    target_offer: Math.max(0, toNum(v.target_offer, 0)),
+    walk_away_price: Math.max(0, toNum(v.walk_away_price, 0)),
+    offer_range: {
+      aggressive: Math.max(0, toNum((v.offer_range as any)?.aggressive, 0)),
+      realistic: Math.max(0, toNum((v.offer_range as any)?.realistic, 0)),
+      safe: Math.max(0, toNum((v.offer_range as any)?.safe, 0)),
+    },
+    negotiation_anchors: toStrArr(v.negotiation_anchors, 8),
+    recommendations: toStrArr(v.recommendations, 10),
+    estimated_repair_cost: Math.max(0, toNum(v.estimated_repair_cost, 0)),
+    repair_breakdown: repairBreakdown,
+    categories,
+    condition: {
+      engine: toStr((v.condition as any)?.engine, "unknown"),
+      hull: toStr((v.condition as any)?.hull, "unknown"),
+      sails: toStr((v.condition as any)?.sails, "unknown"),
+    },
+    known_issues: toStrArr(v.known_issues, 8),
+    recent_work: toStrArr(v.recent_work, 8),
+    equipment_highlights: toStrArr(v.equipment_highlights, 20),
+    negotiating_tips: toStrArr(v.negotiating_tips, 8),
+  };
+  return normalizeAiBreakdownAndRecommendations(normalized, boatType);
+}
+
+async function generateAiBoatDetails(input: {
+  url: string;
+  boatType: "sailboat" | "powerboat" | null;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+}): Promise<AiBoatDetails | null> {
+  if (!OPENAI_API_KEY) return null;
+  const systemPrompt = `Buyer-side boat analyst. Output JSON only.
+Use only given data; no seller-friendly framing.
+Schema keys required:
+score, verdict, confidence_score, price_assessment, fair_price_low, fair_price_high, target_offer, walk_away_price, offer_range{aggressive,realistic,safe}, negotiation_anchors, recommendations, estimated_repair_cost, repair_breakdown[{label,estimate,note}], categories[{name,score,max_score,details,icon}], condition{engine,hull,sails}, known_issues, recent_work, equipment_highlights, negotiating_tips.
+Rules:
+- categories: EXACTLY 5 items.
+- sailboat category names exactly: Market Position; Sails & Rigging; Hull & Structure; Equipment & Comfort; Ownership Risk.
+- powerboat category names exactly: Market Position; Engine & Propulsion; Hull & Structure; Equipment & Comfort; Ownership Risk.
+- each category details: 1-2 sentences.
+- recommendations: 3-5 items.`;
+
+  const userPrompt = `u:${input.url}
+core:${JSON.stringify(input.core)}
+specs:${JSON.stringify(input.specs)}
+desc:${input.raw.description || ""}
+text:${input.raw.full_text.slice(0, 3500)}`;
+
+  const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(rawContent);
+    } catch {
+      const fenced = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/```\s*([\s\S]*?)```/i);
+      if (fenced?.[1]) {
+        try {
+          return JSON.parse(fenced[1].trim());
+        } catch {
+          /* continue */
+        }
+      }
+      const first = rawContent.indexOf("{");
+      const last = rawContent.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(rawContent.slice(first, last + 1));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.2,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.log(`[scrape-free] OpenAI ai_details HTTP ${response.status}: ${body.slice(0, 500)}`);
+      return null;
+    }
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") {
+      console.log("[scrape-free] OpenAI ai_details empty content");
+      return null;
+    }
+    const parsed = extractJsonObject(rawContent);
+    if (!parsed) {
+      console.log(`[scrape-free] OpenAI ai_details invalid JSON: ${rawContent.slice(0, 500)}`);
+      return null;
+    }
+    return sanitizeAiBoatDetails(parsed, input.boatType);
+  } catch (e) {
+    console.log(`[scrape-free] ai details generation failed for ${input.url}: ${e}`);
+    return null;
+  }
+}
+
+function normalizeBoatSegment(
+  boatType: "sailboat" | "powerboat" | null,
+  raw: string | null | undefined,
+): BoatSegment | null {
+  if (!boatType || !raw) return null;
+  const v = raw.trim().toLowerCase().replace(/\s+/g, "_");
+  if (boatType === "sailboat") {
+    if (["cruiser", "performance_cruiser", "racing", "catamaran", "luxury_cruiser", "project"].includes(v)) {
+      return v as BoatSegment;
+    }
+    return null;
+  }
+  if (["motor_cruiser", "flybridge", "sport_boat", "tender", "rib", "luxury_yacht", "project"].includes(v)) {
+    return v as BoatSegment;
+  }
+  return null;
+}
+
+async function classifyBoatSegmentWithAi(input: {
+  url: string;
+  boatType: "sailboat" | "powerboat" | null;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+}): Promise<BoatSegment | null> {
+  if (!OPENAI_API_KEY || !input.boatType) return null;
+  const systemPrompt = `Classify into one segment. Output JSON only: {"segment":"..."}.
+Allowed segments:
+- sailboat: cruiser, performance_cruiser, racing, catamaran, luxury_cruiser, project
+- powerboat: motor_cruiser, flybridge, sport_boat, rib, luxury_yacht, project
+Rules (strict, conservative):
+- choose exactly one allowed segment for given type
+- major refit/repair signs => project
+- speed-focused => racing (sail) or sport_boat (power)
+- luxury requires ALL: large size, very high equipment/comfort fitout, clear premium cues
+- be extra strict for older boats: age alone never implies luxury; if older and evidence is weak, pick non-luxury
+- if uncertain between luxury and non-luxury, choose non-luxury`;
+  const userPrompt = `d:${JSON.stringify({
+    type: input.boatType,
+    link: input.url,
+    core: input.core,
+    specs: input.specs,
+    description: input.raw.description,
+    full_text: input.raw.full_text.slice(0, 3000),
+  })}`;
+
+  const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(rawContent);
+    } catch {
+      const fenced = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/```\s*([\s\S]*?)```/i);
+      if (fenced?.[1]) {
+        try {
+          return JSON.parse(fenced[1].trim());
+        } catch {
+          /* continue */
+        }
+      }
+      const first = rawContent.indexOf("{");
+      const last = rawContent.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(rawContent.slice(first, last + 1));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.1,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.log(`[scrape-free] OpenAI segment HTTP ${response.status}: ${body.slice(0, 500)}`);
+      return null;
+    }
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") {
+      console.log("[scrape-free] OpenAI segment empty content");
+      return null;
+    }
+    const parsed = extractJsonObject(rawContent);
+    if (!parsed) {
+      console.log(`[scrape-free] OpenAI segment invalid JSON: ${rawContent.slice(0, 500)}`);
+      return null;
+    }
+    return normalizeBoatSegment(input.boatType, typeof parsed?.segment === "string" ? parsed.segment : null);
+  } catch (e) {
+    console.log(`[scrape-free] segment classification failed for ${input.url}: ${e}`);
+    return null;
+  }
 }
 
 // mornar.net: boat detail pages render a vertical content area with paragraph
@@ -1158,7 +1677,12 @@ function parseListing(
   cabins: number | null;
   hull_material: string | null;
   engine_info: string | null;
-  specs_raw: Record<string, string> | null;
+  specs_raw: Record<string, unknown> | null;
+  flexible: {
+    core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+    specs: Record<string, unknown>;
+    raw: { description: string; full_text: string };
+  };
 } {
   const text = stripTags(html);
 
@@ -1280,6 +1804,32 @@ function parseListing(
       location,
     });
 
+  const dynamicSpecs: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(featureMap)) {
+    mergeSpec(dynamicSpecs, k, v);
+  }
+  mergeSpec(dynamicSpecs, "brand", brand);
+  mergeSpec(dynamicSpecs, "model", model);
+  mergeSpec(dynamicSpecs, "type", boat_type);
+  mergeSpec(dynamicSpecs, "boat_type", boat_type);
+  mergeSpec(dynamicSpecs, "engine_hours", rich.engine_hours);
+  mergeSpec(dynamicSpecs, "fuel_type", rich.fuel_type);
+  mergeSpec(dynamicSpecs, "cabins", rich.cabins);
+  mergeSpec(dynamicSpecs, "hull_material", rich.hull_material);
+  mergeSpec(dynamicSpecs, "engine_info", rich.engine_info);
+  mergeSpec(dynamicSpecs, "image_urls", images);
+
+  const flexible = buildFlexibleListingOutput({
+    title: (title || url).slice(0, 250),
+    price_eur: price,
+    year,
+    length_feet,
+    location,
+    description: description || null,
+    full_text: text,
+    dynamicSpecs,
+  });
+
   return {
     title: (title || url).slice(0, 250),
     brand,
@@ -1299,6 +1849,7 @@ function parseListing(
     hull_material: rich.hull_material,
     engine_info: rich.engine_info,
     specs_raw: specsRaw,
+    flexible,
   };
 }
 
@@ -1391,6 +1942,12 @@ Deno.serve(async (req) => {
 
   const stats = { categoriesProcessed: 0, listingsFound: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
   const samples: string[] = [];
+  const targetedResults: Array<{
+    url: string;
+    data: any;
+    status: "insert" | "update" | "skip" | "error";
+    source: "scrape-free";
+  }> = [];
 
   const perSiteTimeoutMs = (site: string): number => {
     if (site === "trovobarche.it") return 14000;
@@ -1446,6 +2003,7 @@ Deno.serve(async (req) => {
         model: parsed.model,
         source: site,
         boat_type: parsed.boat_type,
+        segment: null as string | null,
         price_eur: parsed.price_eur,
         year: parsed.year,
         length_feet: parsed.length_feet,
@@ -1462,6 +2020,32 @@ Deno.serve(async (req) => {
         specs_raw: parsed.specs_raw,
         scraped_at: new Date().toISOString(),
       };
+      const aiDetails = await generateAiBoatDetails({
+        url: linkUrl,
+        boatType: parsed.boat_type,
+        core: parsed.flexible.core,
+        specs: parsed.flexible.specs,
+        raw: parsed.flexible.raw,
+      });
+      if (aiDetails) {
+        row.specs_raw = {
+          ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
+          ai_details: aiDetails,
+        };
+        parsed.flexible.specs.ai_details = aiDetails;
+      }
+      const segment = await classifyBoatSegmentWithAi({
+        url: linkUrl,
+        boatType: parsed.boat_type,
+        core: parsed.flexible.core,
+        specs: parsed.flexible.specs,
+        raw: parsed.flexible.raw,
+      });
+      if (segment) {
+        row.segment = segment;
+        mergeSpec(parsed.flexible.specs, "segment", segment);
+        mergeSpec(parsed.flexible.specs, "type", parsed.boat_type);
+      }
       const r = await upsertListing(supabaseUrl, supabaseKey, row, upsertRetries);
       if (r === "insert") {
         stats.inserted++;
@@ -1469,9 +2053,24 @@ Deno.serve(async (req) => {
       } else if (r === "update") stats.updated++;
       else if (r === "skip") stats.skipped++;
       else stats.errors++;
+      if (requestedUrls.length > 0) {
+        targetedResults.push({ url: linkUrl, data: parsed.flexible, status: r, source: "scrape-free" });
+      }
     } catch (e) {
       console.log(`[scrape-free] listing error ${linkUrl}: ${e}`);
       stats.errors++;
+      if (requestedUrls.length > 0) {
+        targetedResults.push({
+          url: linkUrl,
+          data: {
+            core: { title: "Unknown listing", price_eur: null, year: null, length_m: null, location: null },
+            specs: {},
+            raw: { description: "", full_text: "" },
+          },
+          status: "error",
+          source: "scrape-free",
+        });
+      }
     }
   };
 
@@ -1502,7 +2101,16 @@ Deno.serve(async (req) => {
     });
 
     console.log(`[scrape-free] targeted done`, stats);
-    return new Response(JSON.stringify({ success: true, stats, samples }), {
+    const single = requestedUrls.length === 1 ? targetedResults[0] : null;
+    return new Response(JSON.stringify({
+      success: true,
+      data: single ? single.data : targetedResults.map((r) => r.data),
+      source: single ? single.source : "scrape-free",
+      status: single ? single.status : null,
+      stats,
+      samples,
+      results: targetedResults,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

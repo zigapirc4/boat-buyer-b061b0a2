@@ -8,6 +8,7 @@ export interface BoatListingCardListing {
   title: string;
   url: string;
   boat_type: string | null;
+  segment?: string | null;
   price_eur: number | null;
   year: number | null;
   length_feet: number | null;
@@ -30,6 +31,14 @@ interface BoatListingCardProps {
   onToggleSave: () => void;
   onToggleCompare?: () => void;
   timeAgo: (dateStr: string) => string;
+}
+
+function formatSegmentLabel(segment: string): string {
+  return segment
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export function BoatListingCard({
@@ -65,6 +74,11 @@ export function BoatListingCard({
         {listing.boat_type && (
           <span className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full capitalize">
             {listing.boat_type}
+          </span>
+        )}
+        {listing.segment && (
+          <span className="absolute top-8 left-2 bg-background/80 backdrop-blur-sm text-[10px] font-medium px-2 py-0.5 rounded-full">
+            {formatSegmentLabel(listing.segment)}
           </span>
         )}
         <span

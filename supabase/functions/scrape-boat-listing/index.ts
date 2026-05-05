@@ -6,6 +6,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const PLAYWRIGHT_WS_ENDPOINT =
+  Deno.env.get("PLAYWRIGHT_WS_ENDPOINT") ||
+  Deno.env.get("BROWSERLESS_WS_ENDPOINT") ||
+  Deno.env.get("PLAYWRIGHT_CDP_URL") ||
+  "";
+
 // ---------- Token-free HTML parsing helpers ----------
 
 const FX_TO_EUR: Record<string, number> = {
@@ -69,6 +75,12 @@ function parseLengthFeet(text: string): number | null {
     if (ft > 10 && ft < 200) return Math.round(ft * 10) / 10;
   }
   return null;
+}
+
+function parseNumber(raw: string): number | null {
+  const normalized = raw.replace(/\s/g, "").replace(/[.,](?=\d{3}\b)/g, "");
+  const value = Number.parseFloat(normalized.replace(",", "."));
+  return Number.isFinite(value) ? value : null;
 }
 
 function parseYear(text: string): number | null {
@@ -202,44 +214,6 @@ function parseHullMaterial(text: string): string | null {
   return null;
 }
 
-function splitTextSegments(text: string): string[] {
-  return (text || "")
-    .split(/[\n.;]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 8);
-}
-
-function extractSignalsFromDescription(description: string): {
-  knownIssues: string[];
-  recentWork: string[];
-  equipmentHighlights: string[];
-} {
-  const segments = splitTextSegments(description);
-  const knownIssues: string[] = [];
-  const recentWork: string[] = [];
-  const equipmentHighlights: string[] = [];
-  const seen = new Set<string>();
-
-  const issueRe =
-    /\b(osmosis|leak|damage|damaged|broken|not working|needs repair|refit needed|project boat|engine problem|fault|issue|da rifare|non funzionante)\b/i;
-  const workRe =
-    /\b(new|replaced|replacement|refit|overhaul|overhauled|serviced|renewed|installed|rebuilt|restored|202[0-9]:?\s*new)\b/i;
-  const equipRe =
-    /\b(gps|autopilot|chartplotter|radar|vhf|windlass|bow thruster|generator|air conditioning|teak cockpit|solar panel|watermaker|inverter)\b/i;
-
-  for (const segment of segments) {
-    const key = segment.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    if (issueRe.test(segment) && knownIssues.length < 8) knownIssues.push(segment);
-    if (workRe.test(segment) && recentWork.length < 8) recentWork.push(segment);
-    if (equipRe.test(segment) && equipmentHighlights.length < 12) equipmentHighlights.push(segment);
-  }
-
-  return { knownIssues, recentWork, equipmentHighlights };
-}
-
 function extractJsonLd(html: string): any[] {
   const blocks: any[] = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -361,20 +335,6 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
   if (!result.brand) result.brand = fallbackBrandModel.brand;
   if (!result.model) result.model = fallbackBrandModel.model;
 
-  // Defaults so the form is usable
-  result.engine_condition = result.engine_hours
-    ? result.engine_hours > 5000 ? "bad" : result.engine_hours > 3000 ? "average" : "good"
-    : "good";
-  result.hull_condition = "good";
-  result.sails_condition = result.boat_type === "powerboat" ? "none" : "average";
-
-  if (result.description_summary) {
-    const signals = extractSignalsFromDescription(String(result.description_summary));
-    if (signals.knownIssues.length > 0) result.known_issues = signals.knownIssues;
-    if (signals.recentWork.length > 0) result.recent_work = signals.recentWork;
-    if (signals.equipmentHighlights.length > 0) result.equipment_highlights = signals.equipmentHighlights;
-  }
-
   // Location: try og:locality or visible text near "Location"
   const locMatch = text.match(/(?:location|standort|posizione|lokacija|localización)[\s:]+([^.\n,|]{3,80})/i);
   if (locMatch) result.location = normalizeLocationValue(locMatch[1]);
@@ -412,6 +372,145 @@ function parseListingHtml(html: string, url: string): Record<string, any> {
   return result;
 }
 
+function normalizeSpecKey(key: string): string {
+  return key
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_")
+    .slice(0, 80);
+}
+
+function cleanSpecValue(raw: unknown): unknown {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number" || typeof raw === "boolean") return raw;
+  if (Array.isArray(raw)) return raw.map((v) => cleanSpecValue(v)).filter((v) => v !== null);
+
+  const text = String(raw).replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  // EUR-like values -> number
+  const eurPatterns = [
+    /€\s*([\d.,\s]{3,})/i,
+    /EUR\s*([\d.,\s]{3,})/i,
+    /([\d.,\s]{3,})\s*€/i,
+    /([\d.,\s]{3,})\s*EUR/i,
+  ];
+  for (const re of eurPatterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    const num = parseNumber(m[1]);
+    if (num && num > 0) return Math.round(num);
+  }
+
+  // ft -> m
+  const ftMatch = text.match(/\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(ft|feet|foot)\b/i);
+  if (ftMatch) {
+    const ft = parseNumber(ftMatch[1]);
+    if (ft && ft > 1) return Math.round((ft * 0.3048) * 100) / 100;
+  }
+
+  // meter value as number
+  const meterMatch = text.match(/\b(\d{1,2}(?:[.,]\d{1,2})?)\s*(m|meter|metre|meters|metres)\b/i);
+  if (meterMatch) {
+    const m = parseNumber(meterMatch[1]);
+    if (m && m > 0) return Math.round(m * 100) / 100;
+  }
+
+  // generic numeric cleanup with optional unit suffix
+  const numericLike = text.match(/^([\d.,\s]{1,20})\s*(?:hp|kw|h|hours?|cm|mm|kg|kn|nm)?$/i);
+  if (numericLike) {
+    const num = parseNumber(numericLike[1]);
+    if (num !== null) return Number.isInteger(num) ? Math.trunc(num) : Number(num.toFixed(2));
+  }
+
+  return text.slice(0, 500);
+}
+
+function mergeSpec(specs: Record<string, unknown>, key: string, value: unknown) {
+  const normalizedKey = normalizeSpecKey(key);
+  if (!normalizedKey) return;
+  const cleaned = cleanSpecValue(value);
+  if (cleaned === null) return;
+  specs[normalizedKey] = cleaned;
+}
+
+function extractDynamicSpecs(html: string, parsed: Record<string, any>): Record<string, unknown> {
+  const specs: Record<string, unknown> = {};
+
+  // Pull tabular/list specs from HTML blocks.
+  const addPair = (kRaw: string, vRaw: string) => {
+    const key = stripTags(kRaw).replace(/[:\s]+$/, "").trim();
+    const value = stripTags(vRaw).trim();
+    if (!key || !value) return;
+    mergeSpec(specs, key, value);
+  };
+
+  const rowRe = /<tr[^>]*>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<t[dh][^>]*>([\s\S]*?)<\/t[dh]>\s*<\/tr>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(html)) !== null) addPair(m[1], m[2]);
+
+  const liBadgeRe = /<li[^>]*>([^<]+?)<span[^>]*class=["'][^"']*(?:badge|value)[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi;
+  while ((m = liBadgeRe.exec(html)) !== null) addPair(m[1], m[2]);
+
+  const labelValueRe =
+    /<(?:span|div)[^>]*class=["'][^"']*\blabel\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>[\s\S]{0,300}?<(?:span|div)[^>]*class=["'][^"']*\bvalue\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>/gi;
+  while ((m = labelValueRe.exec(html)) !== null) addPair(m[1], m[2]);
+
+  // Pull JSON-LD additional properties.
+  const lds = extractJsonLd(html);
+  for (const block of lds) {
+    const arr = Array.isArray(block?.["@graph"]) ? block["@graph"] : [block];
+    for (const ld of arr) {
+      const additional = Array.isArray(ld?.additionalProperty) ? ld.additionalProperty : [];
+      for (const p of additional) {
+        mergeSpec(specs, p?.name || p?.propertyID || "additional_property", p?.value);
+      }
+    }
+  }
+
+  // Include parsed useful fields in specs as dynamic enrichment.
+  for (const [k, v] of Object.entries(parsed)) {
+    if (
+      ["boat_model", "price_eur", "year", "length_feet", "location", "description_summary", "images"].includes(k)
+    ) {
+      continue;
+    }
+    mergeSpec(specs, k, v);
+  }
+
+  return specs;
+}
+
+function buildFlexibleListingOutput(html: string, parsed: Record<string, any>): {
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+} {
+  const fullText = stripTags(html);
+  const lengthM =
+    typeof parsed.length_feet === "number" && Number.isFinite(parsed.length_feet)
+      ? Math.round((parsed.length_feet * 0.3048) * 100) / 100
+      : null;
+
+  return {
+    core: {
+      title: String(parsed.boat_model || "").trim() || "Unknown listing",
+      price_eur: typeof parsed.price_eur === "number" && Number.isFinite(parsed.price_eur) ? parsed.price_eur : null,
+      year: typeof parsed.year === "number" && Number.isFinite(parsed.year) ? parsed.year : null,
+      length_m: lengthM,
+      location: typeof parsed.location === "string" && parsed.location.trim() ? parsed.location.trim() : null,
+    },
+    specs: extractDynamicSpecs(html, parsed),
+    raw: {
+      description: String(parsed.description_summary || "").trim(),
+      full_text: fullText,
+    },
+  };
+}
+
 async function fetchBoat24LocationViaMarkdownProxy(url: string): Promise<string | null> {
   try {
     const res = await fetch(`https://r.jina.ai/${url}`, {
@@ -434,6 +533,73 @@ async function fetchBoat24LocationViaMarkdownProxy(url: string): Promise<string 
     /* ignore */
   }
   return null;
+}
+
+async function fetchHtmlViaPlaywright(url: string, timeoutMs = 20000): Promise<string | null> {
+  if (!PLAYWRIGHT_WS_ENDPOINT) return null;
+  let browser: any = null;
+  let context: any = null;
+  try {
+    const { chromium } = await import("npm:playwright-core");
+    browser = await chromium.connect(PLAYWRIGHT_WS_ENDPOINT, { timeout: Math.min(timeoutMs, 20000) });
+    context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      locale: "en-US",
+    });
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForTimeout(1000);
+    const html = await page.content();
+    return html && html.length > 500 ? html : null;
+  } catch (e) {
+    console.log("Playwright fetch failed:", e);
+    return null;
+  } finally {
+    try {
+      if (context) await context.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (browser) await browser.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function invokeScrapeFreeForUrl(
+  supabaseUrl: string,
+  supabaseKey: string,
+  url: string,
+): Promise<{ success: boolean; data?: any; error?: string; source?: string }> {
+  try {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/scrape-free`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ urls: [url] }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      return { success: false, error: `scrape-free HTTP ${resp.status}: ${body.slice(0, 300)}` };
+    }
+    const payload = await resp.json().catch(() => null);
+    if (!payload?.success) {
+      return { success: false, error: payload?.error || "scrape-free returned unsuccessful response" };
+    }
+    const data = payload?.data || payload?.results?.[0]?.data || null;
+    if (!data?.core || !data?.specs || !data?.raw) {
+      return { success: false, error: "scrape-free returned invalid data shape" };
+    }
+    return { success: true, data, source: "scrape-free" };
+  } catch (e) {
+    return { success: false, error: `scrape-free invoke failed: ${e}` };
+  }
 }
 
 // ---------- Main handler ----------
@@ -472,182 +638,64 @@ serve(async (req) => {
       const cacheRows = await cacheRes.json();
       if (Array.isArray(cacheRows) && cacheRows.length > 0) {
         const row = cacheRows[0];
-        if (row.price_eur && row.length_feet && row.year) {
+        const aiDetails =
+          row.specs_raw && typeof row.specs_raw === "object"
+            ? (row.specs_raw as Record<string, unknown>).ai_details ?? null
+            : null;
+        const hasSegment = Boolean(row.segment);
+        if (row.price_eur && row.length_feet && row.year && aiDetails && hasSegment) {
           console.log("Cache hit — returning DB row");
-          const cacheSignals = row.description
-            ? extractSignalsFromDescription(String(row.description))
-            : { knownIssues: [], recentWork: [], equipmentHighlights: [] };
-          const cachedExtract = {
-            boat_model: row.title,
-            brand: row.brand ?? null,
-            model: row.model ?? row.title ?? null,
-            boat_type: row.boat_type ?? null,
-            year: row.year,
-            price_eur: Number(row.price_eur),
-            length_feet: Number(row.length_feet),
-            location: row.location,
-            images: row.image_urls || (row.image_url ? [row.image_url] : []),
-            engine_make: row.engine_info ? String(row.engine_info).split(" ")[0] : undefined,
-            engine_model: row.engine_info,
-            engine_hours: row.engine_hours,
-            engine_type: row.fuel_type,
-            engine_condition: row.engine_hours && row.engine_hours > 3000 ? "average" : "good",
-            hull_material: row.hull_material,
-            hull_condition: "good",
-            sails_condition: row.boat_type === "powerboat" ? "none" : "average",
-            cabins: row.cabins,
-            description_summary: row.description,
-            known_issues: cacheSignals.knownIssues,
-            recent_work: cacheSignals.recentWork,
-            equipment_highlights: cacheSignals.equipmentHighlights,
+          const cachedFlexible = {
+            core: {
+              title: String(row.title || "Unknown listing"),
+              price_eur: row.price_eur ? Number(row.price_eur) : null,
+              year: row.year ? Number(row.year) : null,
+              length_m: row.length_feet ? Math.round(Number(row.length_feet) * 0.3048 * 100) / 100 : null,
+              location: row.location || null,
+            },
+            specs: {
+              brand: row.brand ?? null,
+              model: row.model ?? null,
+              type: row.boat_type ?? null,
+              segment: row.segment ?? null,
+              boat_type: row.boat_type ?? null,
+              engine_hours: row.engine_hours ?? null,
+              fuel_type: row.fuel_type ?? null,
+              cabins: row.cabins ?? null,
+              hull_material: row.hull_material ?? null,
+              engine_info: row.engine_info ?? null,
+              image_urls: row.image_urls || (row.image_url ? [row.image_url] : []),
+              ai_details: aiDetails,
+            },
+            raw: {
+              description: row.description || "",
+              full_text: row.description || "",
+            },
           };
           return new Response(
-            JSON.stringify({ success: true, data: cachedExtract, source: "cache" }),
+            JSON.stringify({ success: true, data: cachedFlexible, source: "cache" }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
       }
     }
-
-    // ZERO-COST PATH 2: fetch HTML directly. If the site blocks us (most do via Cloudflare),
-    // fall back to r.jina.ai — a free read-only proxy that returns markdown for any public URL.
-    console.log("Cache miss — fetching HTML:", formattedUrl);
-
-    const browserHeaders = {
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-      "Accept-Encoding": "gzip, deflate",
-      "Cache-Control": "no-cache",
-    };
-
-    let html = "";
-    let usedProxy = false;
-    try {
-      const directRes = await fetch(formattedUrl, { headers: browserHeaders, redirect: "follow" });
-      if (directRes.ok) {
-        html = await directRes.text();
-      } else {
-        console.log(`Direct fetch returned ${directRes.status}, trying r.jina.ai proxy`);
-      }
-    } catch (e) {
-      console.log("Direct fetch threw, trying r.jina.ai proxy:", e);
+    console.log("Cache miss/incomplete AI — delegating to scrape-free:", formattedUrl);
+    const delegated = await invokeScrapeFreeForUrl(supabaseUrl, supabaseKey, formattedUrl);
+    if (!delegated.success || !delegated.data) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: delegated.error || "Could not process listing through scrape-free.",
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-
-    if (!html || html.length < 500) {
-      // Fallback: free read-only proxy. Returns markdown + extracted metadata.
-      try {
-        const proxyUrl = `https://r.jina.ai/${formattedUrl}`;
-        const proxyRes = await fetch(proxyUrl, {
-          headers: {
-            "User-Agent": browserHeaders["User-Agent"],
-            "X-Return-Format": "html",
-          },
-        });
-        if (proxyRes.ok) {
-          html = await proxyRes.text();
-          usedProxy = true;
-          console.log(`Proxy fetch ok (${html.length} bytes)`);
-        } else {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: `Could not load this listing (proxy returned ${proxyRes.status}). Please fill the form manually.`,
-            }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      } catch (e) {
-        console.error("Proxy fetch failed:", e);
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: "Could not load the listing page. Please fill the form manually.",
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    const extracted = parseListingHtml(html, formattedUrl);
-    if (!extracted.location && /boat24\.com/i.test(formattedUrl)) {
-      const loc = await fetchBoat24LocationViaMarkdownProxy(formattedUrl);
-      if (loc) extracted.location = loc;
-    }
-    console.log("Parsed data:", JSON.stringify({
-      model: extracted.boat_model, year: extracted.year, price: extracted.price_eur,
-      len: extracted.length_feet, images: extracted.images?.length,
-    }));
-
-    // Persist back to cached_listings so future loads are instant
-    try {
-      const updates: Record<string, any> = {};
-      if (extracted.price_eur) updates.price_eur = extracted.price_eur;
-      if (extracted.year) updates.year = extracted.year;
-      if (extracted.length_feet) updates.length_feet = extracted.length_feet;
-      if (extracted.boat_type) updates.boat_type = extracted.boat_type;
-      if (extracted.brand) updates.brand = extracted.brand;
-      if (extracted.model) updates.model = extracted.model;
-      if (extracted.hull_material) updates.hull_material = extracted.hull_material;
-      if (extracted.engine_hours) updates.engine_hours = extracted.engine_hours;
-      if (extracted.location) updates.location = extracted.location;
-      if (extracted.description_summary) updates.description = extracted.description_summary;
-      if (extracted.images?.length) {
-        updates.image_urls = extracted.images;
-        updates.image_url = extracted.images[0];
-      }
-      if (extracted.engine_make) {
-        const engineParts = [extracted.engine_make, extracted.engine_hp ? `${extracted.engine_hp}hp` : null].filter(Boolean);
-        updates.engine_info = engineParts.join(" ");
-      }
-
-      if (Object.keys(updates).length > 0) {
-        // Try update first; if no row matches, insert
-        const patchResp = await fetch(
-          `${supabaseUrl}/rest/v1/cached_listings?url=eq.${encodeURIComponent(formattedUrl)}`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${supabaseKey}`,
-              apikey: supabaseKey,
-              "Content-Type": "application/json",
-              Prefer: "return=representation",
-            },
-            body: JSON.stringify(updates),
-          }
-        );
-        const patched = patchResp.ok ? await patchResp.json() : [];
-        if (Array.isArray(patched) && patched.length === 0) {
-          // Row didn't exist — insert
-          let source = "";
-          try { source = new URL(formattedUrl).hostname.replace("www.", ""); } catch {}
-          await fetch(`${supabaseUrl}/rest/v1/cached_listings`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${supabaseKey}`,
-              apikey: supabaseKey,
-              "Content-Type": "application/json",
-              Prefer: "return=minimal",
-            },
-            body: JSON.stringify({
-              url: formattedUrl,
-              title: extracted.boat_model || formattedUrl,
-              source,
-              ...updates,
-            }),
-          });
-          console.log("Inserted new cached_listing for:", formattedUrl);
-        } else {
-          console.log("Updated cached_listing for:", formattedUrl);
-        }
-      }
-    } catch (e) {
-      console.error("Error persisting parsed data:", e);
-    }
-
     return new Response(
-      JSON.stringify({ success: true, data: extracted, source: usedProxy ? "html-parse-proxy" : "html-parse" }),
+      JSON.stringify({
+        success: true,
+        data: delegated.data,
+        source: delegated.source || "scrape-free",
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
