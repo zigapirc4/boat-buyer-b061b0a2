@@ -2100,17 +2100,15 @@ Rules:
 - each category details: 1-2 sentences.
 - recommendations: 3-5 items.
 - recommendations must be specific, non-generic, and reference concrete listing risks/specs.
-- Be strict on scoring calibration (buyer-protective): default to lower scores unless strong evidence supports high confidence.
-- Score band guidance:
-  - 85-100: exceptional listing with strong evidence of condition, maintenance, and price advantage (rare).
-  - 70-84: good listing with mostly positive evidence but at least minor risks.
-  - 55-69: average/uncertain listing (this should be the default band when data is incomplete).
-  - 40-54: risky listing with multiple concerns or poor data quality.
-  - 0-39: high-risk listing with major red flags.
-- If important fields are missing/unclear (engine hours, maintenance history, survey evidence), cap score at 64.
-- If listing has sparse specs, sparse equipment, or vague description, apply a clear confidence penalty.
+- Score must be fully evidence-driven and may use the full 0-100 range; avoid central clustering.
+- Different listings must receive meaningfully different scores when risk/reward evidence differs.
+- Do NOT use fixed caps (no hard cap rules); reflect uncertainty through confidence_score and category details instead.
+- Scoring focus (most important first): structural/engine risk, maintenance evidence, completeness/quality of specs, equipment quality, pricing vs condition, age/depreciation, and data reliability.
+- Sparse specs, vague description, or missing critical maintenance context should reduce score and confidence, but not force an artificial default band.
+- price_assessment, fair_price range, and recommendations must be coherent with the final score.
+- category scores must not be near-identical unless evidence truly supports that.
 - Do NOT inflate score for brand prestige alone.
-- Prefer underestimating over overestimating when uncertain.`;
+- Keep reasoning buyer-protective but realistic (avoid automatic pessimism).`;
 
   const userPrompt = `u:${input.url}
 core:${JSON.stringify(input.core)}
