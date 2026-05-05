@@ -19,7 +19,13 @@ const PLAYWRIGHT_WS_ENDPOINT =
   Deno.env.get("BROWSERLESS_WS_ENDPOINT") ||
   Deno.env.get("PLAYWRIGHT_CDP_URL") ||
   "";
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
+
+/** Trimmed OpenAI secret; throws if unset — call only after handler verifies env (503). */
+function openAiKeyStrict(): string {
+  const k = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
+  if (!k) throw new Error("OPENAI_API_KEY_MISSING");
+  return k;
+}
 
 type SailboatSegment =
   | "cruiser"
@@ -2172,8 +2178,6 @@ async function generateAiBoatDetails(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<AiBoatDetails | null> {
-  if (!OPENAI_API_KEY) return null;
-
   const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
     try {
       return JSON.parse(rawContent);
@@ -2245,7 +2249,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2315,7 +2319,7 @@ async function classifyBoatSegmentWithAi(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<BoatSegment | null> {
-  if (!OPENAI_API_KEY || !input.boatType) return null;
+  if (!input.boatType) return null;
   const defaultSegment: BoatSegment = input.boatType === "sailboat" ? "cruiser" : "motor_cruiser";
   const systemPrompt = `Classify into one segment. Output JSON only: {"segment":"..."}.
 Allowed segments:
@@ -2365,7 +2369,7 @@ Rules (strict, conservative):
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2432,7 +2436,6 @@ async function inferBoatTypeWithAi(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<"sailboat" | "powerboat" | null> {
-  if (!OPENAI_API_KEY) return null;
   const systemPrompt = `Classify the listing as sailboat or powerboat only. Output JSON only:
 {"boat_type":"sailboat"} OR {"boat_type":"powerboat"}
 
@@ -2482,7 +2485,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2521,7 +2524,6 @@ async function inferBrandModelWithAi(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<{ brand: string | null; model: string | null } | null> {
-  if (!OPENAI_API_KEY) return null;
   const systemPrompt = `Extract boat brand and model from listing data. Output JSON only:
 {"brand":"...","model":"..."}
 Rules:
@@ -2560,7 +2562,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2592,7 +2594,6 @@ async function inferLocationWithAi(input: {
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<string | null> {
-  if (!OPENAI_API_KEY) return null;
   const systemPrompt = `Extract boat location. Output JSON only: {"location":"Country->City"}.
 Rules:
 - format strictly Country->City
@@ -2629,7 +2630,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2668,7 +2669,6 @@ async function reviewImagesAndEquipmentWithAi(input: {
   image_urls: string[];
   equipment: string[];
 }): Promise<{ image_urls: string[]; equipment: string[] } | null> {
-  if (!OPENAI_API_KEY) return null;
   if (!["blocket.se", "findaly.co", "yachtall.com", "nautano.com", "boatshop24"].includes(input.site)) return null;
   if (input.image_urls.length === 0 && input.equipment.length === 0) return null;
 
@@ -2698,7 +2698,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2905,7 +2905,6 @@ async function validateListingDataWithAi(input: {
   site: string;
   parsed: ReturnType<typeof parseListing>;
 }): Promise<Record<string, unknown> | null> {
-  if (!OPENAI_API_KEY) return null;
   const systemPrompt = `Validate boat scrape quality. Output JSON only with keys:
 {
   "overall_ok": boolean,
@@ -2937,7 +2936,7 @@ Rules:
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${openAiKeyStrict()}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -3465,6 +3464,19 @@ Deno.serve(async (req) => {
       requestedUrls = body.urls.filter((u: unknown): u is string => typeof u === "string" && u.length > 10);
     }
   } catch {}
+
+  const openAiConfigured = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
+  if (!openAiConfigured) {
+    console.error("[scrape-free] OPENAI_API_KEY is missing or empty");
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error:
+          "OPENAI_API_KEY is required. Add it in Supabase: Project Settings → Edge Functions → Secrets.",
+      }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   /** When true, listings already in `cached_listings` skip HTML fetch and all AI (cron + targeted `urls`). */
   const skipExistingUrls = true;
