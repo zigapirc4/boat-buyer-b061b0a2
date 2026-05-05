@@ -2,7 +2,7 @@
 // same URL validation, same boat-type detection) but uses direct HTTP fetch + r.jina.ai
 // fallback instead of Firecrawl, so it costs zero credits and can run frequently.
 //
-// Sources covered: mornar.net (sail+power), trovobarche.it (sail+power), boat24.com (sail+power).
+// Sources covered: mornar.net (sail+power), trovobarche.it (sail+power), boat24.com (sail+power), scanboat.com (sail+power).
 // Pagination matches the existing CATEGORY_PAGES config.
 
 const corsHeaders = {
@@ -93,6 +93,24 @@ const CATEGORY_PAGES: CategoryPage[] = [
     boatType: "powerboat",
     pages: 30,
   },
+  {
+    site: "scanboat.com",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.scanboat.com/en/boat-market/boats?SearchCriteria.BoatClassification=sail&SearchCriteria.ExtendedSearch=false&SearchCriteria.Searched=true`
+        : `https://www.scanboat.com/en/boat-market/boats?SearchCriteria.BoatClassification=sail&SearchCriteria.ExtendedSearch=false&SearchCriteria.Searched=true&page=${page}`,
+    boatType: "sailboat",
+    pages: 30,
+  },
+  {
+    site: "scanboat.com",
+    buildUrl: (page) =>
+      page === 1
+        ? `https://www.scanboat.com/en/boat-market/boats?SearchCriteria.BoatTypeID=2&SearchCriteria.CountryIds=&SearchCriteria.ExtendedSearch=false&SearchCriteria.LengthWidthUnitID=1&SearchCriteria.Searched=true&SearchCriteria.SimilarSearch=false&SortBy=Year`
+        : `https://www.scanboat.com/en/boat-market/boats?SearchCriteria.BoatTypeID=2&SearchCriteria.CountryIds=&SearchCriteria.ExtendedSearch=false&SearchCriteria.LengthWidthUnitID=1&SearchCriteria.Searched=true&SearchCriteria.SimilarSearch=false&SortBy=Year&page=${page}`,
+    boatType: "powerboat",
+    pages: 30,
+  },
 ];
 
 // ---------- URL validation (mirror of scrape-listings-cron) ----------
@@ -113,6 +131,12 @@ function isValidListingUrl(url: string, site: string): boolean {
   if (hostname.includes("trovobarche.it")) {
     // Listing detail URLs look like: https://www.trovobarche.it/en/<slug>-classified-<id>
     return /\/en\/[a-z0-9][a-z0-9-]*-classified-\d{4,}(?:[\/?#]|$)/i.test(url);
+  }
+  if (hostname.includes("scanboat.com")) {
+    // Listing detail URLs look like:
+    // https://www.scanboat.com/en/boat-market/boats/sailingboat-<slug>-<id>
+    // https://www.scanboat.com/en/boat-market/boats/motorboat-<slug>-<id>
+    return /\/en\/boat-market\/boats\/(?:sailingboat|motorboat|motorsailer)-[a-z0-9-]+-\d{5,}(?:[\/?#]|$)/i.test(url);
   }
   return false;
 }
@@ -453,10 +477,42 @@ function extractTrovobarcheImages(html: string, baseUrl: string, max = 5): strin
   return out.slice(0, max);
 }
 
+function extractScanboatImages(html: string, baseUrl: string, max = 5): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string) => {
+    const normalized = resolveUrl(u, baseUrl);
+    // Keep only listing photo assets, exclude shared "similar boats" thumbs.
+    if (!/\/images\/boats\//i.test(normalized)) return;
+    if (!/-scanboat-picture-\d+/i.test(normalized)) return;
+    if (/_thumb\./i.test(normalized)) return;
+    if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(normalized)) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  const og = extractMeta(html, "og:image");
+  if (og) push(og);
+
+  const re = /<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    push(m[1]);
+    if (out.length >= max) break;
+  }
+
+  return out.slice(0, max);
+}
+
 function extractImages(html: string, baseUrl: string, max = 5, site?: string): string[] {
   if (site === "trovobarche.it") {
     const trovobarcheImages = extractTrovobarcheImages(html, baseUrl, max);
     if (trovobarcheImages.length > 0) return trovobarcheImages;
+  }
+  if (site === "scanboat.com") {
+    const scanboatImages = extractScanboatImages(html, baseUrl, max);
+    if (scanboatImages.length > 0) return scanboatImages;
   }
 
   const out: string[] = [];
@@ -960,6 +1016,45 @@ function extractTrovobarcheCity(html: string, featureMap: Record<string, string>
   if (zipCity?.[1]) return zipCity[1].trim();
 
   return null;
+}
+
+function extractScanboatDescriptionFromText(text: string): string | null {
+  if (!text) return null;
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const marker = "Description";
+  const idx = normalized.indexOf(marker);
+  if (idx < 0) return null;
+  let body = normalized.slice(idx + marker.length).trim();
+  // Scanboat typically appends machine-translated/legal boilerplate after seller text.
+  body = body
+    .split(/(?:Dette er en privat annonce|Detta är en privat skapad annons|Dit is een privat advertentie|Dies ist eine privat erstellte Anzeige)/i)[0]
+    .split(/(?:Share Follow us Specifications|Specifications Equipment|Impressum - Contact - Scanboat\.com)/i)[0]
+    .trim();
+  if (body.length < 80) return null;
+  return body.slice(0, 5000);
+}
+
+function extractScanboatSpecifications(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!text) return out;
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const start = normalized.search(/\bSpecifications\b/i);
+  if (start < 0) return out;
+  const rest = normalized.slice(start);
+  const endMatch = rest.match(/\b(Equipment|Impressum|Contact - Scanboat\.com|Similar boats)\b/i);
+  const section = endMatch ? rest.slice(0, endMatch.index) : rest;
+  // Parse "Label Value" sequences from known spec labels used on scanboat pages.
+  const labelRe =
+    /\b(Hull type|Length|Beam|Deplacement|Depth|Engine|Total power|Engine year|Engine count|Engine place|Fuel|Drive shaft|Cooling system|Crusing speed|Max Speed)\b\s*([^]+?)(?=\b(?:Hull type|Length|Beam|Deplacement|Depth|Engine|Total power|Engine year|Engine count|Engine place|Fuel|Drive shaft|Cooling system|Crusing speed|Max Speed)\b|$)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = labelRe.exec(section)) !== null) {
+    const key = m[1].toLowerCase().trim();
+    const value = (m[2] || "").replace(/\s+/g, " ").trim();
+    if (!key || !value) continue;
+    if (value.length > 180) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 function extractFeatureMapFromHtml(html: string): Record<string, string> {
@@ -1497,6 +1592,7 @@ async function classifyBoatSegmentWithAi(input: {
   raw: { description: string; full_text: string };
 }): Promise<BoatSegment | null> {
   if (!OPENAI_API_KEY || !input.boatType) return null;
+  const defaultSegment: BoatSegment = input.boatType === "sailboat" ? "cruiser" : "motor_cruiser";
   const systemPrompt = `Classify into one segment. Output JSON only: {"segment":"..."}.
 Allowed segments:
 - sailboat: cruiser, performance_cruiser, racing, catamaran, luxury_cruiser, project
@@ -1562,22 +1658,102 @@ Rules (strict, conservative):
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       console.log(`[scrape-free] OpenAI segment HTTP ${response.status}: ${body.slice(0, 500)}`);
-      return null;
+      return defaultSegment;
     }
     const payload = await response.json();
     const rawContent = payload?.choices?.[0]?.message?.content;
     if (!rawContent || typeof rawContent !== "string") {
       console.log("[scrape-free] OpenAI segment empty content");
-      return null;
+      return defaultSegment;
     }
     const parsed = extractJsonObject(rawContent);
     if (!parsed) {
       console.log(`[scrape-free] OpenAI segment invalid JSON: ${rawContent.slice(0, 500)}`);
-      return null;
+      return defaultSegment;
     }
-    return normalizeBoatSegment(input.boatType, typeof parsed?.segment === "string" ? parsed.segment : null);
+    return normalizeBoatSegment(input.boatType, typeof parsed?.segment === "string" ? parsed.segment : null) || defaultSegment;
   } catch (e) {
     console.log(`[scrape-free] segment classification failed for ${input.url}: ${e}`);
+    return defaultSegment;
+  }
+}
+
+function normalizeAiLocation(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const clean = raw.replace(/\s+/g, " ").trim();
+  const parts = clean.split("->").map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [country, city] = parts;
+  if (country.length < 2 || city.length < 2) return null;
+  if (country.length > 60 || city.length > 80) return null;
+  return `${country}->${city}`;
+}
+
+async function inferLocationWithAi(input: {
+  url: string;
+  currentLocation: string | null;
+  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  specs: Record<string, unknown>;
+  raw: { description: string; full_text: string };
+}): Promise<string | null> {
+  if (!OPENAI_API_KEY) return null;
+  const systemPrompt = `Extract boat location. Output JSON only: {"location":"Country->City"}.
+Rules:
+- format strictly Country->City
+- use best inferred country and city from listing text/specs
+- no region, no postal code, no extra text
+- if uncertain, return {"location":""}`;
+  const userPrompt = `d:${JSON.stringify({
+    link: input.url,
+    current_location: input.currentLocation,
+    core: input.core,
+    specs: input.specs,
+    description: input.raw.description,
+    text: input.raw.full_text.slice(0, 2500),
+  })}`;
+
+  const extractJsonObject = (rawContent: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(rawContent);
+    } catch {
+      const first = rawContent.indexOf("{");
+      const last = rawContent.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(rawContent.slice(first, last + 1));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const rawContent = payload?.choices?.[0]?.message?.content;
+    if (!rawContent || typeof rawContent !== "string") return null;
+    const parsed = extractJsonObject(rawContent);
+    if (!parsed) return null;
+    return normalizeAiLocation(typeof parsed.location === "string" ? parsed.location : null);
+  } catch {
     return null;
   }
 }
@@ -1744,6 +1920,34 @@ function parseListing(
     description = r.description;
     equipment = r.equipment;
     featureMap = extractFeatureMapFromHtml(html);
+  } else if (site === "scanboat.com") {
+    featureMap = {
+      ...extractFeatureMapFromHtml(html),
+      ...extractScanboatSpecifications(text),
+    };
+    description = extractScanboatDescriptionFromText(text);
+    // Scanboat often provides "Length 13.76" in spec blocks without inline "m/ft" in prose.
+    if (!length_feet) {
+      length_feet = parseLengthFromFeatureMap(featureMap);
+    }
+    if (!length_feet) {
+      length_feet = parseLengthFromLabeledText(text);
+    }
+    if (!length_feet) {
+      const rawLen = findFeatureValue(featureMap, /\blength\b/i);
+      const numericLen = rawLen ? parseNumber(rawLen) : null;
+      // Scanboat "Length" values are typically meters when no unit is shown.
+      if (numericLen && numericLen > 3 && numericLen < 50) {
+        length_feet = Math.round(numericLen * 3.281 * 10) / 10;
+      }
+    }
+    if (!length_feet) {
+      const m = text.match(/\bLength\s+(\d{1,2}(?:[.,]\d{1,2})?)\b/i);
+      const numericLen = m?.[1] ? parseNumber(m[1]) : null;
+      if (numericLen && numericLen > 3 && numericLen < 50) {
+        length_feet = Math.round(numericLen * 3.281 * 10) / 10;
+      }
+    }
   }
   // Fallback to og:description if site-specific extraction failed
   if (!description) {
@@ -1952,6 +2156,7 @@ Deno.serve(async (req) => {
   const perSiteTimeoutMs = (site: string): number => {
     if (site === "trovobarche.it") return 14000;
     if (site === "boat24.com") return 12000;
+    if (site === "scanboat.com") return 14000;
     return 10000;
   };
 
@@ -2046,6 +2251,18 @@ Deno.serve(async (req) => {
         mergeSpec(parsed.flexible.specs, "segment", segment);
         mergeSpec(parsed.flexible.specs, "type", parsed.boat_type);
       }
+      const aiLocation = await inferLocationWithAi({
+        url: linkUrl,
+        currentLocation: parsed.location || parsed.flexible.core.location,
+        core: parsed.flexible.core,
+        specs: parsed.flexible.specs,
+        raw: parsed.flexible.raw,
+      });
+      if (aiLocation) {
+        row.location = aiLocation;
+        parsed.flexible.core.location = aiLocation;
+        mergeSpec(parsed.flexible.specs, "location", aiLocation);
+      }
       const r = await upsertListing(supabaseUrl, supabaseKey, row, upsertRetries);
       if (r === "insert") {
         stats.inserted++;
@@ -2083,6 +2300,7 @@ Deno.serve(async (req) => {
         if (h.includes("trovobarche.it")) site = "trovobarche.it";
         else if (h.includes("mornar.net")) site = "mornar.net";
         else if (h.includes("boat24.com")) site = "boat24.com";
+        else if (h.includes("scanboat.com")) site = "scanboat.com";
       } catch {
         /* ignore */
       }
@@ -2151,6 +2369,13 @@ Deno.serve(async (req) => {
       }
       let links = extractListingLinks(indexHtml, catUrl, cat.site);
       if (cat.titleFilter) links = links.filter((l) => cat.titleFilter!(l.title));
+      if (cat.site === "scanboat.com") {
+        if (cat.boatType === "sailboat") {
+          links = links.filter((l) => /\/sailingboat-/i.test(l.url));
+        } else if (cat.boatType === "powerboat") {
+          links = links.filter((l) => /\/motorboat-/i.test(l.url));
+        }
+      }
       links = links.slice(0, maxListingsPerPage);
       stats.listingsFound += links.length;
       console.log(`[scrape-free] ${cat.site} p${page}: ${links.length} listings to process`);

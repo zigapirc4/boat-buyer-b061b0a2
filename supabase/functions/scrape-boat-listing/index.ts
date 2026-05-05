@@ -571,15 +571,19 @@ async function fetchHtmlViaPlaywright(url: string, timeoutMs = 20000): Promise<s
 
 async function invokeScrapeFreeForUrl(
   supabaseUrl: string,
-  supabaseKey: string,
+  fallbackApiKey: string,
   url: string,
+  authHeader: string | null,
+  apiKeyHeader: string | null,
 ): Promise<{ success: boolean; data?: any; error?: string; source?: string }> {
   try {
+    const authorization = authHeader && authHeader.trim().length > 0 ? authHeader : null;
+    const apiKey = apiKeyHeader && apiKeyHeader.trim().length > 0 ? apiKeyHeader : fallbackApiKey;
     const resp = await fetch(`${supabaseUrl}/functions/v1/scrape-free`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${supabaseKey}`,
-        apikey: supabaseKey,
+        ...(authorization ? { Authorization: authorization } : {}),
+        apikey: apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ urls: [url] }),
@@ -680,7 +684,13 @@ serve(async (req) => {
       }
     }
     console.log("Cache miss/incomplete AI — delegating to scrape-free:", formattedUrl);
-    const delegated = await invokeScrapeFreeForUrl(supabaseUrl, supabaseKey, formattedUrl);
+    const delegated = await invokeScrapeFreeForUrl(
+      supabaseUrl,
+      supabaseKey,
+      formattedUrl,
+      req.headers.get("authorization"),
+      req.headers.get("apikey"),
+    );
     if (!delegated.success || !delegated.data) {
       return new Response(
         JSON.stringify({
