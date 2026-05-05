@@ -2129,48 +2129,6 @@ function sanitizeAiBoatDetails(
   return normalizeAiBreakdownAndRecommendations(normalized, boatType);
 }
 
-function buildFallbackAiBoatDetails(input: {
-  boatType: "sailboat" | "powerboat" | null;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
-}): AiBoatDetails {
-  const price = input.core.price_eur ?? 0;
-  const spread = Math.max(Math.round(price * 0.12), price > 0 ? 1500 : 0);
-  const low = Math.max(0, Math.round(price - spread));
-  const high = Math.max(low, Math.round(price + spread));
-  const obj = {
-    score: 52,
-    verdict: "Fair Deal",
-    confidence_score: 28,
-    price_assessment:
-      "Automated AI scoring did not complete (timeout or API error). Bands below are rough placeholders from the scraped asking price only — not a full market analysis. Retry import or open Evaluate after saving.",
-    fair_price_low: low,
-    fair_price_high: high,
-    target_offer: Math.max(0, Math.round(price - spread * 0.35)),
-    walk_away_price: Math.round(price + spread * 1.15),
-    offer_range: {
-      aggressive: Math.max(0, Math.round(price - spread * 0.55)),
-      realistic: Math.max(0, Math.round(price - spread * 0.22)),
-      safe: Math.round(price + spread * 0.08),
-    },
-    negotiation_anchors: ["Survey before commitment", "Verify engine hours and service records", "Budget for deferred maintenance"],
-    recommendations: [
-      "The importer could not finish AI analysis — try again in a few minutes if you need full scoring.",
-      "Treat price bands as placeholders until automated evaluation succeeds.",
-      "Compare similar listings manually; placeholder scores do not replace inspection.",
-    ],
-    estimated_repair_cost: 0,
-    repair_breakdown: [] as Array<{ label: string; estimate: number; note?: string }>,
-    categories: [] as Array<{ name: string; score: number; max_score: number; details: string; icon: string }>,
-    condition: { engine: "unknown", hull: "unknown", sails: "unknown" },
-    known_issues: [] as string[],
-    recent_work: [] as string[],
-    equipment_highlights: [] as string[],
-    negotiating_tips: [] as string[],
-  };
-  const done = sanitizeAiBoatDetails(obj, input.boatType);
-  return done!;
-}
-
 async function generateAiBoatDetails(input: {
   url: string;
   boatType: "sailboat" | "powerboat" | null;
@@ -3728,22 +3686,13 @@ Deno.serve(async (req) => {
           mergeSpec(parsed.flexible.specs, "model", aiBrandModel.model);
         }
       }
-      let aiDetailsUsedFallback = false;
-      let aiDetails = await generateAiBoatDetails({
+      const aiDetails = await generateAiBoatDetails({
         url: linkUrl,
         boatType: parsed.boat_type,
         core: parsed.flexible.core,
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
-      if (!aiDetails && requestedUrls.length > 0 && parsed.boat_type) {
-        aiDetails = buildFallbackAiBoatDetails({
-          boatType: parsed.boat_type,
-          core: parsed.flexible.core,
-        });
-        aiDetailsUsedFallback = true;
-        console.log(`[scrape-free] ai_details fallback used for targeted import ${linkUrl}`);
-      }
       if (!aiDetails) {
         stats.skipped++;
         if (requestedUrls.length > 0) {
@@ -3760,7 +3709,6 @@ Deno.serve(async (req) => {
       row.specs_raw = {
         ...(row.specs_raw && typeof row.specs_raw === "object" ? row.specs_raw : {}),
         ai_details: aiDetails,
-        ...(aiDetailsUsedFallback ? { ai_details_fallback: true } : {}),
       };
       parsed.flexible.specs.ai_details = aiDetails;
       const segment = await classifyBoatSegmentWithAi({
