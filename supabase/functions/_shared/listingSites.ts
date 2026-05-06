@@ -7,6 +7,7 @@ export const SCRAPE_FREE_TARGET_SITE_SUFFIXES = [
   "mornar.net",
   "boat24.com",
   "scanboat.com",
+  "yachtworld.com",
   "blocket.se",
   "findaly.co",
   "yachtall.com",
