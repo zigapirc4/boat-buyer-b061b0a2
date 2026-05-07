@@ -110,7 +110,7 @@ const CATEGORY_PAGES: CategoryPage[] = [
     buildUrl: (page) =>
       page === 1
         ? `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc`
-        : `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc?page=${(page - 1) * 20}`,
+        : `https://www.boat24.com/en/usedboats/?cat=1&sort=datdesc&page=${(page - 1) * 20}`,
     boatType: "sailboat",
     pages: 30,
   },
@@ -119,7 +119,7 @@ const CATEGORY_PAGES: CategoryPage[] = [
     buildUrl: (page) =>
       page === 1
         ? `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc`
-        : `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc?page=${(page - 1) * 20}`,
+        : `https://www.boat24.com/en/usedboats/?cat=2&sort=datdesc&page=${(page - 1) * 20}`,
     boatType: "powerboat",
     pages: 30,
   },
@@ -878,20 +878,47 @@ function extractMarketplaceSections(html: string, text: string): {
 
 // ---------- Fetch with proxy fallback ----------
 
-const browserHeaders = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-  "Accept-Encoding": "gzip, deflate",
-};
+const BROWSER_HEADER_PROFILES: Array<Record<string, string>> = [
+  {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
+    "Accept-Encoding": "gzip, deflate, br",
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+  },
+  {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
+    "Accept-Encoding": "gzip, deflate, br",
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+  },
+  {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
+    "Accept-Encoding": "gzip, deflate, br",
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+  },
+];
+
+function randomBrowserHeaders(extra?: Record<string, string>): Record<string, string> {
+  const base = BROWSER_HEADER_PROFILES[Math.floor(Math.random() * BROWSER_HEADER_PROFILES.length)];
+  return { ...base, ...(extra || {}) };
+}
 
 async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     const res = await fetch(`https://r.jina.ai/${url}`, {
-      headers: { "User-Agent": browserHeaders["User-Agent"], "X-Return-Format": "html" },
+      headers: randomBrowserHeaders({ "X-Return-Format": "html" }),
       signal: ctrl.signal,
     });
     clearTimeout(t);
@@ -972,7 +999,7 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { headers: browserHeaders, redirect: "follow", signal: ctrl.signal });
+    const res = await fetch(url, { headers: randomBrowserHeaders(), redirect: "follow", signal: ctrl.signal });
     if (res.ok) {
       const html = await res.text();
       if (html && html.length > 500 && !isBlockedOrChallengePage(html)) return html;
@@ -992,7 +1019,7 @@ async function fetchBoat24LocationViaProxy(url: string, timeoutMs = 12000): Prom
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     const res = await fetch(`https://r.jina.ai/${url}`, {
-      headers: { "User-Agent": browserHeaders["User-Agent"] },
+      headers: randomBrowserHeaders(),
       signal: ctrl.signal,
     });
     clearTimeout(t);
@@ -1049,7 +1076,8 @@ function extractListingLinks(html: string, baseUrl: string, site: string): { url
     add(m[2], m[1]);
   }
 
-  const rawUrlRe = /(https?:\/\/[^\s)]+(?:\/mobility\/item\/\d+|\/en\/boat\/[a-z0-9-]+-s\d+|\/en\/ship\/[A-Za-z0-9-]+|\/buy\/[a-z0-9-]+|\/boat\/[a-z0-9-]+-\d{5,}))/gi;
+  const rawUrlRe =
+    /(https?:\/\/[^\s)]+(?:\/mobility\/item\/\d+|\/en\/boat\/[a-z0-9-]+-s\d+|\/en\/ship\/[A-Za-z0-9-]+|\/buy\/[a-z0-9-]+|\/boat\/[a-z0-9-]+-\d{5,}|\/yacht\/[a-z0-9-]+-\d{5,}))/gi;
   while ((m = rawUrlRe.exec(html)) !== null) {
     add(m[1], "");
   }
@@ -3533,7 +3561,7 @@ Deno.serve(async (req) => {
   // Defaults: scan ALL categories, but bound listings per page so we stay under timeout.
   let categoryStart = 0;
   let categoryEnd = CATEGORY_PAGES.length;
-  let maxListingsPerPage = 8;
+  let maxListingsPerPage = 20;
   let listingConcurrency = 4;
   let pageConcurrency = 2;
   let fetchRetries = 2;
