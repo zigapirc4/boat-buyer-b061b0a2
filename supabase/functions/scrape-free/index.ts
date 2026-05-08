@@ -2227,6 +2227,27 @@ function normalizeBoatSegment(
   return null;
 }
 
+function hasSailboatCatamaranSignal(input: {
+  url: string;
+  title: string | null;
+  model: string | null;
+  description: string | null;
+  fullText: string;
+  specs: Record<string, unknown>;
+}): boolean {
+  const blob = [
+    input.url || "",
+    input.title || "",
+    input.model || "",
+    input.description || "",
+    input.fullText || "",
+    JSON.stringify(input.specs || {}),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return /\b(catamaran|catamaran|catamarano|catamarano|cat\b)\b/.test(blob);
+}
+
 async function classifyBoatSegmentWithAi(input: {
   url: string;
   boatType: "sailboat" | "powerboat" | null;
@@ -3906,9 +3927,20 @@ Deno.serve(async (req) => {
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
-      if (segment) {
-        row.segment = segment;
-        mergeSpec(parsed.flexible.specs, "segment", segment);
+      const forceCatamaran =
+        parsed.boat_type === "sailboat" &&
+        hasSailboatCatamaranSignal({
+          url: linkUrl,
+          title: row.title || parsed.title || null,
+          model: row.model || parsed.model || null,
+          description: parsed.description || null,
+          fullText: parsed.flexible.raw.full_text || "",
+          specs: parsed.flexible.specs,
+        });
+      const finalSegment = forceCatamaran ? "catamaran" : segment;
+      if (finalSegment) {
+        row.segment = finalSegment;
+        mergeSpec(parsed.flexible.specs, "segment", finalSegment);
         mergeSpec(parsed.flexible.specs, "type", parsed.boat_type);
       }
       let aiLocation = await inferLocationWithAi({

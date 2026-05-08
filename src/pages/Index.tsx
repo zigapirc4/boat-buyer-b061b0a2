@@ -589,13 +589,13 @@ const Index = () => {
   };
 
   function getDealInsight(listing: CachedListing, dataset: CachedListing[]): DealInsight {
-    if (!listing.price_eur || !listing.length_feet || !listing.year) {
+    if (!listing.price_eur || !listing.length_feet || !listing.year || !listing.segment) {
       return {
         fairPrice: null,
         gapPct: null,
         confidence: "low",
         label: "No market data",
-        shortReason: "Missing year/length/price",
+        shortReason: "Missing year/length/price/segment",
       };
     }
 
@@ -606,7 +606,9 @@ const Index = () => {
           c.price_eur &&
           c.length_feet &&
           c.year &&
+          c.segment &&
           c.boat_type === listing.boat_type &&
+          c.segment === listing.segment &&
           Math.abs((c.year || 0) - listing.year!) <= 2 &&
           Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
       )
@@ -618,7 +620,7 @@ const Index = () => {
         gapPct: null,
         confidence: "low",
         label: "No market data",
-        shortReason: "Too few comparables",
+        shortReason: "Too few segment-matched comparables",
       };
     }
 

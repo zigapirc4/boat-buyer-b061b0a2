@@ -112,11 +112,11 @@ const MyBoats = () => {
   };
 
   const getDealInsight = (listing: CachedListing, dataset: CachedListing[]) => {
-    if (!listing.price_eur || !listing.length_feet || !listing.year) {
+    if (!listing.price_eur || !listing.length_feet || !listing.year || !listing.segment) {
       return {
         gapPct: null,
         label: "No market data" as const,
-        shortReason: "Missing year/length/price",
+        shortReason: "Missing year/length/price/segment",
       };
     }
 
@@ -127,7 +127,9 @@ const MyBoats = () => {
           c.price_eur &&
           c.length_feet &&
           c.year &&
+          c.segment &&
           c.boat_type === listing.boat_type &&
+          c.segment === listing.segment &&
           Math.abs((c.year || 0) - listing.year!) <= 2 &&
           Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
       )
@@ -137,7 +139,7 @@ const MyBoats = () => {
       return {
         gapPct: null,
         label: "No market data" as const,
-        shortReason: "Too few comparables",
+        shortReason: "Too few segment-matched comparables",
       };
     }
 

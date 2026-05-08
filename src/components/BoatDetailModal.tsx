@@ -552,6 +552,51 @@ export const BoatDetailModal = ({
     return () => { cancelled = true; };
   }, [open, listing?.id]);
 
+  // Load market comparables independently from AI evaluation path so they are
+  // visible in Boat details even when ai_details is already present.
+  useEffect(() => {
+    if (!open || !listing) return;
+    if (!listing.year || !listing.length_feet) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const comparables = await Promise.race([
+          fetchComparables(
+            listing.boat_type || "sailboat",
+            listing.year!,
+            listing.length_feet!,
+            listing.title || "",
+          ).catch(() => []),
+          new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
+        ]);
+        if (cancelled) return;
+        setComparablesUsed(
+          comparables
+            .filter((c) => !!c.url && c.url !== listing.url)
+            .slice(0, 8)
+            .map((c) => ({
+              title: c.title || "Comparable boat",
+              url: c.url || "",
+              price_eur: c.price_eur ?? null,
+              year: c.year ?? null,
+              length_feet: c.length_feet ?? null,
+              location: c.location ?? null,
+              image_url: c.image_url ?? null,
+              engine_info: c.engine_info ?? null,
+              description: c.description || null,
+              boat_type: c.boat_type ?? null,
+            })),
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, listing?.id, listing?.year, listing?.length_feet, listing?.boat_type, listing?.title, listing?.url]);
+
   const needsFetch = (tab: "evaluate" | "costs") => {
     if (!effective) return false;
     if (tab === "evaluate") return !effective.price_eur || !effective.length_feet || !effective.year;
