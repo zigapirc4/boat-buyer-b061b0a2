@@ -83,6 +83,14 @@ interface DealInsight {
   shortReason: string;
 }
 
+function formatSegmentLabel(segment: string): string {
+  return segment
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 const ARTICLES = [
   {
     icon: DollarSign,
@@ -136,6 +144,7 @@ const Index = () => {
   const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
+  const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [minPrice, setMinPrice] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
@@ -311,6 +320,21 @@ const Index = () => {
     fetchListings();
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
+  const availableSegments = (() => {
+    const base = listings.filter((l) => !!l.segment);
+    const scoped =
+      boatTypeFilter === "all" ? base : base.filter((l) => (l.boat_type || "sailboat") === boatTypeFilter);
+    return [...new Set(scoped.map((l) => l.segment!).filter(Boolean))].sort();
+  })();
+
+  // Keep segment filter responsive to selected type (or current dataset).
+  useEffect(() => {
+    if (segmentFilter === "all") return;
+    if (!availableSegments.includes(segmentFilter)) {
+      setSegmentFilter("all");
+    }
+  }, [boatTypeFilter, segmentFilter, availableSegments.join("|")]);
+
   const [allSources, setAllSources] = useState<string[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   useEffect(() => {
@@ -332,9 +356,10 @@ const Index = () => {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [boatTypeFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery, sortBy]);
+  }, [boatTypeFilter, segmentFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery, sortBy]);
 
   const displayListings = listings.filter((l) => {
+    if (segmentFilter !== "all" && l.segment !== segmentFilter) return false;
     if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
     if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
     if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
@@ -1016,6 +1041,19 @@ const Index = () => {
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="sailboat">Sailboats</SelectItem>
                 <SelectItem value="powerboat">Powerboats</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={segmentFilter} onValueChange={setSegmentFilter}>
+              <SelectTrigger className="w-[170px] h-8 text-xs rounded-lg">
+                <SelectValue placeholder="All Segments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Segments</SelectItem>
+                {availableSegments.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {formatSegmentLabel(s)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
