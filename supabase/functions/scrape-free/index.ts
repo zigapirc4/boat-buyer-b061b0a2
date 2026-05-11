@@ -2245,10 +2245,8 @@ function hasSailboatCatamaranSignal(input: {
   ]
     .join(" ")
     .toLowerCase();
-  // Keep this override very conservative to avoid false positives.
-  // Brand-only heuristics can match generic words (e.g. "excess"), so only
-  // explicit catamaran/multihull evidence is allowed here.
-  return /\b(catamaran|catamarano|catamaranes|multihull|multi-hull)\b/.test(blob);
+  // Conservative: explicit multihull wording only (no brand guessing).
+  return /\b(catamaran|catamarano|catamaranes|multihull|multi-hull|trimaran|twin hulls?)\b/.test(blob);
 }
 
 async function classifyBoatSegmentWithAi(input: {
@@ -2269,7 +2267,8 @@ Rules (strict, conservative):
 - speed-focused => racing (sail) or sport_boat (power)
 - luxury requires ALL: large size, very high equipment/comfort fitout, clear premium cues
 - be extra strict for older boats: age alone never implies luxury; if older and evidence is weak, pick non-luxury
-- if uncertain between luxury and non-luxury, choose non-luxury`;
+- if uncertain between luxury and non-luxury, choose non-luxury
+- sailboat catamaran: ONLY when the listing text clearly describes a catamaran / multihull (explicit wording such as catamaran, multihull, twin hulls). Never choose catamaran from brand name alone, vague marketing, or assumption. If unsure, choose cruiser.`;
   const userPrompt = `d:${JSON.stringify({
     type: input.boatType,
     link: input.url,
@@ -3923,23 +3922,26 @@ Deno.serve(async (req) => {
           };
         }
       }
-      const segment = await classifyBoatSegmentWithAi({
+      let segment = await classifyBoatSegmentWithAi({
         url: linkUrl,
         boatType: parsed.boat_type,
         core: parsed.flexible.core,
         specs: parsed.flexible.specs,
         raw: parsed.flexible.raw,
       });
-      const forceCatamaran =
-        parsed.boat_type === "sailboat" &&
-        hasSailboatCatamaranSignal({
-          url: linkUrl,
-          title: row.title || parsed.title || null,
-          model: row.model || parsed.model || null,
-          description: parsed.description || null,
-          fullText: parsed.flexible.raw.full_text || "",
-          specs: parsed.flexible.specs,
-        });
+      const catamaranSignalPayload = {
+        url: linkUrl,
+        title: row.title || parsed.title || null,
+        model: row.model || parsed.model || null,
+        description: parsed.description || null,
+        fullText: parsed.flexible.raw.full_text || "",
+        specs: parsed.flexible.specs,
+      };
+      const forceCatamaran = parsed.boat_type === "sailboat" && hasSailboatCatamaranSignal(catamaranSignalPayload);
+      // AI often mislabels monohulls as catamaran; only keep AI catamaran when explicit listing evidence matches DB rules.
+      if (parsed.boat_type === "sailboat" && segment === "catamaran" && !hasSailboatCatamaranSignal(catamaranSignalPayload)) {
+        segment = "cruiser";
+      }
       const finalSegment = forceCatamaran ? "catamaran" : segment;
       if (finalSegment) {
         row.segment = finalSegment;
