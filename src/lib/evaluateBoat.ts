@@ -263,7 +263,7 @@ export function evaluate(data: BoatData): EvalResult {
   // segment + year + length + condition score proximity.
   const comparableRows = (comparables || []).filter((c) => c.price_eur > 0 && c.length_feet > 0);
   const strictCohort = comparableRows.filter((c) => {
-    const segOk = !segment || !c.segment || c.segment === segment;
+    const segOk = !segment ? true : c.segment === segment;
     const yearOk = !c.year || Math.abs(c.year - year) <= 3;
     const lenOk = Math.abs(c.length_feet - lengthFt) <= 2.5;
     const condOk =
@@ -273,7 +273,7 @@ export function evaluate(data: BoatData): EvalResult {
     return segOk && yearOk && lenOk && condOk;
   });
   const relaxedCohort = comparableRows.filter((c) => {
-    const segOk = !segment || !c.segment || c.segment === segment;
+    const segOk = !segment ? true : c.segment === segment;
     const yearOk = !c.year || Math.abs(c.year - year) <= 5;
     const lenOk = Math.abs(c.length_feet - lengthFt) <= 4;
     return segOk && yearOk && lenOk;

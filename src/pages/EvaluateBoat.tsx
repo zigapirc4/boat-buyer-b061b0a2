@@ -606,10 +606,6 @@ const EvaluateBoat = () => {
                 <p className="text-muted-foreground">Realistic</p>
                 <p className="font-semibold">€{result.offerRange.realistic.toLocaleString()}</p>
               </div>
-              <div className="rounded-md border p-2 bg-background col-span-2">
-                <p className="text-muted-foreground">Safe offer / walk-away cap</p>
-                <p className="font-semibold">€{result.offerRange.safe.toLocaleString()} / €{result.walkAwayPrice.toLocaleString()}</p>
-              </div>
             </div>
             {result.negotiationAnchors.length > 0 && (
               <ul className="mt-3 space-y-1">
@@ -623,7 +619,7 @@ const EvaluateBoat = () => {
           <Card className="p-5">
             <h3 className="font-semibold text-primary mb-3">✉️ Negotiation Script Generator</h3>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">Generate an English negotiation message from your current offer.</p>
+              <p className="text-xs text-muted-foreground">Generate a negotiation message from your current offer.</p>
               <Button size="sm" variant="outline" className="text-xs" onClick={() => setScriptOpen((v) => !v)}>
                 {scriptOpen ? "Hide" : "Show"}
               </Button>

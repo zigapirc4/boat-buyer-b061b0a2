@@ -566,6 +566,7 @@ export const BoatDetailModal = ({
             listing.year!,
             listing.length_feet!,
             listing.title || "",
+            listing.segment || null,
           ).catch(() => []),
           new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
         ]);
@@ -831,6 +832,7 @@ export const BoatDetailModal = ({
           effective!.year,
           effective!.length_feet,
           effective!.title || "",
+          effective?.segment || effective?.specs_raw?.ai_details?.segment || null,
         ).catch(() => []),
         new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
       ]);
@@ -1122,10 +1124,6 @@ export const BoatDetailModal = ({
                         <p className="text-muted-foreground">Realistic</p>
                         <p className="font-semibold">€{evalResult.offerRange.realistic.toLocaleString()}</p>
                       </div>
-                      <div className="rounded-md border p-2 bg-background col-span-2">
-                        <p className="text-muted-foreground">Safe offer / walk-away cap</p>
-                        <p className="font-semibold">€{evalResult.offerRange.safe.toLocaleString()} / €{evalResult.walkAwayPrice.toLocaleString()}</p>
-                      </div>
                     </div>
                     {evalResult.negotiationAnchors.length > 0 && (
                       <ul className="mt-3 space-y-1">
@@ -1139,7 +1137,7 @@ export const BoatDetailModal = ({
                   <Card className="p-4">
                     <h4 className="font-semibold text-primary mb-2 text-sm">Negotiation Script Generator</h4>
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">Generate an English negotiation message from your current offer.</p>
+                      <p className="text-xs text-muted-foreground">Generate a negotiation message from your current offer.</p>
                       <Button size="sm" variant="outline" className="text-xs" onClick={() => setScriptOpen((v) => !v)}>
                         {scriptOpen ? "Hide" : "Show"}
                       </Button>
@@ -1600,7 +1598,7 @@ export const BoatDetailModal = ({
         </div>
       </DialogContent>
       <Dialog open={refBoatOpen} onOpenChange={setRefBoatOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-2xl min-h-[70vh] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedRefBoat?.title || "Boat card"}</DialogTitle>
           </DialogHeader>
@@ -1610,7 +1608,7 @@ export const BoatDetailModal = ({
                 <img
                   src={selectedRefBoat.image_url}
                   alt={selectedRefBoat.title}
-                  className="w-full h-52 object-cover rounded-md"
+                  className="w-full h-64 object-cover rounded-md"
                 />
               )}
               <div className="flex flex-wrap gap-3 text-sm">
@@ -1624,7 +1622,7 @@ export const BoatDetailModal = ({
                 <p className="text-sm text-muted-foreground">⚙️ {selectedRefBoat.engine_info}</p>
               )}
               {selectedRefBoat.description && (
-                <p className="text-sm text-muted-foreground line-clamp-4">{selectedRefBoat.description}</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedRefBoat.description}</p>
               )}
               <div className="flex gap-2 pt-1">
                 {onNavigateToListing && (

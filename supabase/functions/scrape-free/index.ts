@@ -2245,7 +2245,10 @@ function hasSailboatCatamaranSignal(input: {
   ]
     .join(" ")
     .toLowerCase();
-  return /\b(catamaran|catamaran|catamarano|catamarano|cat\b)\b/.test(blob);
+  // Keep this override very conservative to avoid false positives.
+  // Brand-only heuristics can match generic words (e.g. "excess"), so only
+  // explicit catamaran/multihull evidence is allowed here.
+  return /\b(catamaran|catamarano|catamaranes|multihull|multi-hull)\b/.test(blob);
 }
 
 async function classifyBoatSegmentWithAi(input: {

@@ -8,8 +8,14 @@ function normalizeTokens(model: string): string[] {
     .filter((t) => t.length >= 3 && !["used", "new", "boat", "yacht", "year"].includes(t));
 }
 
-export async function fetchComparables(boatType: string, year: number, lengthFt: number, model: string) {
-  const { data } = await supabase
+export async function fetchComparables(
+  boatType: string,
+  year: number,
+  lengthFt: number,
+  model: string,
+  segment?: string | null,
+) {
+  let query = supabase
     .from("cached_listings")
     .select("price_eur, length_feet, title, year, scraped_at, url, image_url, location, engine_info, description, boat_type, segment, specs_raw")
     .eq("boat_type", boatType)
@@ -23,6 +29,12 @@ export async function fetchComparables(boatType: string, year: number, lengthFt:
     .gt("price_eur", 0)
     .gt("length_feet", 0)
     .limit(220);
+
+  if (segment) {
+    query = query.eq("segment", segment);
+  }
+
+  const { data } = await query;
 
   const tokens = normalizeTokens(model);
   const now = Date.now();
