@@ -12,8 +12,8 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isListingSaved, saveBoat, saveListing } from "@/lib/boatStore";
-import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
-import { fetchComparables } from "@/lib/fetchComparables";
+import type { EvalResult, BoatType } from "@/lib/evaluateBoat";
+import { fetchDealInsightsForIds } from "@/lib/dealInsightsClient";
 import {
   generateNegotiationScript,
   type NegotiationLanguage,
@@ -154,6 +154,7 @@ const EvaluateBoat = () => {
   const [evalProgress, setEvalProgress] = useState(0);
   const [detailListing, setDetailListing] = useState<CachedListingForModal | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [cachedListingId, setCachedListingId] = useState<string | null>(null);
   const [scriptLang, setScriptLang] = useState<NegotiationLanguage>("en");
   const [scriptTone, setScriptTone] = useState<NegotiationTone>("neutral");
   const [customOffer, setCustomOffer] = useState("");
@@ -178,6 +179,7 @@ const EvaluateBoat = () => {
     setResult(null);
     setComparablesUsed([]);
     setSimilarBoats([]);
+    setCachedListingId(null);
 
     try {
       const normalizedUrl = normalizeListingUrl(url);
@@ -199,6 +201,8 @@ const EvaluateBoat = () => {
         });
         return;
       }
+
+      setCachedListingId(row.id);
 
       const specsRaw = recordMaybe(row.specs_raw) ?? {};
       const aiDetails = recordMaybe(specsRaw.ai_details);
@@ -293,36 +297,37 @@ const EvaluateBoat = () => {
 
   const handleEvaluate = async () => {
     if (!canEvaluate) return;
-    try {
-      // Keep evaluation snappy even if comparables query is slow.
-      const comparables = await Promise.race([
-        fetchComparables(boatType, Number(year), Number(length), model).catch(() => []),
-        new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
-      ]);
-
-      const evalResult = evaluate({
-        boatType,
-        year: Number(year),
-        price: Number(price),
-        lengthFt: Number(length),
-        engine,
-        hull,
-        sails: boatType === "powerboat" ? "none" : sails,
-        engineHours: engineHours ? Number(engineHours) : undefined,
-        engineYear: engineYear ? Number(engineYear) : undefined,
-        engineHp: extras.engineHp,
-        hullMaterial: extras.hullMaterial,
-        knownIssues: extras.knownIssues,
-        recentWork: extras.recentWork,
-        comparables,
+    if (!cachedListingId) {
+      toast({
+        title: "Load a cached listing first",
+        description: "Server-side scoring runs on imported listings. Paste the URL and tap Load (or open this page with ?url=).",
+        variant: "destructive",
       });
-      setResult(evalResult);
-      setComparablesUsed(comparables.slice(0, 8));
+      return;
+    }
+    setEvalProgress(15);
+    setIsSearching(true);
+    setIsCombinedLoading(true);
+    try {
+      const m = await fetchDealInsightsForIds([cachedListingId]);
+      const p = m[cachedListingId];
+      if (p?.evalResult) setResult(p.evalResult);
+      else setResult(null);
+      setComparablesUsed(
+        (p?.comparables ?? []).slice(0, 8).map((c) => ({
+          price_eur: c.price_eur,
+          length_feet: c.length_feet,
+          year: c.year,
+          title: c.title,
+          url: c.url,
+          location: c.location,
+          image_url: c.image_url,
+          engine_info: c.engine_info,
+          description: c.description ?? "",
+          boat_type: c.boat_type,
+        })),
+      );
       setSimilarBoats([]);
-      setEvalProgress(15);
-
-      setIsSearching(true);
-      setIsCombinedLoading(true);
       setEvalProgress(72);
       try {
         const { data, error } = await supabase.functions.invoke("search-similar-boats", {
@@ -333,10 +338,6 @@ const EvaluateBoat = () => {
         }
       } catch (e) {
         console.error("Similar boats search error:", e);
-      } finally {
-        setIsSearching(false);
-        setIsCombinedLoading(false);
-        setEvalProgress(100);
       }
     } catch (e) {
       console.error("Evaluation error:", e);
@@ -345,6 +346,10 @@ const EvaluateBoat = () => {
         description: "Please try again. If it persists, refresh the page.",
         variant: "destructive",
       });
+    } finally {
+      setIsSearching(false);
+      setIsCombinedLoading(false);
+      setEvalProgress(100);
     }
   };
 

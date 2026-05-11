@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, startTransition } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Ship,
@@ -31,7 +31,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { BoatListingCard } from "@/components/BoatListingCard";
 import { FeedbackButton } from "@/components/FeedbackButton";
-import { evaluate, type BoatType } from "@/lib/evaluateBoat";
+import {
+  fetchDealInsightsForIds,
+  fetchTopDealsFromServer,
+  placeholderInsightLoading,
+  type DealInsight,
+  type ListingDealPayload,
+} from "@/lib/dealInsightsClient";
 import { useToast } from "@/hooks/use-toast";
 import { BUYER_GUIDES } from "@/lib/buyerGuides";
 import {
@@ -73,16 +79,64 @@ interface CachedListing {
   engine_info: string | null;
   description: string | null;
   hull_material: string | null;
+  engine_hours?: number | null;
   source: string | null;
   scraped_at: string;
+  specs_raw?: unknown;
 }
 
-interface DealInsight {
-  fairPrice: number | null;
-  gapPct: number | null;
-  confidence: "low" | "medium" | "high";
-  label: "Great deal" | "Fair" | "Overpriced" | "No market data";
-  shortReason: string;
+type ListingSortKey = "newest" | "best_deal" | "price_low" | "price_high" | "length_high" | "year_newest";
+
+type ListingDbFilters = {
+  boatTypeFilter: string;
+  sourceFilter: string;
+  segmentFilter: string;
+  minPrice: string;
+  maxPrice: string;
+  minLength: string;
+  maxLength: string;
+  searchQuery: string;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase query builder chain
+function applyListingDbFilters(q: any, f: ListingDbFilters): any {
+  let query = q.not("price_eur", "is", null).not("image_url", "is", null).neq("image_url", "none");
+  if (f.boatTypeFilter !== "all") query = query.eq("boat_type", f.boatTypeFilter);
+  if (f.sourceFilter !== "all") query = query.eq("source", f.sourceFilter);
+  if (f.segmentFilter !== "all") query = query.eq("segment", f.segmentFilter);
+  const minP = f.minPrice.trim() ? Number.parseInt(f.minPrice, 10) : NaN;
+  if (Number.isFinite(minP)) query = query.gte("price_eur", minP);
+  const maxP = f.maxPrice.trim() ? Number.parseInt(f.maxPrice, 10) : NaN;
+  if (Number.isFinite(maxP)) query = query.lte("price_eur", maxP);
+  const minL = f.minLength.trim() ? Number.parseInt(f.minLength, 10) : NaN;
+  if (Number.isFinite(minL)) query = query.gte("length_feet", minL);
+  const maxL = f.maxLength.trim() ? Number.parseInt(f.maxLength, 10) : NaN;
+  if (Number.isFinite(maxL)) query = query.lte("length_feet", maxL);
+  const sq = f.searchQuery.trim();
+  if (sq) {
+    const esc = sq.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    query = query.or(
+      `title.ilike.%${esc}%,location.ilike.%${esc}%,description.ilike.%${esc}%,engine_info.ilike.%${esc}%`,
+    );
+  }
+  return query;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyListingSort(q: any, sortBy: ListingSortKey): any {
+  switch (sortBy) {
+    case "price_low":
+      return q.order("price_eur", { ascending: true }).order("scraped_at", { ascending: false });
+    case "price_high":
+      return q.order("price_eur", { ascending: false }).order("scraped_at", { ascending: false });
+    case "length_high":
+      return q.order("length_feet", { ascending: false }).order("scraped_at", { ascending: false });
+    case "year_newest":
+      return q.order("year", { ascending: false }).order("scraped_at", { ascending: false });
+    case "newest":
+    default:
+      return q.order("scraped_at", { ascending: false });
+  }
 }
 
 function formatSegmentLabel(segment: string): string {
@@ -137,13 +191,14 @@ const ARTICLES = [
 ];
 
 const PER_PAGE = 24;
+/** When sorting/filter needs client-side work (geo, best deal, good-deals toggle), cap bulk fetch instead of scanning entire table. */
+const CLIENT_FALLBACK_LIMIT = 4000;
 
 const Index = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const savedCount = getSavedListings().length;
-  const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
@@ -165,9 +220,16 @@ const Index = () => {
   const [page, setPage] = useState(1);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
-  const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
-  const [marketListings, setMarketListings] = useState<CachedListing[]>([]);
-  const [marketListingsLoading, setMarketListingsLoading] = useState(true);
+  /** Keeps full rows so compare works across pagination pages (max 4). */
+  const [compareBoats, setCompareBoats] = useState<CachedListing[]>([]);
+  const [insightsMap, setInsightsMap] = useState<Record<string, ListingDealPayload>>({});
+  const [topDealsCards, setTopDealsCards] = useState<{ listing: CachedListing; payload: ListingDealPayload }[]>([]);
+  const [topDealsLoading, setTopDealsLoading] = useState(true);
+  const [facetSegments, setFacetSegments] = useState<string[]>([]);
+  const [serverPageRows, setServerPageRows] = useState<CachedListing[]>([]);
+  const [serverMatchCount, setServerMatchCount] = useState<number | null>(null);
+  const [clientBatchRows, setClientBatchRows] = useState<CachedListing[]>([]);
+  const [listingsNonce, setListingsNonce] = useState(0);
   const [compareOpen, setCompareOpen] = useState(false);
   const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -291,82 +353,168 @@ const Index = () => {
     }
   }, []);
 
+  const listingFilters: ListingDbFilters = useMemo(
+    () => ({
+      boatTypeFilter,
+      sourceFilter,
+      segmentFilter,
+      minPrice,
+      maxPrice,
+      minLength,
+      maxLength,
+      searchQuery,
+    }),
+    [boatTypeFilter, sourceFilter, segmentFilter, minPrice, maxPrice, minLength, maxLength, searchQuery],
+  );
+
+  const useServerPagination = !goodDealsOnly && sortBy !== "best_deal" && userCoords === null;
+
   useEffect(() => {
-    const fetchListings = async () => {
+    let cancelled = false;
+    const loadSegments = async () => {
       try {
-        let query = supabase
-          .from("cached_listings")
-          .select("*")
-          .not("price_eur", "is", null)
-          .not("image_url", "is", null)
-          .neq("image_url", "none")
-          .order("scraped_at", { ascending: false })
-          .limit(100000);
-        if (boatTypeFilter !== "all") query = query.eq("boat_type", boatTypeFilter);
-        if (sourceFilter !== "all") query = query.eq("source", sourceFilter);
-        const { data, error } = await query;
+        let q = supabase.from("cached_listings").select("segment").not("segment", "is", null).limit(8000);
+        if (boatTypeFilter !== "all") q = q.eq("boat_type", boatTypeFilter);
+        const { data } = await q;
+        if (cancelled || !data) return;
+        const rows = data as unknown as { segment: string | null }[];
+        const segs = [...new Set(rows.map((r) => r.segment).filter(Boolean))].sort() as string[];
+        setFacetSegments(segs);
+      } catch (e) {
+        console.error("Failed to load segment facets:", e);
+      }
+    };
+    void loadSegments();
+    return () => {
+      cancelled = true;
+    };
+  }, [boatTypeFilter]);
+
+  useEffect(() => {
+    if (!useServerPagination) return;
+    let cancelled = false;
+    const run = async () => {
+      setIsLoading(true);
+      try {
+        let q = applyListingDbFilters(supabase.from("cached_listings").select("*", { count: "exact" }), listingFilters);
+        q = applyListingSort(q, sortBy);
+        const from = (page - 1) * PER_PAGE;
+        const to = from + PER_PAGE - 1;
+        const { data, error, count } = await q.range(from, to);
+        if (cancelled) return;
         if (!error && data) {
-          let filtered = data as CachedListing[];
+          const rows = data as CachedListing[];
+          const ids = rows.map((r) => r.id);
+          let payloads: Record<string, ListingDealPayload> = {};
+          try {
+            payloads = await fetchDealInsightsForIds(ids);
+          } catch (e) {
+            console.error("grid deal insights:", e);
+          }
+          if (cancelled) return;
+          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+          setServerPageRows(rows);
+          setServerMatchCount(typeof count === "number" ? count : data.length);
+          setClientBatchRows([]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch listings:", e);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [useServerPagination, listingFilters, sortBy, page, listingsNonce]);
+
+  useEffect(() => {
+    if (useServerPagination) return;
+    let cancelled = false;
+    const run = async () => {
+      setIsLoading(true);
+      try {
+        let q = applyListingDbFilters(supabase.from("cached_listings").select("*"), listingFilters);
+        q = q.order("scraped_at", { ascending: false }).limit(CLIENT_FALLBACK_LIMIT);
+        const { data, error } = await q;
+        if (cancelled) return;
+        if (!error && data) {
+          let rows = data as CachedListing[];
           if (userCoords) {
-            filtered.sort((a, b) => {
+            rows = [...rows].sort((a, b) => {
               const aDist = getLocationScore(a.location, userCoords.lat, userCoords.lon);
               const bDist = getLocationScore(b.location, userCoords.lat, userCoords.lon);
               return aDist - bDist;
             });
           }
-          setListings(filtered);
+          const ids = rows.map((r) => r.id);
+          let payloads: Record<string, ListingDealPayload> = {};
+          try {
+            payloads = await fetchDealInsightsForIds(ids);
+          } catch (e) {
+            console.error("batch deal insights:", e);
+          }
+          if (cancelled) return;
+          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+          setClientBatchRows(rows);
+          setServerPageRows([]);
+          setServerMatchCount(null);
         }
       } catch (e) {
         console.error("Failed to fetch listings:", e);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
-    fetchListings();
-  }, [boatTypeFilter, sourceFilter, userCoords]);
-
-  // After listings resolve so the grid can paint first; avoids competing megabytes queries + heavy insight passes blocking paint.
-  useEffect(() => {
-    if (isLoading) return;
-
-    let cancelled = false;
-    const fetchMarketListings = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("cached_listings")
-          .select("*")
-          .not("price_eur", "is", null)
-          .not("length_feet", "is", null)
-          .not("year", "is", null)
-          .not("segment", "is", null)
-          .limit(100000);
-        if (!cancelled && !error && data) {
-          startTransition(() => {
-            setMarketListings(data as CachedListing[]);
-          });
-        }
-      } catch (e) {
-        console.error("Failed to fetch global market listings:", e);
-      } finally {
-        if (!cancelled) setMarketListingsLoading(false);
-      }
-    };
-    void fetchMarketListings();
+    void run();
     return () => {
       cancelled = true;
     };
-  }, [isLoading]);
+  }, [useServerPagination, listingFilters, userCoords, listingsNonce]);
 
-  const topDealsLoading = isLoading || marketListingsLoading;
+  const compareBoatsIdsKey = useMemo(() => [...compareBoats.map((b) => b.id)].sort().join("|"), [compareBoats]);
 
-  const availableSegments = (() => {
-    const base = listings.filter((l) => !!l.segment);
-    const scoped =
-      boatTypeFilter === "all" ? base : base.filter((l) => (l.boat_type || "sailboat") === boatTypeFilter);
-    return [...new Set(scoped.map((l) => l.segment!).filter(Boolean))].sort();
-  })();
+  useEffect(() => {
+    let cancelled = false;
+    setTopDealsLoading(true);
+    fetchTopDealsFromServer()
+      .then((rows) => {
+        if (cancelled) return;
+        setTopDealsCards(
+          rows.map((r) => ({
+            listing: r.listing as unknown as CachedListing,
+            payload: r.payload,
+          })),
+        );
+        setInsightsMap((prev) => {
+          const next = { ...prev };
+          for (const r of rows) {
+            const id = String((r.listing as { id?: string }).id ?? "");
+            if (id) next[id] = r.payload;
+          }
+          return next;
+        });
+      })
+      .catch((e) => console.error("top deals:", e))
+      .finally(() => {
+        if (!cancelled) setTopDealsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // Keep segment filter responsive to selected type (or current dataset).
+  useEffect(() => {
+    const ids = compareBoats.map((b) => b.id);
+    if (!ids.length) return;
+    fetchDealInsightsForIds(ids)
+      .then((m) => setInsightsMap((p) => ({ ...p, ...m })))
+      .catch((e) => console.error("compare insights:", e));
+  }, [compareBoatsIdsKey]);
+
+  const availableSegments = facetSegments;
+
   useEffect(() => {
     if (segmentFilter === "all") return;
     if (!availableSegments.includes(segmentFilter)) {
@@ -378,7 +526,7 @@ const Index = () => {
   const [totalCount, setTotalCount] = useState<number | null>(null);
   useEffect(() => {
     const fetchSources = async () => {
-      const { data } = await supabase.from("cached_listings").select("source").limit(100000);
+      const { data } = await supabase.from("cached_listings").select("source").limit(8000);
       if (data) {
         const s = [...new Set(data.map((d: any) => d.source).filter(Boolean))].sort() as string[];
         setAllSources(s);
@@ -395,42 +543,19 @@ const Index = () => {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [boatTypeFilter, segmentFilter, sourceFilter, minPrice, maxPrice, minLength, maxLength, searchQuery, sortBy]);
-
-  const displayListings = listings.filter((l) => {
-    if (segmentFilter !== "all" && l.segment !== segmentFilter) return false;
-    if (minPrice && l.price_eur !== null && l.price_eur < parseInt(minPrice)) return false;
-    if (maxPrice && l.price_eur !== null && l.price_eur > parseInt(maxPrice)) return false;
-    if (minLength && l.length_feet !== null && l.length_feet < parseInt(minLength)) return false;
-    if (maxLength && l.length_feet !== null && l.length_feet > parseInt(maxLength)) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const haystack =
-        `${l.title} ${l.location || ""} ${l.engine_info || ""} ${l.description || ""} ${l.hull_material || ""} ${l.boat_type || ""}`.toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
-    if (goodDealsOnly) {
-      const insight = getDealInsight(l, marketListings);
-      if (!insight.gapPct || insight.gapPct < 12) return false;
-    }
-    return true;
-  });
-
-  const sortedListings = [...displayListings].sort((a, b) => {
-    if (sortBy === "price_low") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
-    if (sortBy === "price_high") return (b.price_eur ?? 0) - (a.price_eur ?? 0);
-    if (sortBy === "length_high") return (b.length_feet ?? 0) - (a.length_feet ?? 0);
-    if (sortBy === "year_newest") return (b.year ?? 0) - (a.year ?? 0);
-    if (sortBy === "best_deal") {
-      const aGap = getDealInsight(a, marketListings).gapPct ?? -9999;
-      const bGap = getDealInsight(b, marketListings).gapPct ?? -9999;
-      return bGap - aGap;
-    }
-    return new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime();
-  });
-
-  const totalPages = Math.ceil(sortedListings.length / PER_PAGE);
-  const paginatedListings = sortedListings.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  }, [
+    boatTypeFilter,
+    segmentFilter,
+    sourceFilter,
+    minPrice,
+    maxPrice,
+    minLength,
+    maxLength,
+    searchQuery,
+    sortBy,
+    goodDealsOnly,
+    userCoords,
+  ]);
 
   const handleCardClick = (listing: CachedListing) => {
     setSelectedListing(listing);
@@ -439,7 +564,8 @@ const Index = () => {
   };
 
   const handleNavigateToListing = async (url: string, initialTab: "details" | "evaluate" | "costs" = "details") => {
-    let target = listings.find((l) => l.url === url || cachedListingUrlVariants(url).includes(l.url)) || null;
+    const pool = [...serverPageRows, ...clientBatchRows];
+    let target = pool.find((l) => l.url === url || cachedListingUrlVariants(url).includes(l.url)) || null;
     if (!target) {
       const { data } = await supabase
         .from("cached_listings")
@@ -476,7 +602,7 @@ const Index = () => {
           source: savedListing.source,
         });
         setSavedIds((prev) => new Set(prev).add(savedListing.id));
-        setListings((prev) => [savedListing, ...prev.filter((l) => l.id !== savedListing.id)]);
+        setListingsNonce((n) => n + 1);
         setSelectedListing(savedListing);
         setModalInitialTab("evaluate");
         setModalOpen(true);
@@ -632,7 +758,7 @@ const Index = () => {
       source: typedListing.source,
     });
     setSavedIds((prev) => new Set(prev).add(typedListing.id));
-    setListings((prev) => [typedListing, ...prev.filter((l) => l.id !== typedListing.id)]);
+    setListingsNonce((n) => n + 1);
     setSelectedListing(typedListing);
     setModalInitialTab("evaluate");
     setModalOpen(true);
@@ -652,181 +778,59 @@ const Index = () => {
     return null;
   };
 
-  function getDealInsight(listing: CachedListing, dataset: CachedListing[]): DealInsight {
-    if (!listing.price_eur || !listing.length_feet || !listing.year || !listing.segment) {
-      return {
-        fairPrice: null,
-        gapPct: null,
-        confidence: "low",
-        label: "No market data",
-        shortReason: "Missing year/length/price/segment",
-      };
-    }
-
-    const comps = dataset
-      .filter(
-        (c) =>
-          c.id !== listing.id &&
-          c.price_eur &&
-          c.length_feet &&
-          c.year &&
-          c.segment &&
-          c.boat_type === listing.boat_type &&
-          c.segment === listing.segment &&
-          Math.abs((c.year || 0) - listing.year!) <= 2 &&
-          Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
-      )
-      .slice(0, 60);
-
-    if (comps.length < 4) {
-      return {
-        fairPrice: null,
-        gapPct: null,
-        confidence: "low",
-        label: "No market data",
-        shortReason: "Too few segment-matched comparables",
-      };
-    }
-
-    const sorted = comps
-      .map((c) => Number(c.price_eur))
-      .sort((a, b) => a - b);
-    const fairPrice = sorted[Math.floor(sorted.length / 2)];
-    const rawGapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
-    let qualityScore = 100;
-    const age = listing.year ? new Date().getFullYear() - listing.year : null;
-    const desc = (listing.description || "").toLowerCase();
-    const eng = (listing.engine_info || "").toLowerCase();
-
-    if (age !== null) {
-      // Keep age as a risk signal, but avoid over-penalizing well-kept classic boats.
-      if (age > 35) qualityScore -= 32;
-      else if (age > 30) qualityScore -= 24;
-      else if (age > 25) qualityScore -= 16;
-      else if (age > 15) qualityScore -= 6;
-    }
-    if (listing.engine_info && /\b(problem|fault|needs|repair|non funzionante|issue)\b/i.test(eng)) qualityScore -= 25;
-    if (listing.engine_info && /\bnew engine|rebuilt|overhauled\b/i.test(eng)) qualityScore += 8;
-    if (listing.engine_hours && listing.engine_hours > 4500) qualityScore -= 25;
-    else if (listing.engine_hours && listing.engine_hours > 3000) qualityScore -= 15;
-    if (!listing.engine_hours) qualityScore -= 8;
-    if (!listing.hull_material) qualityScore -= 10;
-    if (/\b(osmosis|blister|damage|damaged|leak|not working|needs repair|project boat|collision|grounding)\b/i.test(desc)) {
-      qualityScore -= 35;
-    }
-    if (!listing.description || listing.description.length < 80) qualityScore -= 8;
-    if (!listing.description && !listing.engine_info) qualityScore -= 10;
-
-    qualityScore = Math.max(25, Math.min(100, qualityScore));
-    const qualityWeight = qualityScore / 100;
-    const gapPct = rawGapPct * qualityWeight;
-    const confidence: DealInsight["confidence"] =
-      comps.length >= 18 ? "high" : comps.length >= 10 ? "medium" : "low";
-
-    const engineText = (listing.engine_info || "").toLowerCase();
-    const descriptionText = (listing.description || "").toLowerCase();
-    const inferredEngine =
-      listing.engine_hours && listing.engine_hours > 4500
-        ? "bad"
-        : listing.engine_hours && listing.engine_hours > 3000
-          ? "average"
-          : /\b(problem|fault|needs|repair|issue|non funzionante)\b/i.test(engineText)
-            ? "bad"
-            : "good";
-    const inferredHull = /\b(osmosis|blister)\b/i.test(descriptionText)
-      ? "osmosis"
-      : /\b(damage|damaged|collision|grounding|leak)\b/i.test(descriptionText)
-        ? "damaged"
-        : "good";
-    const inferredSails = listing.boat_type === "powerboat" ? "none" : "average";
-    const evalScore = evaluate({
-      boatType: (listing.boat_type === "powerboat" ? "powerboat" : "sailboat") as BoatType,
-      segment: listing.segment || null,
-      year: listing.year,
-      price: Number(listing.price_eur),
-      lengthFt: Number(listing.length_feet),
-      engine: inferredEngine,
-      hull: inferredHull,
-      sails: inferredSails,
-      engineHours: listing.engine_hours ?? undefined,
-      hullMaterial: listing.hull_material ?? undefined,
-      comparables: comps.map((c) => ({
-        price_eur: Number(c.price_eur),
-        length_feet: Number(c.length_feet),
-        year: c.year ?? null,
-        title: c.title,
-        url: c.url,
-        image_url: c.image_url,
-        location: c.location,
-        engine_info: c.engine_info,
-        description: c.description || undefined,
-      })),
-    }).score;
-
-    if (gapPct >= 12 && qualityScore >= 60 && evalScore >= 65) {
-      return {
-        fairPrice,
-        gapPct,
-        confidence,
-        label: "Great deal",
-        shortReason: `~${Math.round(gapPct)}% below peers (quality-adjusted)`,
-      };
-    }
-    if (gapPct <= -10) {
-      return {
-        fairPrice,
-        gapPct,
-        confidence,
-        label: "Overpriced",
-        shortReason: `~${Math.round(Math.abs(gapPct))}% above peers`,
-      };
-    }
+  const insightForListingCard = (id: string): DealInsight => {
+    const hit = insightsMap[id];
+    if (hit) return hit.insight;
+    if (isLoading) return placeholderInsightLoading();
     return {
-      fairPrice,
-      gapPct,
-      confidence,
-      label: "Fair",
-      shortReason: "Near market median",
+      fairPrice: null,
+      gapPct: null,
+      confidence: "low",
+      label: "No market data",
+      shortReason: "Unable to score",
     };
-  }
+  };
 
-  const topDealsCandidates = listings
-    .map((listing) => ({ listing, insight: getDealInsight(listing, marketListings) }))
-    .filter(
-      (x) =>
-        x.insight.label === "Great deal" &&
-        x.insight.gapPct !== null &&
-        Math.abs(x.insight.gapPct || 0) <= 90,
-    )
-    .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0));
-
-  const topDeals: typeof topDealsCandidates = [];
-  const seenDealPercents = new Set<number>();
-  const seenBoatTypes = new Set<string>();
-  for (const candidate of topDealsCandidates) {
-    const roundedGap = Math.round(candidate.insight.gapPct || 0);
-    if (seenDealPercents.has(roundedGap)) continue;
-    const candidateType = candidate.listing.boat_type || "unknown";
-    if (topDeals.length < 2 && seenBoatTypes.has(candidateType)) continue;
-    seenDealPercents.add(roundedGap);
-    seenBoatTypes.add(candidateType);
-    topDeals.push(candidate);
-    if (topDeals.length >= 3) break;
-  }
-
-  const toggleCompare = (id: string) => {
-    setCompareIds((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) {
-        n.delete(id);
-      } else if (n.size < 4) {
-        n.add(id);
+  let clientSortedFull: CachedListing[] = [];
+  if (!useServerPagination) {
+    clientSortedFull = [...clientBatchRows];
+    if (goodDealsOnly) {
+      clientSortedFull = clientSortedFull.filter((l) => {
+        const insight = insightsMap[l.id]?.insight;
+        return !!(insight?.gapPct && insight.gapPct >= 12);
+      });
+    }
+    clientSortedFull.sort((a, b) => {
+      if (sortBy === "price_low") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
+      if (sortBy === "price_high") return (b.price_eur ?? 0) - (a.price_eur ?? 0);
+      if (sortBy === "length_high") return (b.length_feet ?? 0) - (a.length_feet ?? 0);
+      if (sortBy === "year_newest") return (b.year ?? 0) - (a.year ?? 0);
+      if (sortBy === "best_deal") {
+        const aGap = insightsMap[a.id]?.insight?.gapPct ?? -9999;
+        const bGap = insightsMap[b.id]?.insight?.gapPct ?? -9999;
+        return bGap - aGap;
       }
-      return n;
+      return new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime();
+    });
+  }
+
+  const totalPages = useServerPagination
+    ? Math.max(1, Math.ceil((serverMatchCount ?? 0) / PER_PAGE))
+    : Math.max(1, Math.ceil(clientSortedFull.length / PER_PAGE));
+
+  const paginatedListings = useServerPagination
+    ? serverPageRows
+    : clientSortedFull.slice((page - 1) * PER_PAGE, (page - 1) * PER_PAGE + PER_PAGE);
+
+  const toggleCompare = (listing: CachedListing) => {
+    setCompareBoats((prev) => {
+      const exists = prev.some((l) => l.id === listing.id);
+      if (exists) return prev.filter((l) => l.id !== listing.id);
+      if (prev.length >= 4) return prev;
+      return [...prev, listing];
     });
   };
 
-  const compareListings = listings.filter((l) => compareIds.has(l.id));
   const selectedGuideArticle = BUYER_GUIDES.find((article) => article.id === selectedGuideId) || null;
 
   const scrollToListings = () => {
@@ -941,9 +945,9 @@ const Index = () => {
               </Card>
             ))}
           </div>
-        ) : topDeals.length > 0 ? (
+        ) : topDealsCards.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-3">
-            {topDeals.map(({ listing, insight }) => (
+            {topDealsCards.map(({ listing, payload }) => (
               <Card
                 key={`deal-${listing.id}`}
                 className="border-success/30 bg-success/5 cursor-pointer premium-card overflow-hidden"
@@ -965,9 +969,9 @@ const Index = () => {
                   </div>
                 )}
                 <div className="p-3">
-                  <p className="text-xs font-semibold text-success">{insight.label}</p>
+                  <p className="text-xs font-semibold text-success">{payload.insight.label}</p>
                   <p className="text-sm font-semibold truncate mt-1">{listing.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{insight.shortReason}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{payload.insight.shortReason}</p>
                   <p className="text-xs mt-1">
                     Price: <span className="font-medium">€{Number(listing.price_eur).toLocaleString()}</span>
                   </p>
@@ -1238,7 +1242,7 @@ const Index = () => {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
               {paginatedListings.map((listing) => {
                 const img = getImageUrl(listing);
-                const insight = getDealInsight(listing, marketListings);
+                const insight = insightForListingCard(listing.id);
                 return (
                   <BoatListingCard
                     key={listing.id}
@@ -1247,10 +1251,10 @@ const Index = () => {
                     insightLabel={insight.label}
                     insightReason={insight.shortReason}
                     isSaved={savedIds.has(listing.id)}
-                    isCompared={compareIds.has(listing.id)}
+                    isCompared={compareBoats.some((l) => l.id === listing.id)}
                     onOpen={() => handleCardClick(listing)}
                     onToggleSave={() => toggleSave(listing)}
-                    onToggleCompare={() => toggleCompare(listing.id)}
+                    onToggleCompare={() => toggleCompare(listing)}
                     timeAgo={timeAgo}
                   />
                 );
@@ -1339,15 +1343,15 @@ const Index = () => {
       </div>
 
       {/* Compare bar */}
-      {compareIds.size > 0 && (
+      {compareBoats.length > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30">
           <Card className="px-3 py-2 shadow-lg border-primary/20 bg-background/95 backdrop-blur premium-surface">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{compareIds.size}/4 selected</span>
-              <Button size="sm" className="h-7 text-xs" disabled={compareIds.size < 2} onClick={() => setCompareOpen(true)}>
+              <span className="text-xs text-muted-foreground">{compareBoats.length}/4 selected</span>
+              <Button size="sm" className="h-7 text-xs" disabled={compareBoats.length < 2} onClick={() => setCompareOpen(true)}>
                 Compare boats
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCompareIds(new Set())}>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCompareBoats([])}>
                 Clear
               </Button>
             </div>
@@ -1403,8 +1407,8 @@ const Index = () => {
             </p>
           </Card>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {compareListings.map((b) => {
-              const insight = getDealInsight(b, marketListings);
+            {compareBoats.map((b) => {
+              const insight = insightForListingCard(b.id);
               const img = getImageUrl(b);
               return (
                 <Card key={`cmp-${b.id}`} className="overflow-hidden border-border/60 shadow-sm hover:shadow-md transition-shadow bg-card/95">
@@ -1566,6 +1570,7 @@ const Index = () => {
         isSaved={selectedListing ? savedIds.has(selectedListing.id) : false}
         onToggleSave={toggleSave}
         onNavigateToListing={handleNavigateToListing}
+        prefetchedDeal={selectedListing ? insightsMap[selectedListing.id] ?? null : null}
       />
     </div>
   );

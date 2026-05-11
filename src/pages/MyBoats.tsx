@@ -10,7 +10,13 @@ import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { cachedListingUrlVariants } from "@scrapeShared/listingSites";
 import { BoatListingCard } from "@/components/BoatListingCard";
-import { evaluate, type BoatType } from "@/lib/evaluateBoat";
+import {
+  fetchDealInsightsForIds,
+  placeholderInsightLoading,
+  type DealInsight,
+  type ListingDealPayload,
+} from "@/lib/dealInsightsClient";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 
@@ -75,7 +81,8 @@ const MyBoats = () => {
   const [boats, setBoats] = useState<SavedBoat[]>(getSavedBoats);
   const [listings, setListings] = useState<SavedListing[]>(getSavedListings);
   const [cachedListings, setCachedListings] = useState<CachedListing[]>([]);
-  const [marketListings, setMarketListings] = useState<CachedListing[]>([]);
+  const [insightsMap, setInsightsMap] = useState<Record<string, ListingDealPayload>>({});
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("details");
@@ -115,32 +122,40 @@ const MyBoats = () => {
       const ids = getSavedListings().map((l) => l.id);
       if (ids.length === 0) {
         setCachedListings([]);
+        setInsightsMap({});
         return;
       }
-      const { data } = await supabase.from("cached_listings").select("*").in("id", ids);
-      if (data) {
-        setCachedListings(data as CachedListing[]);
+      setInsightsLoading(true);
+      try {
+        const { data } = await supabase.from("cached_listings").select("*").in("id", ids);
+        const rows = (data || []) as CachedListing[];
+        setCachedListings(rows);
+        try {
+          const payloads = await fetchDealInsightsForIds(rows.map((r) => r.id));
+          setInsightsMap(payloads);
+        } catch (e) {
+          console.error("my boats insights:", e);
+          setInsightsMap({});
+        }
+      } finally {
+        setInsightsLoading(false);
       }
     };
-    loadCachedListings();
+    void loadCachedListings();
   }, [listings]);
 
-  useEffect(() => {
-    const loadMarketListings = async () => {
-      const { data } = await supabase
-        .from("cached_listings")
-        .select("*")
-        .not("price_eur", "is", null)
-        .not("length_feet", "is", null)
-        .not("year", "is", null)
-        .not("segment", "is", null)
-        .limit(100000);
-      if (data) {
-        setMarketListings(data as CachedListing[]);
-      }
+  const insightForSavedListing = (id: string): DealInsight => {
+    const hit = insightsMap[id];
+    if (hit) return hit.insight;
+    if (insightsLoading) return placeholderInsightLoading();
+    return {
+      fairPrice: null,
+      gapPct: null,
+      confidence: "low",
+      label: "No market data",
+      shortReason: "Unable to score",
     };
-    loadMarketListings();
-  }, []);
+  };
 
   const handleDelete = (id: string) => {
     deleteBoat(id);
@@ -157,116 +172,6 @@ const MyBoats = () => {
     if (listing.image_url) return listing.image_url;
     if (listing.image_urls && listing.image_urls.length > 0) return listing.image_urls[0];
     return null;
-  };
-
-  const getDealInsight = (listing: CachedListing, dataset: CachedListing[]) => {
-    if (!listing.price_eur || !listing.length_feet || !listing.year || !listing.segment) {
-      return {
-        gapPct: null,
-        label: "No market data" as const,
-        shortReason: "Missing year/length/price/segment",
-      };
-    }
-
-    const comps = dataset
-      .filter(
-        (c) =>
-          c.id !== listing.id &&
-          c.price_eur &&
-          c.length_feet &&
-          c.year &&
-          c.segment &&
-          c.boat_type === listing.boat_type &&
-          c.segment === listing.segment &&
-          Math.abs((c.year || 0) - listing.year!) <= 2 &&
-          Math.abs((c.length_feet || 0) - listing.length_feet!) <= 3,
-      )
-      .slice(0, 60);
-
-    if (comps.length < 4) {
-      return {
-        gapPct: null,
-        label: "No market data" as const,
-        shortReason: "Too few segment-matched comparables",
-      };
-    }
-
-    const sorted = comps
-      .map((c) => Number(c.price_eur))
-      .sort((a, b) => a - b);
-    const fairPrice = sorted[Math.floor(sorted.length / 2)];
-    const rawGapPct = ((fairPrice - Number(listing.price_eur)) / Number(listing.price_eur)) * 100;
-    let qualityScore = 100;
-    const age = listing.year ? new Date().getFullYear() - listing.year : null;
-    const desc = (listing.description || "").toLowerCase();
-    const eng = (listing.engine_info || "").toLowerCase();
-
-    if (age !== null) {
-      if (age > 35) qualityScore -= 45;
-      else if (age > 30) qualityScore -= 35;
-      else if (age > 25) qualityScore -= 25;
-      else if (age > 15) qualityScore -= 10;
-    }
-    if (listing.engine_info && /\b(problem|fault|needs|repair|non funzionante|issue)\b/i.test(eng)) qualityScore -= 25;
-    if (listing.engine_info && /\bnew engine|rebuilt|overhauled\b/i.test(eng)) qualityScore += 8;
-    if (listing.engine_hours && listing.engine_hours > 4500) qualityScore -= 25;
-    else if (listing.engine_hours && listing.engine_hours > 3000) qualityScore -= 15;
-    if (!listing.engine_hours) qualityScore -= 8;
-    if (!listing.hull_material) qualityScore -= 10;
-    if (/\b(osmosis|blister|damage|damaged|leak|not working|needs repair|project boat|collision|grounding)\b/i.test(desc)) {
-      qualityScore -= 35;
-    }
-    if (!listing.description || listing.description.length < 80) qualityScore -= 8;
-    if (!listing.description && !listing.engine_info) qualityScore -= 10;
-
-    qualityScore = Math.max(25, Math.min(100, qualityScore));
-    const qualityWeight = qualityScore / 100;
-    const gapPct = rawGapPct * qualityWeight;
-    const engineText = (listing.engine_info || "").toLowerCase();
-    const descriptionText = (listing.description || "").toLowerCase();
-    const inferredEngine =
-      listing.engine_hours && listing.engine_hours > 4500
-        ? "bad"
-        : listing.engine_hours && listing.engine_hours > 3000
-          ? "average"
-          : /\b(problem|fault|needs|repair|issue|non funzionante)\b/i.test(engineText)
-            ? "bad"
-            : "good";
-    const inferredHull = /\b(osmosis|blister)\b/i.test(descriptionText)
-      ? "osmosis"
-      : /\b(damage|damaged|collision|grounding|leak)\b/i.test(descriptionText)
-        ? "damaged"
-        : "good";
-    const inferredSails = listing.boat_type === "powerboat" ? "none" : "average";
-    const evalScore = evaluate({
-      boatType: (listing.boat_type === "powerboat" ? "powerboat" : "sailboat") as BoatType,
-      segment: listing.segment || null,
-      year: listing.year,
-      price: Number(listing.price_eur),
-      lengthFt: Number(listing.length_feet),
-      engine: inferredEngine,
-      hull: inferredHull,
-      sails: inferredSails,
-      engineHours: listing.engine_hours ?? undefined,
-      hullMaterial: listing.hull_material ?? undefined,
-      comparables: comps.map((c) => ({
-        price_eur: Number(c.price_eur),
-        length_feet: Number(c.length_feet),
-        year: c.year ?? null,
-        title: c.title,
-        url: c.url,
-        image_url: c.image_url,
-        location: c.location,
-        engine_info: c.engine_info,
-        description: c.description || undefined,
-      })),
-    }).score;
-
-    if (gapPct >= 12 && qualityScore >= 60 && evalScore >= 65)
-      return { gapPct, label: "Great deal" as const, shortReason: `~${Math.round(gapPct)}% below peers (quality-adjusted)` };
-    if (gapPct <= -10)
-      return { gapPct, label: "Overpriced" as const, shortReason: `~${Math.round(Math.abs(gapPct))}% above peers` };
-    return { gapPct, label: "Fair" as const, shortReason: "Near market median" };
   };
 
   const toggleCompare = (id: string) => {
@@ -355,30 +260,45 @@ const MyBoats = () => {
           {listings.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Saved Listings ({listings.length})</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {savedListingsForDisplay.map((listing) => {
-                  const insight = getDealInsight(listing, marketListings);
-                  return (
-                    <BoatListingCard
-                      key={listing.id}
-                      listing={listing}
-                      imageUrl={getImageUrl(listing)}
-                      insightLabel={insight.label}
-                      insightReason={insight.shortReason}
-                      isSaved
-                      isCompared={compareIds.has(listing.id)}
-                      onOpen={() => {
-                        setSelectedListing(listing);
-                        setModalInitialTab("details");
-                        setModalOpen(true);
-                      }}
-                      onToggleSave={() => handleRemoveListing(listing.id)}
-                      onToggleCompare={() => toggleCompare(listing.id)}
-                      timeAgo={timeAgo}
-                    />
-                  );
-                })}
-              </div>
+              {insightsLoading ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {savedListingsForDisplay.map((listing) => (
+                    <Card key={`sk-${listing.id}`} className="overflow-hidden">
+                      <Skeleton className="h-40 w-full rounded-none" />
+                      <div className="p-3 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-5 w-1/2" />
+                        <Skeleton className="h-3 w-full" />
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {savedListingsForDisplay.map((listing) => {
+                    const insight = insightForSavedListing(listing.id);
+                    return (
+                      <BoatListingCard
+                        key={listing.id}
+                        listing={listing}
+                        imageUrl={getImageUrl(listing)}
+                        insightLabel={insight.label}
+                        insightReason={insight.shortReason}
+                        isSaved
+                        isCompared={compareIds.has(listing.id)}
+                        onOpen={() => {
+                          setSelectedListing(listing);
+                          setModalInitialTab("details");
+                          setModalOpen(true);
+                        }}
+                        onToggleSave={() => handleRemoveListing(listing.id)}
+                        onToggleCompare={() => toggleCompare(listing.id)}
+                        timeAgo={timeAgo}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -417,6 +337,7 @@ const MyBoats = () => {
         timeAgo={timeAgo}
         initialTab={modalInitialTab}
         onNavigateToListing={handleNavigateToListing}
+        prefetchedDeal={selectedListing ? insightsMap[selectedListing.id] ?? null : null}
       />
       <Footer />
     </div>

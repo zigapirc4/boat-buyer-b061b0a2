@@ -9,9 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { evaluate, type EvalResult, type BoatType } from "@/lib/evaluateBoat";
-import { fetchComparables } from "@/lib/fetchComparables";
+import type { EvalResult } from "@/lib/evaluateBoat";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchDealInsightsForIds, type ListingDealPayload, type DealComparableSnapshot } from "@/lib/dealInsightsClient";
 import {
   generateNegotiationScript,
   type NegotiationLanguage,
@@ -72,40 +72,6 @@ interface MaintenanceItem {
   applicable: boolean;
   rationale?: string;
   optionsHint?: string;
-}
-
-// Infer engine condition from available data
-function inferEngineCondition(engineHours: number | null | undefined, year: number | null, engineInfo: string | null): string {
-  const age = year ? new Date().getFullYear() - year : null;
-  const hours = engineHours || 0;
-  
-  // Check engine info text for clues
-  const info = (engineInfo || "").toLowerCase();
-  if (info.includes("new engine") || info.includes("rebuilt") || info.includes("overhauled")) return "good";
-  if (info.includes("needs") || info.includes("problem") || info.includes("issue")) return "bad";
-  
-  if (hours > 5000 || (age && age > 25)) return "bad";
-  if (hours > 2000 || (age && age > 15)) return "average";
-  return "good";
-}
-
-// Infer hull condition from available data
-function inferHullCondition(hullMaterial: string | null, year: number | null, description: string | null): string {
-  const desc = (description || "").toLowerCase();
-  if (desc.includes("osmosis") || desc.includes("blistering")) return "osmosis";
-  if (desc.includes("hull damage") || desc.includes("collision") || desc.includes("grounding")) return "damaged";
-  return "good";
-}
-
-// Infer sails condition from available data
-function inferSailsCondition(year: number | null, description: string | null): string {
-  const desc = (description || "").toLowerCase();
-  if (desc.includes("new sail") || desc.includes("new genoa") || desc.includes("new main")) return "new";
-  if (desc.includes("worn sail") || desc.includes("old sail") || desc.includes("needs sail")) return "worn";
-  const age = year ? new Date().getFullYear() - year : 15;
-  if (age <= 5) return "new";
-  if (age <= 15) return "average";
-  return "worn";
 }
 
 function getMaintenanceBreakdown(lengthM: number, year: number | null, boatType: string, hullMaterial: string | null, engineHours: number | null): MaintenanceItem[] {
@@ -366,6 +332,8 @@ interface BoatDetailModalProps {
   onToggleSave?: (listing: CachedListing) => void;
   initialTab?: "details" | "evaluate" | "costs";
   onNavigateToListing?: (url: string, initialTab?: "details" | "evaluate" | "costs") => void;
+  /** Server bundle from `listing-deal-insights` (same cohort as listing cards). Modal refetches if absent. */
+  prefetchedDeal?: ListingDealPayload | null;
 }
 
 function formatSegmentLabel(segment: string): string {
@@ -385,6 +353,7 @@ export const BoatDetailModal = ({
   onToggleSave,
   initialTab = "details",
   onNavigateToListing,
+  prefetchedDeal = null,
 }: BoatDetailModalProps) => {
   const DESCRIPTION_PREVIEW_LENGTH = 420;
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
@@ -418,9 +387,9 @@ export const BoatDetailModal = ({
 
   // Evaluate state
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
-  const [isEvaluating, setIsEvaluating] = useState(false);
-  const [evalProgress, setEvalProgress] = useState(0);
+  const [dealInsightsLoading, setDealInsightsLoading] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
+  const [dealRetryNonce, setDealRetryNonce] = useState(0);
   const [scriptLang, setScriptLang] = useState<NegotiationLanguage>("en");
   const [scriptTone, setScriptTone] = useState<NegotiationTone>("neutral");
   const [customOffer, setCustomOffer] = useState("");
@@ -467,8 +436,7 @@ export const BoatDetailModal = ({
     setImgIndex(0);
     setActiveTab(initialTab);
     setEvalResult(null);
-    setIsEvaluating(false);
-    setEvalProgress(0);
+    setDealInsightsLoading(false);
     setEvalError(null);
     setScriptLang("en");
     setScriptTone("neutral");
@@ -552,51 +520,64 @@ export const BoatDetailModal = ({
     return () => { cancelled = true; };
   }, [open, listing?.id]);
 
-  // Load market comparables independently from AI evaluation path so they are
-  // visible in Boat details even when ai_details is already present.
-  useEffect(() => {
-    if (!open || !listing) return;
-    if (!listing.year || !listing.length_feet) return;
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const comparables = await Promise.race([
-          fetchComparables(
-            listing.boat_type || "sailboat",
-            listing.year!,
-            listing.length_feet!,
-            listing.title || "",
-            listing.segment || null,
-          ).catch(() => []),
-          new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
-        ]);
-        if (cancelled) return;
-        setComparablesUsed(
-          comparables
-            .filter((c) => !!c.url && c.url !== listing.url)
-            .slice(0, 8)
-            .map((c) => ({
-              title: c.title || "Comparable boat",
-              url: c.url || "",
-              price_eur: c.price_eur ?? null,
-              year: c.year ?? null,
-              length_feet: c.length_feet ?? null,
-              location: c.location ?? null,
-              image_url: c.image_url ?? null,
-              engine_info: c.engine_info ?? null,
-              description: c.description || null,
-              boat_type: c.boat_type ?? null,
-            })),
-        );
-      } catch {
-        /* ignore */
-      }
+  const mapComparableSnapshotToSimilar = (c: DealComparableSnapshot, listingUrl: string): SimilarBoat | null => {
+    if (!c.url || c.url === listingUrl) return null;
+    return {
+      title: c.title || "Comparable boat",
+      url: c.url || "",
+      price_eur: c.price_eur ?? null,
+      year: c.year ?? null,
+      length_feet: c.length_feet ?? null,
+      location: c.location ?? null,
+      image_url: c.image_url ?? null,
+      engine_info: c.engine_info ?? null,
+      description: c.description || null,
+      boat_type: c.boat_type ?? null,
     };
-    run();
+  };
+
+  useEffect(() => {
+    if (!open || !listing?.id) return;
+    let cancelled = false;
+    setEvalError(null);
+
+    const applyPayload = (p: ListingDealPayload) => {
+      const lu = listing.url || "";
+      const rows = p.comparables
+        .map((c) => mapComparableSnapshotToSimilar(c, lu))
+        .filter((x): x is SimilarBoat => x !== null)
+        .slice(0, 8);
+      setComparablesUsed(rows);
+      if (p.evalResult) setEvalResult(p.evalResult);
+    };
+
+    if (prefetchedDeal) {
+      applyPayload(prefetchedDeal);
+      setDealInsightsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setDealInsightsLoading(true);
+    fetchDealInsightsForIds([listing.id])
+      .then((m) => {
+        const p = m[listing.id];
+        if (cancelled) return;
+        if (p) applyPayload(p);
+        else setEvalError("No scoring data returned.");
+      })
+      .catch((e) => {
+        if (!cancelled) setEvalError(e instanceof Error ? e.message : "Failed to load evaluation.");
+      })
+      .finally(() => {
+        if (!cancelled) setDealInsightsLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [open, listing?.id, listing?.year, listing?.length_feet, listing?.boat_type, listing?.title, listing?.url]);
+  }, [open, listing?.id, listing?.url, prefetchedDeal, dealRetryNonce]);
 
   const needsFetch = (tab: "evaluate" | "costs") => {
     if (!effective) return false;
@@ -663,30 +644,71 @@ export const BoatDetailModal = ({
     }
   }, [activeTab]);
 
-  // Auto-evaluate when evaluate tab is opened and data is available
   useEffect(() => {
-    if (
-      activeTab === "evaluate" &&
-      effective &&
-      effective.price_eur &&
-      effective.length_feet &&
-      effective.year &&
-      !evalResult &&
-      !isFetching &&
-      !isEvaluating
-    ) {
-      runEvaluation();
-    }
-  }, [activeTab, effective, isFetching, isEvaluating, evalResult]);
+    if (!open || activeTab !== "evaluate") return;
+    const eff = enrichedListing || listing;
+    if (!eff?.price_eur || !eff?.length_feet || !eff?.year) return;
+    if (evalResult) return;
+    const ai = enrichedExtras.aiDetails || eff?.specs_raw?.ai_details;
+    if (!ai) return;
 
-  useEffect(() => {
-    if (!isEvaluating) return;
-    setEvalProgress(12);
-    const timer = setInterval(() => {
-      setEvalProgress((prev) => (prev >= 92 ? prev : prev + 8));
-    }, 280);
-    return () => clearInterval(timer);
-  }, [isEvaluating]);
+    const normalizeConfidence = (raw: unknown): number => {
+      const n = Number(raw ?? 50);
+      if (!Number.isFinite(n)) return 50;
+      if (n >= 0 && n <= 1) return Math.round(n * 100);
+      return Math.max(0, Math.min(100, Math.round(n)));
+    };
+    const normalizeCategory = (rawScore: unknown, rawMax: unknown): { score: number; maxScore: number } => {
+      const score = Number(rawScore ?? 0);
+      const maxScore = Number(rawMax ?? 10);
+      const safeScore = Number.isFinite(score) ? score : 0;
+      const safeMax = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 10;
+      if (safeMax >= 100 && safeScore >= 0 && safeScore <= 10) {
+        return { score: Math.round(safeScore * 10), maxScore: safeMax };
+      }
+      return { score: safeScore, maxScore: safeMax };
+    };
+
+    const mapped: EvalResult = {
+      score: Number(ai.score || 50),
+      verdict: String(ai.verdict || "Fair Deal"),
+      color:
+        Number(ai.score || 50) >= 65 ? "text-success" : Number(ai.score || 50) >= 50 ? "text-warning" : "text-destructive",
+      categories: Array.isArray(ai.categories)
+        ? ai.categories.map((c: Record<string, unknown>) => ({
+            ...normalizeCategory(c.score, c.max_score),
+            name: String(c.name || "Category"),
+            details: String(c.details || ""),
+            icon: String(c.icon || "•"),
+          }))
+        : [],
+      recommendations: Array.isArray(ai.recommendations) ? ai.recommendations : [],
+      priceAssessment: String(ai.price_assessment || ""),
+      estimatedRepairCost: Number(ai.estimated_repair_cost || 0),
+      confidenceScore: normalizeConfidence(ai.confidence_score),
+      confidenceDetails: "Generated by AI during listing sync",
+      fairPriceLow: Number(ai.fair_price_low || 0),
+      fairPriceHigh: Number(ai.fair_price_high || 0),
+      targetOffer: Number(ai.target_offer || 0),
+      scoreDrivers: [],
+      dataQuality: [],
+      offerRange: {
+        aggressive: Number((ai.offer_range as Record<string, unknown> | undefined)?.aggressive || 0),
+        realistic: Number((ai.offer_range as Record<string, unknown> | undefined)?.realistic || 0),
+        safe: Number((ai.offer_range as Record<string, unknown> | undefined)?.safe || 0),
+      },
+      walkAwayPrice: Number(ai.walk_away_price || 0),
+      negotiationAnchors: Array.isArray(ai.negotiation_anchors) ? ai.negotiation_anchors : [],
+      repairEstimateBreakdown: Array.isArray(ai.repair_breakdown)
+        ? ai.repair_breakdown.map((r: Record<string, unknown>) => ({
+            label: String(r.label || "Repair item"),
+            estimate: Number(r.estimate || 0),
+            note: r.note ? String(r.note) : undefined,
+          }))
+        : [],
+    };
+    setEvalResult(mapped);
+  }, [open, activeTab, listing, enrichedListing, enrichedExtras.aiDetails, evalResult]);
 
   // Load marinas when costs tab is activated
   useEffect(() => {
@@ -750,134 +772,6 @@ export const BoatDetailModal = ({
 
   const handlePrev = () => setImgIndex(i => (i > 0 ? i - 1 : images.length - 1));
   const handleNext = () => setImgIndex(i => (i < images.length - 1 ? i + 1 : 0));
-
-  const runEvaluation = async () => {
-    if (!effective!.price_eur || !effective!.length_feet || !effective!.year) return;
-    setIsEvaluating(true);
-    setEvalProgress(15);
-    setEvalError(null);
-    
-    const ai = enrichedExtras.aiDetails || effective?.specs_raw?.ai_details;
-    if (ai) {
-      const normalizeConfidence = (raw: unknown): number => {
-        const n = Number(raw ?? 50);
-        if (!Number.isFinite(n)) return 50;
-        // Older cached AI payloads sometimes use 0..1 confidence.
-        if (n >= 0 && n <= 1) return Math.round(n * 100);
-        return Math.max(0, Math.min(100, Math.round(n)));
-      };
-      const normalizeCategory = (rawScore: unknown, rawMax: unknown): { score: number; maxScore: number } => {
-        const score = Number(rawScore ?? 0);
-        const maxScore = Number(rawMax ?? 10);
-        const safeScore = Number.isFinite(score) ? score : 0;
-        const safeMax = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 10;
-        // If max is 100 but score looks like 0..10 scale, expand score.
-        if (safeMax >= 100 && safeScore >= 0 && safeScore <= 10) {
-          return { score: Math.round(safeScore * 10), maxScore: safeMax };
-        }
-        return { score: safeScore, maxScore: safeMax };
-      };
-      const mapped: EvalResult = {
-        score: Number(ai.score || 50),
-        verdict: String(ai.verdict || "Fair Deal"),
-        color:
-          Number(ai.score || 50) >= 65 ? "text-success" : Number(ai.score || 50) >= 50 ? "text-warning" : "text-destructive",
-        categories: Array.isArray(ai.categories)
-          ? ai.categories.map((c: any) => ({
-              ...(normalizeCategory(c.score, c.max_score)),
-              name: String(c.name || "Category"),
-              details: String(c.details || ""),
-              icon: String(c.icon || "•"),
-            }))
-          : [],
-        recommendations: Array.isArray(ai.recommendations) ? ai.recommendations : [],
-        priceAssessment: String(ai.price_assessment || ""),
-        estimatedRepairCost: Number(ai.estimated_repair_cost || 0),
-        confidenceScore: normalizeConfidence(ai.confidence_score),
-        confidenceDetails: "Generated by AI during listing sync",
-        fairPriceLow: Number(ai.fair_price_low || 0),
-        fairPriceHigh: Number(ai.fair_price_high || 0),
-        targetOffer: Number(ai.target_offer || 0),
-        scoreDrivers: [],
-        dataQuality: [],
-        offerRange: {
-          aggressive: Number(ai.offer_range?.aggressive || 0),
-          realistic: Number(ai.offer_range?.realistic || 0),
-          safe: Number(ai.offer_range?.safe || 0),
-        },
-        walkAwayPrice: Number(ai.walk_away_price || 0),
-        negotiationAnchors: Array.isArray(ai.negotiation_anchors) ? ai.negotiation_anchors : [],
-        repairEstimateBreakdown: Array.isArray(ai.repair_breakdown)
-          ? ai.repair_breakdown.map((r: any) => ({
-              label: String(r.label || "Repair item"),
-              estimate: Number(r.estimate || 0),
-              note: r.note ? String(r.note) : undefined,
-            }))
-          : [],
-      };
-      setEvalResult(mapped);
-      setEvalProgress(100);
-      setIsEvaluating(false);
-      return;
-    }
-
-    // Fallback (for listings that predate AI sync output)
-    const engine = inferEngineCondition(effective!.engine_hours, effective!.year, effective!.engine_info);
-    const hull = inferHullCondition(effective!.hull_material, effective!.year, effective!.description);
-    const sails = effective!.boat_type === "powerboat" ? "none" : inferSailsCondition(effective!.year, effective!.description);
-    try {
-      const comparables = await Promise.race([
-        fetchComparables(
-          effective!.boat_type || "sailboat",
-          effective!.year,
-          effective!.length_feet,
-          effective!.title || "",
-          effective?.segment || effective?.specs_raw?.ai_details?.segment || null,
-        ).catch(() => []),
-        new Promise<[]>(resolve => setTimeout(() => resolve([]), 1800)),
-      ]);
-      setComparablesUsed(
-        comparables
-          .filter((c) => !!c.url)
-          .slice(0, 8)
-          .map((c) => ({
-            title: c.title || "Comparable boat",
-            url: c.url || "",
-            price_eur: c.price_eur ?? null,
-            year: c.year ?? null,
-            length_feet: c.length_feet ?? null,
-            location: c.location ?? null,
-            image_url: c.image_url ?? null,
-            engine_info: c.engine_info ?? null,
-            description: c.description || null,
-            boat_type: c.boat_type ?? null,
-          })),
-      );
-
-      const result = evaluate({
-        boatType: (effective!.boat_type || "sailboat") as BoatType,
-        segment: effective?.segment || effective?.specs_raw?.ai_details?.segment || null,
-        year: effective!.year,
-        price: effective!.price_eur,
-        lengthFt: effective!.length_feet,
-        engine,
-        hull,
-        sails,
-        engineHours: effective!.engine_hours || undefined,
-        hullMaterial: effective!.hull_material || undefined,
-        knownIssues: enrichedExtras.knownIssues,
-        recentWork: enrichedExtras.recentWork,
-        comparables,
-      });
-      setEvalResult(result);
-      setEvalProgress(100);
-    } catch (e) {
-      console.error("Modal evaluation error:", e);
-      setEvalError("Evaluation failed. Please try again.");
-    } finally {
-      setIsEvaluating(false);
-    }
-  };
 
   const filteredMarinas = marinas;
   const selectedMarina = marinas.find((m) => m.id === selectedMarinaId) || null;
@@ -1081,20 +975,25 @@ export const BoatDetailModal = ({
                 </div>
               ) : (!effective!.price_eur || !effective!.length_feet || !effective!.year) ? (
                 <p className="text-sm text-muted-foreground">Missing price, length, or year — cannot evaluate this listing.</p>
-              ) : isEvaluating ? (
+              ) : dealInsightsLoading ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Evaluating: pricing model, condition risk, and negotiation target…
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading server evaluation and comparables…
                   </div>
-                  <Progress value={evalProgress} className="h-2" />
+                  <Progress value={66} className="h-2 animate-pulse" />
                 </div>
               ) : evalError ? (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">{evalError}</p>
-                  <Button variant="outline" size="sm" onClick={runEvaluation}>Retry evaluation</Button>
+                  <Button variant="outline" size="sm" onClick={() => setDealRetryNonce((n) => n + 1)}>
+                    Retry
+                  </Button>
                 </div>
               ) : !evalResult ? (
-                <Button variant="outline" size="sm" onClick={runEvaluation}>Run evaluation</Button>
+                <p className="text-sm text-muted-foreground">
+                  No rule-based score yet for this listing (not enough comparable peers, or missing segment). If the listing was synced
+                  with AI details, those appear once loaded above.
+                </p>
               ) : (
                 <div className="space-y-4 animate-fade-in">
                   {/* Score card */}
