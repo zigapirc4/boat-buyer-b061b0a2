@@ -14,30 +14,8 @@ export type Database = {
   }
   public: {
     Tables: {
-      feedback_entries: {
-        Row: {
-          created_at: string
-          id: string
-          message: string
-          page_path: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          message: string
-          page_path?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          message?: string
-          page_path?: string | null
-        }
-        Relationships: []
-      }
       cached_listings: {
         Row: {
-          brand: string | null
           boat_type: string | null
           cabins: number | null
           created_at: string
@@ -52,18 +30,14 @@ export type Database = {
           image_urls: string[] | null
           length_feet: number | null
           location: string | null
-          model: string | null
           price_eur: number | null
           scraped_at: string
-          segment: string | null
           source: string | null
-          specs_raw: Json | null
           title: string
           url: string
           year: number | null
         }
         Insert: {
-          brand?: string | null
           boat_type?: string | null
           cabins?: number | null
           created_at?: string
@@ -78,18 +52,14 @@ export type Database = {
           image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
-          model?: string | null
           price_eur?: number | null
           scraped_at?: string
-          segment?: string | null
           source?: string | null
-          specs_raw?: Json | null
           title: string
           url: string
           year?: number | null
         }
         Update: {
-          brand?: string | null
           boat_type?: string | null
           cabins?: number | null
           created_at?: string
@@ -104,12 +74,9 @@ export type Database = {
           image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
-          model?: string | null
           price_eur?: number | null
           scraped_at?: string
-          segment?: string | null
           source?: string | null
-          specs_raw?: Json | null
           title?: string
           url?: string
           year?: number | null
