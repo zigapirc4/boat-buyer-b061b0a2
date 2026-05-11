@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, startTransition } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Ship,
@@ -165,6 +165,7 @@ const Index = () => {
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [marketListings, setMarketListings] = useState<CachedListing[]>([]);
+  const [marketListingsLoading, setMarketListingsLoading] = useState(true);
   const [compareOpen, setCompareOpen] = useState(false);
   const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -321,7 +322,11 @@ const Index = () => {
     fetchListings();
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
+  // After listings resolve so the grid can paint first; avoids competing megabytes queries + heavy insight passes blocking paint.
   useEffect(() => {
+    if (isLoading) return;
+
+    let cancelled = false;
     const fetchMarketListings = async () => {
       try {
         const { data, error } = await supabase
@@ -332,15 +337,24 @@ const Index = () => {
           .not("year", "is", null)
           .not("segment", "is", null)
           .limit(100000);
-        if (!error && data) {
-          setMarketListings(data as CachedListing[]);
+        if (!cancelled && !error && data) {
+          startTransition(() => {
+            setMarketListings(data as CachedListing[]);
+          });
         }
       } catch (e) {
         console.error("Failed to fetch global market listings:", e);
+      } finally {
+        if (!cancelled) setMarketListingsLoading(false);
       }
     };
-    fetchMarketListings();
-  }, []);
+    void fetchMarketListings();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading]);
+
+  const topDealsLoading = isLoading || marketListingsLoading;
 
   const availableSegments = (() => {
     const base = listings.filter((l) => !!l.segment);
@@ -904,7 +918,21 @@ const Index = () => {
             Browse all listings
           </Button>
         </div>
-        {topDeals.length > 0 ? (
+        {topDealsLoading ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <Card key={`deal-skel-${i}`} className="overflow-hidden premium-card">
+                <Skeleton className="w-full h-28 rounded-none" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-4 w-full max-w-[90%]" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-32" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : topDeals.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-3">
             {topDeals.map(({ listing, insight }) => (
               <Card
