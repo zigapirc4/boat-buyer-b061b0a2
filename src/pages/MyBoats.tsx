@@ -50,6 +50,7 @@ const MyBoats = () => {
   const [boats, setBoats] = useState<SavedBoat[]>(getSavedBoats);
   const [listings, setListings] = useState<SavedListing[]>(getSavedListings);
   const [cachedListings, setCachedListings] = useState<CachedListing[]>([]);
+  const [marketListings, setMarketListings] = useState<CachedListing[]>([]);
   const [selectedListing, setSelectedListing] = useState<CachedListing | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialTab, setModalInitialTab] = useState<"details" | "evaluate" | "costs">("details");
@@ -93,6 +94,23 @@ const MyBoats = () => {
     };
     loadCachedListings();
   }, [listings]);
+
+  useEffect(() => {
+    const loadMarketListings = async () => {
+      const { data } = await supabase
+        .from("cached_listings")
+        .select("*")
+        .not("price_eur", "is", null)
+        .not("length_feet", "is", null)
+        .not("year", "is", null)
+        .not("segment", "is", null)
+        .limit(100000);
+      if (data) {
+        setMarketListings(data as CachedListing[]);
+      }
+    };
+    loadMarketListings();
+  }, []);
 
   const handleDelete = (id: string) => {
     deleteBoat(id);
@@ -303,7 +321,7 @@ const MyBoats = () => {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Saved Listings ({listings.length})</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {cachedListings.map((listing) => {
-                  const insight = getDealInsight(listing, cachedListings);
+                  const insight = getDealInsight(listing, marketListings);
                   return (
                     <BoatListingCard
                       key={listing.id}

@@ -164,6 +164,7 @@ const Index = () => {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [goodDealsOnly, setGoodDealsOnly] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [marketListings, setMarketListings] = useState<CachedListing[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -320,6 +321,27 @@ const Index = () => {
     fetchListings();
   }, [boatTypeFilter, sourceFilter, userCoords]);
 
+  useEffect(() => {
+    const fetchMarketListings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("cached_listings")
+          .select("*")
+          .not("price_eur", "is", null)
+          .not("length_feet", "is", null)
+          .not("year", "is", null)
+          .not("segment", "is", null)
+          .limit(100000);
+        if (!error && data) {
+          setMarketListings(data as CachedListing[]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch global market listings:", e);
+      }
+    };
+    fetchMarketListings();
+  }, []);
+
   const availableSegments = (() => {
     const base = listings.filter((l) => !!l.segment);
     const scoped =
@@ -371,7 +393,7 @@ const Index = () => {
       if (!haystack.includes(q)) return false;
     }
     if (goodDealsOnly) {
-      const insight = getDealInsight(l, listings);
+      const insight = getDealInsight(l, marketListings);
       if (!insight.gapPct || insight.gapPct < 12) return false;
     }
     return true;
@@ -383,8 +405,8 @@ const Index = () => {
     if (sortBy === "length_high") return (b.length_feet ?? 0) - (a.length_feet ?? 0);
     if (sortBy === "year_newest") return (b.year ?? 0) - (a.year ?? 0);
     if (sortBy === "best_deal") {
-      const aGap = getDealInsight(a, listings).gapPct ?? -9999;
-      const bGap = getDealInsight(b, listings).gapPct ?? -9999;
+      const aGap = getDealInsight(a, marketListings).gapPct ?? -9999;
+      const bGap = getDealInsight(b, marketListings).gapPct ?? -9999;
       return bGap - aGap;
     }
     return new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime();
@@ -752,7 +774,7 @@ const Index = () => {
   }
 
   const topDealsCandidates = listings
-    .map((listing) => ({ listing, insight: getDealInsight(listing, listings) }))
+    .map((listing) => ({ listing, insight: getDealInsight(listing, marketListings) }))
     .filter(
       (x) =>
         x.insight.gapPct !== null &&
@@ -1179,7 +1201,7 @@ const Index = () => {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-fade-in">
               {paginatedListings.map((listing) => {
                 const img = getImageUrl(listing);
-                const insight = getDealInsight(listing, listings);
+                const insight = getDealInsight(listing, marketListings);
                 return (
                   <BoatListingCard
                     key={listing.id}
@@ -1345,7 +1367,7 @@ const Index = () => {
           </Card>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {compareListings.map((b) => {
-              const insight = getDealInsight(b, listings);
+              const insight = getDealInsight(b, marketListings);
               const img = getImageUrl(b);
               return (
                 <Card key={`cmp-${b.id}`} className="overflow-hidden border-border/60 shadow-sm hover:shadow-md transition-shadow bg-card/95">
