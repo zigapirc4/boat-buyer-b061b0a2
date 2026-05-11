@@ -7,14 +7,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Footer } from "@/components/Footer";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { BUYER_GUIDES } from "@/lib/buyerGuides";
-import { getSavedBoats } from "@/lib/boatStore";
+import { getSavedListings } from "@/lib/boatStore";
+import { cn } from "@/lib/utils";
+import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 
 const BuyersGuides = () => {
+  const { showHint: supportHint, acknowledge: acknowledgeSupportHint } = useSupportFirstVisitHint();
   const location = useLocation();
   const navigate = useNavigate();
   const [locationLabel, setLocationLabel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const savedCount = getSavedBoats().length;
+  const savedCount = getSavedListings().length;
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -69,8 +72,14 @@ const BuyersGuides = () => {
                 <div className="shrink-0">
                   <FeedbackButton pagePath="/buyers-guides" />
                 </div>
-                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
-                  <Heart className="w-3.5 h-3.5" /> Donate
+                <a
+                  href="https://buymeacoffee.com/pirczigau"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn("top-nav-cta", supportHint && "support-first-visit-hint")}
+                  onClick={acknowledgeSupportHint}
+                >
+                  <Heart className="w-3.5 h-3.5" /> Support
                 </a>
             </div>
           </div>

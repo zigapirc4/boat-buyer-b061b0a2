@@ -97,6 +97,27 @@
     @apply inline-flex items-center gap-1.5 rounded-md bg-cyan-500 hover:bg-cyan-400 text-white text-xs font-semibold px-3 py-1.5 transition-colors shrink-0;
   }
 
+  @keyframes support-first-visit-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(34 211 238 / 0%);
+      transform: scale(1);
+    }
+    35% {
+      box-shadow: 0 0 14px 3px rgb(34 211 238 / 0.55);
+      transform: scale(1.045);
+    }
+    65% {
+      box-shadow: 0 0 8px 2px rgb(34 211 238 / 0.35);
+      transform: scale(1.02);
+    }
+  }
+
+  .support-first-visit-hint {
+    animation: support-first-visit-pulse 1.25s ease-in-out 3;
+    transform-origin: center center;
+  }
+
   .premium-surface {
     @apply bg-card/80 border border-primary/10 backdrop-blur-sm shadow-sm;
   }

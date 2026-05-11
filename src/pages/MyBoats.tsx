@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Heart, List, MapPin, Ship, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Footer } from "@/components/Footer";
@@ -11,6 +11,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { cachedListingUrlVariants } from "@scrapeShared/listingSites";
 import { BoatListingCard } from "@/components/BoatListingCard";
 import { evaluate, type BoatType } from "@/lib/evaluateBoat";
+import { cn } from "@/lib/utils";
+import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 
 const verdictColor = (v: string) => v === "Good Deal" ? "text-success" : v === "Fair Deal" ? "text-warning" : "text-destructive";
 
@@ -34,6 +36,28 @@ interface CachedListing {
   scraped_at: string;
 }
 
+/** When cached_listings has no row yet (or IDs were cleaned server-side), still show the snapshot from localStorage. */
+function savedListingToCachedRow(sl: SavedListing): CachedListing {
+  return {
+    id: sl.id,
+    title: sl.title,
+    url: sl.url,
+    boat_type: sl.boat_type,
+    segment: null,
+    price_eur: sl.price_eur,
+    year: sl.year,
+    length_feet: sl.length_feet,
+    location: sl.location,
+    image_url: sl.image_url,
+    image_urls: sl.image_url ? [sl.image_url] : null,
+    engine_info: null,
+    description: null,
+    hull_material: null,
+    source: sl.source,
+    scraped_at: sl.savedAt,
+  };
+}
+
 const timeAgo = (dateStr: string) => {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -47,6 +71,7 @@ const timeAgo = (dateStr: string) => {
 };
 
 const MyBoats = () => {
+  const { showHint: supportHint, acknowledge: acknowledgeSupportHint } = useSupportFirstVisitHint();
   const [boats, setBoats] = useState<SavedBoat[]>(getSavedBoats);
   const [listings, setListings] = useState<SavedListing[]>(getSavedListings);
   const [cachedListings, setCachedListings] = useState<CachedListing[]>([]);
@@ -57,6 +82,11 @@ const MyBoats = () => {
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [locationLabel, setLocationLabel] = useState("");
   const savedCount = listings.length;
+
+  const savedListingsForDisplay = useMemo(() => {
+    const byId = new Map(cachedListings.map((l) => [l.id, l]));
+    return listings.map((sl) => byId.get(sl.id) ?? savedListingToCachedRow(sl));
+  }, [listings, cachedListings]);
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -280,8 +310,14 @@ const MyBoats = () => {
                 <div className="shrink-0">
                   <FeedbackButton pagePath="/my-boats" />
                 </div>
-                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
-                  <Heart className="w-3.5 h-3.5" /> Donate
+                <a
+                  href="https://buymeacoffee.com/pirczigau"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn("top-nav-cta", supportHint && "support-first-visit-hint")}
+                  onClick={acknowledgeSupportHint}
+                >
+                  <Heart className="w-3.5 h-3.5" /> Support
                 </a>
             </div>
           </div>
@@ -320,7 +356,7 @@ const MyBoats = () => {
             <div>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Saved Listings ({listings.length})</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                {cachedListings.map((listing) => {
+                {savedListingsForDisplay.map((listing) => {
                   const insight = getDealInsight(listing, marketListings);
                   return (
                     <BoatListingCard

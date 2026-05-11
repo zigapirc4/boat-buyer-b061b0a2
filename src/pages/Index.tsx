@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getSavedBoats, saveListing, removeListing, isListingSaved } from "@/lib/boatStore";
+import { saveListing, removeListing, isListingSaved, getSavedListings } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { BoatListingCard } from "@/components/BoatListingCard";
@@ -41,6 +41,8 @@ import {
   supportedListingSitesHumanList,
 } from "@scrapeShared/listingSites";
 import { interpretScrapeFreeImportResponse } from "@/lib/scrapeFreeImportOutcome";
+import { cn } from "@/lib/utils";
+import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -140,7 +142,7 @@ const Index = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const savedCount = getSavedBoats().length;
+  const savedCount = getSavedListings().length;
   const [listings, setListings] = useState<CachedListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
@@ -178,6 +180,7 @@ const Index = () => {
   );
   const [selectedType, setSelectedType] = useState<"sailboat" | "powerboat" | "">("");
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const { showHint: supportHint, acknowledge: acknowledgeSupportHint } = useSupportFirstVisitHint();
 
   useEffect(() => {
     const ids = new Set<string>(
@@ -791,8 +794,8 @@ const Index = () => {
     .map((listing) => ({ listing, insight: getDealInsight(listing, marketListings) }))
     .filter(
       (x) =>
+        x.insight.label === "Great deal" &&
         x.insight.gapPct !== null &&
-        (x.insight.gapPct || 0) >= 12 &&
         Math.abs(x.insight.gapPct || 0) <= 90,
     )
     .sort((a, b) => (b.insight.gapPct || 0) - (a.insight.gapPct || 0));
@@ -842,8 +845,14 @@ const Index = () => {
                 <div className="shrink-0">
                   <FeedbackButton pagePath="/" />
                 </div>
-                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
-                  <Heart className="w-3.5 h-3.5" /> Donate
+                <a
+                  href="https://buymeacoffee.com/pirczigau"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn("top-nav-cta", supportHint && "support-first-visit-hint")}
+                  onClick={acknowledgeSupportHint}
+                >
+                  <Heart className="w-3.5 h-3.5" /> Support
                 </a>
             </div>
           </div>

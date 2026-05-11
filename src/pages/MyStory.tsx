@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { cn } from "@/lib/utils";
+import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 import { BookOpen, Heart, List, MapPin, Ship } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -11,6 +12,7 @@ import myStoryImage from "@/assets/my-story-vivacity.jpg";
 import myStoryWorkbenchImage from "@/assets/my-story-workbench.png";
 
 const MyStory = () => {
+  const { showHint: supportHint, acknowledge: acknowledgeSupportHint } = useSupportFirstVisitHint();
   const [storyImageOpen, setStoryImageOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string>(myStoryImage);
   const [locationLabel, setLocationLabel] = useState("");
@@ -49,8 +51,14 @@ const MyStory = () => {
                 <div className="shrink-0">
                   <FeedbackButton pagePath="/my-story" />
                 </div>
-                <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
-                  <Heart className="w-3.5 h-3.5" /> Donate
+                <a
+                  href="https://buymeacoffee.com/pirczigau"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn("top-nav-cta", supportHint && "support-first-visit-hint")}
+                  onClick={acknowledgeSupportHint}
+                >
+                  <Heart className="w-3.5 h-3.5" /> Support
                 </a>
             </div>
           </div>

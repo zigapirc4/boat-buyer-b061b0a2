@@ -2,9 +2,12 @@ import { Link } from "react-router-dom";
 import { Heart, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import { FeedbackButton } from "@/components/FeedbackButton";
+import { cn } from "@/lib/utils";
+import { useSupportFirstVisitHint } from "@/hooks/useSupportFirstVisitHint";
 
 export const Header = () => {
   const [locationLabel, setLocationLabel] = useState("");
+  const { showHint, acknowledge } = useSupportFirstVisitHint();
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -35,8 +38,14 @@ export const Header = () => {
             <div className="shrink-0">
               <FeedbackButton />
             </div>
-            <a href="https://buymeacoffee.com/pirczigau" target="_blank" rel="noopener noreferrer" className="top-nav-cta">
-              <Heart className="w-3.5 h-3.5" /> Donate
+            <a
+              href="https://buymeacoffee.com/pirczigau"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn("top-nav-cta", showHint && "support-first-visit-hint")}
+              onClick={acknowledge}
+            >
+              <Heart className="w-3.5 h-3.5" /> Support
             </a>
           </div>
         </div>
