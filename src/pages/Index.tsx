@@ -1040,8 +1040,13 @@ const Index = () => {
 
       {/* Articles Section */}
       <div className="max-w-6xl mx-auto px-4 py-8 w-full">
-        <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-          <BookOpen className="w-5 h-5 text-coral" /> Buyer's Guides
+        <h2 className="text-xl font-bold text-foreground mb-4">
+          <Link
+            to="/buyers-guides"
+            className="inline-flex items-center gap-2 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+          >
+            <BookOpen className="w-5 h-5 text-coral shrink-0" /> Buyer&apos;s Guides
+          </Link>
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {Array.from(new Map(BUYER_GUIDES.map((article) => [article.category, article])).values())
