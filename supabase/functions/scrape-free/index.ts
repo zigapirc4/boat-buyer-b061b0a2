@@ -2235,13 +2235,23 @@ function hasSailboatCatamaranSignal(input: {
   fullText: string;
   specs: Record<string, unknown>;
 }): boolean {
+  // Do NOT scan `fullText` (whole stripped HTML): nav/footer/“related boats” often
+  // contain “catamaran” and false-positive every monohull on that marketplace page.
+  const specBits: string[] = [];
+  const specs = input.specs && typeof input.specs === "object" ? input.specs : {};
+  for (const [k, v] of Object.entries(specs as Record<string, unknown>)) {
+    if (typeof v !== "string" || v.length > 600) continue;
+    const kl = k.toLowerCase();
+    if (/\bhull|boat type|type|class|category|rig|design|propulsion|construction\b/i.test(kl)) {
+      specBits.push(v);
+    }
+  }
   const blob = [
     input.url || "",
     input.title || "",
     input.model || "",
     input.description || "",
-    input.fullText || "",
-    JSON.stringify(input.specs || {}),
+    ...specBits,
   ]
     .join(" ")
     .toLowerCase();
