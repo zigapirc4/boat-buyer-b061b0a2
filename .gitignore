@@ -25,3 +25,6 @@ dist-ssr
 
 # Supabase CLI local state
 supabase/.temp/
+
+# Local scrape batch logs
+scrape-free-batch.log
