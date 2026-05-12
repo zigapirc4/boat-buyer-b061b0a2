@@ -5,6 +5,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+type FeedbackClient = typeof supabase & {
+  from(table: "feedback_entries"): {
+    insert(values: { message: string; page_path: string | null }): Promise<{ error: Error | null }>;
+  };
+};
+
 interface FeedbackButtonProps {
   pagePath?: string;
 }
@@ -20,7 +26,7 @@ export const FeedbackButton = ({ pagePath }: FeedbackButtonProps) => {
     if (trimmed.length < 3) return;
     setIsSending(true);
     const path = pagePath || (typeof window !== "undefined" ? window.location.pathname : null);
-    const { error } = await supabase.from("feedback_entries").insert({
+    const { error } = await (supabase as FeedbackClient).from("feedback_entries").insert({
       message: trimmed,
       page_path: path,
     });
