@@ -1300,10 +1300,13 @@ export const BoatDetailModal = ({
                                   <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent className="w-[360px] p-0">
-                                <Command>
+                              <PopoverContent
+                                className="w-[360px] p-0 max-h-[min(70dvh,22rem)] flex flex-col overflow-hidden"
+                                onWheel={(e) => e.stopPropagation()}
+                              >
+                                <Command className="min-h-0 shrink overflow-hidden rounded-md border-0 bg-transparent shadow-none">
                                   <CommandInput placeholder="Search marina..." />
-                                  <CommandList>
+                                  <CommandList className="max-h-[min(50dvh,18rem)] flex-1 min-h-0">
                                     <CommandEmpty>No marina found.</CommandEmpty>
                                     <CommandGroup>
                                       {filteredMarinas.map((m) => (
