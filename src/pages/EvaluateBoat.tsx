@@ -86,6 +86,13 @@ interface CachedListingForModal {
   scraped_at: string;
 }
 
+interface CachedListingImportRow extends CachedListingForModal {
+  boat_type: string | null;
+  brand?: string | null;
+  model?: string | null;
+  specs_raw?: unknown;
+}
+
 function recordMaybe(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -183,7 +190,7 @@ const EvaluateBoat = () => {
 
     try {
       const normalizedUrl = normalizeListingUrl(url);
-      const { data: row, error } = await supabase
+      const { data, error } = await (supabase as unknown as { from: (table: "cached_listings") => any })
         .from("cached_listings")
         .select(
           "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
@@ -193,6 +200,7 @@ const EvaluateBoat = () => {
         .maybeSingle();
 
       if (error) throw error;
+      const row = data as CachedListingImportRow | null;
       if (!row) {
         toast({
           title: "Listing not saved yet",
@@ -267,7 +275,7 @@ const EvaluateBoat = () => {
           id: row.id,
           title: row.title,
           url: row.url,
-          boat_type: row.boat_type,
+          boat_type: row.boat_type ?? bt,
           price_eur: row.price_eur,
           year: row.year,
           length_feet: row.length_feet,
