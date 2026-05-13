@@ -16,7 +16,7 @@ const corsHeaders = {
 
 const TOP_DEALS_DEFAULT_CANDIDATES = 3500;
 const ROW_SELECT =
-  "id,title,url,boat_type,segment,price_eur,year,length_feet,location,country,image_url,image_urls,engine_info,description,hull_material,engine_hours,source,scraped_at";
+  "id,title,url,boat_type,segment,price_eur,year,length_feet,location,image_url,image_urls,engine_info,description,hull_material,engine_hours,source,scraped_at";
 
 const SEGMENT_FETCH_PAGE = 1000;
 const SEGMENT_FETCH_CAP = 50_000;

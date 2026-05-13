@@ -3547,7 +3547,8 @@ function flexibleListingFromCachedRow(row: Record<string, unknown>): {
       year: row.year != null ? Number(row.year) : null,
       length_m: lengthM,
       location: typeof row.location === "string" ? row.location : null,
-      country: typeof row.country === "string" && row.country.trim() ? row.country.trim() : null,
+      country: deriveCanonicalCountryFromLocation(typeof row.location === "string" ? row.location : null) ??
+        (typeof row.country === "string" && row.country.trim() ? row.country.trim() : null),
     },
     specs: {
       ...specsRaw,
@@ -3861,7 +3862,6 @@ Deno.serve(async (req) => {
         description: parsed.description,
         equipment: parsed.equipment,
         location: parsed.location,
-        country: null as string | null,
         engine_hours: parsed.engine_hours,
         fuel_type: parsed.fuel_type,
         cabins: parsed.cabins,
@@ -4026,7 +4026,6 @@ Deno.serve(async (req) => {
       parsed.flexible.core.location = aiLocation;
       mergeSpec(parsed.flexible.specs, "location", aiLocation);
       const canonicalCountry = deriveCanonicalCountryFromLocation(aiLocation);
-      row.country = canonicalCountry;
       mergeSpec(parsed.flexible.specs, "country", canonicalCountry);
       if (canonicalCountry) {
         parsed.flexible.core.country = canonicalCountry;

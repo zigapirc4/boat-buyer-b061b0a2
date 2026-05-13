@@ -197,7 +197,7 @@ const EvaluateBoat = () => {
       const { data, error } = await (supabase as unknown as { from: (table: "cached_listings") => any })
         .from("cached_listings")
         .select(
-          "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, country, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
+          "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
         )
         .in("url", cachedListingUrlVariants(normalizedUrl))
         .limit(1)
@@ -256,7 +256,7 @@ const EvaluateBoat = () => {
 
       setExtras({
         location: row.location || undefined,
-        country: row.country ?? deriveCanonicalCountryFromLocation(row.location) ?? undefined,
+        country: deriveCanonicalCountryFromLocation(row.location) ?? undefined,
         images:
           Array.isArray(row.image_urls) && row.image_urls.length > 0
             ? row.image_urls
@@ -285,7 +285,7 @@ const EvaluateBoat = () => {
           year: row.year,
           length_feet: row.length_feet,
           location: row.location,
-          country: row.country ?? deriveCanonicalCountryFromLocation(row.location) ?? undefined,
+          country: deriveCanonicalCountryFromLocation(row.location) ?? undefined,
           image_url: row.image_url,
           source: row.source,
         });

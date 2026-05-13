@@ -11,7 +11,6 @@ export interface CachedListingRow {
   year: number | null;
   length_feet: number | null;
   location: string | null;
-  country?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
   engine_info: string | null;

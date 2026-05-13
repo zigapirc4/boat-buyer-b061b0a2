@@ -53,7 +53,7 @@ function titleCaseCountryWords(raw: string): string {
 }
 
 /**
- * Returns a stable display country for `cached_listings.country`, or null if unknown.
+ * Returns a stable display country derived from `location`, or null if unknown.
  */
 export function deriveCanonicalCountryFromLocation(location: string | null | undefined): string | null {
   if (location == null || typeof location !== "string") return null;

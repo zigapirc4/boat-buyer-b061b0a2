@@ -1,10 +1,15 @@
-/** Single-line place label for cards/modals (uses `country` when set to avoid duplicating country in text). */
+import { deriveCanonicalCountryFromLocation } from "@scrapeShared/listingCountry";
+
+/** Single-line place label for cards/modals (country from explicit field or parsed from `location`). */
 export function formatListingPlaceLine(listing: {
   country?: string | null;
   location?: string | null;
 }): string | null {
   const loc = listing.location?.replace(/\s+/g, " ").trim() || "";
-  const c = listing.country?.replace(/\s+/g, " ").trim() || "";
+  const c =
+    listing.country?.replace(/\s+/g, " ").trim() ||
+    deriveCanonicalCountryFromLocation(listing.location) ||
+    "";
   if (!loc && !c) return null;
   if (c && loc.includes("->")) {
     const right = loc

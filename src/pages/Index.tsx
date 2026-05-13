@@ -109,7 +109,6 @@ type ListingDbFilters = {
   boatTypeFilter: string;
   sourceFilter: string;
   segmentFilter: string;
-  countryFilter: string;
   minPrice: string;
   maxPrice: string;
   minLength: string;
@@ -123,7 +122,6 @@ function applyListingDbFilters(q: any, f: ListingDbFilters): any {
   if (f.boatTypeFilter !== "all") query = query.eq("boat_type", f.boatTypeFilter);
   if (f.sourceFilter !== "all") query = query.eq("source", f.sourceFilter);
   if (f.segmentFilter !== "all") query = query.eq("segment", f.segmentFilter);
-  if (f.countryFilter !== "all") query = query.eq("country", f.countryFilter);
   const minP = f.minPrice.trim() ? Number.parseInt(f.minPrice, 10) : NaN;
   if (Number.isFinite(minP)) query = query.gte("price_eur", minP);
   const maxP = f.maxPrice.trim() ? Number.parseInt(f.maxPrice, 10) : NaN;
@@ -136,7 +134,7 @@ function applyListingDbFilters(q: any, f: ListingDbFilters): any {
   if (sq) {
     const esc = sq.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
     query = query.or(
-      `title.ilike.%${esc}%,location.ilike.%${esc}%,country.ilike.%${esc}%,description.ilike.%${esc}%,engine_info.ilike.%${esc}%`,
+      `title.ilike.%${esc}%,location.ilike.%${esc}%,description.ilike.%${esc}%,engine_info.ilike.%${esc}%`,
     );
   }
   return query;
@@ -222,7 +220,6 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
-  const [countryFilter, setCountryFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [minPrice, setMinPrice] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
@@ -247,7 +244,6 @@ const Index = () => {
   const [topDealsCards, setTopDealsCards] = useState<{ listing: CachedListing; payload: ListingDealPayload }[]>([]);
   const [topDealsLoading, setTopDealsLoading] = useState(true);
   const [facetSegments, setFacetSegments] = useState<string[]>([]);
-  const [facetCountries, setFacetCountries] = useState<string[]>([]);
   const [serverPageRows, setServerPageRows] = useState<CachedListing[]>([]);
   const [serverMatchCount, setServerMatchCount] = useState<number | null>(null);
   const [clientBatchRows, setClientBatchRows] = useState<CachedListing[]>([]);
@@ -330,7 +326,14 @@ const Index = () => {
   ): number {
     if (!listing) return 9999;
     const loc = (listing.location || "").toLowerCase();
-    const countryHint = (listing.country || "").toLowerCase().replace(/^the\s+/, "").trim();
+    const countryHint = (
+      (listing.country || "").trim() ||
+      deriveCanonicalCountryFromLocation(listing.location) ||
+      ""
+    )
+      .toLowerCase()
+      .replace(/^the\s+/, "")
+      .trim();
     const hay = `${countryHint} ${loc}`.trim();
     let bestDist = 9999;
     for (const [name, [lat, lon]] of Object.entries(COUNTRY_COORDS)) {
@@ -375,14 +378,13 @@ const Index = () => {
       boatTypeFilter,
       sourceFilter,
       segmentFilter,
-      countryFilter,
       minPrice,
       maxPrice,
       minLength,
       maxLength,
       searchQuery,
     }),
-    [boatTypeFilter, sourceFilter, segmentFilter, countryFilter, minPrice, maxPrice, minLength, maxLength, searchQuery],
+    [boatTypeFilter, sourceFilter, segmentFilter, minPrice, maxPrice, minLength, maxLength, searchQuery],
   );
 
   const useServerPagination = !goodDealsOnly && sortBy !== "best_deal" && userCoords === null;
@@ -403,27 +405,6 @@ const Index = () => {
       }
     };
     void loadSegments();
-    return () => {
-      cancelled = true;
-    };
-  }, [boatTypeFilter]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadCountries = async () => {
-      try {
-        let q = supabase.from("cached_listings").select("country").not("country", "is", null).limit(8000);
-        if (boatTypeFilter !== "all") q = q.eq("boat_type", boatTypeFilter);
-        const { data } = await q;
-        if (cancelled || !data) return;
-        const rows = data as unknown as { country: string | null }[];
-        const countries = [...new Set(rows.map((r) => r.country).filter(Boolean))].sort() as string[];
-        setFacetCountries(countries);
-      } catch (e) {
-        console.error("Failed to load country facets:", e);
-      }
-    };
-    void loadCountries();
     return () => {
       cancelled = true;
     };
@@ -555,13 +536,6 @@ const Index = () => {
   const availableSegments = facetSegments;
 
   useEffect(() => {
-    if (countryFilter === "all") return;
-    if (!facetCountries.includes(countryFilter)) {
-      setCountryFilter("all");
-    }
-  }, [boatTypeFilter, countryFilter, facetCountries.join("|")]);
-
-  useEffect(() => {
     if (segmentFilter === "all") return;
     if (!availableSegments.includes(segmentFilter)) {
       setSegmentFilter("all");
@@ -592,7 +566,6 @@ const Index = () => {
   }, [
     boatTypeFilter,
     segmentFilter,
-    countryFilter,
     sourceFilter,
     minPrice,
     maxPrice,
@@ -1138,21 +1111,6 @@ const Index = () => {
                 ))}
               </SelectContent>
             </Select>
-            {facetCountries.length > 0 && (
-              <Select value={countryFilter} onValueChange={setCountryFilter}>
-                <SelectTrigger className="w-[150px] h-8 text-xs rounded-lg">
-                  <SelectValue placeholder="All countries" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All countries</SelectItem>
-                  {facetCountries.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
               <SelectTrigger className="w-[160px] h-8 text-xs rounded-lg">
                 <SelectValue />
@@ -1188,7 +1146,7 @@ const Index = () => {
               onClick={() => setShowFilters((f) => !f)}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
-              {(minPrice || maxPrice || minLength || maxLength || countryFilter !== "all") && (
+              {(minPrice || maxPrice || minLength || maxLength) && (
                 <span className="ml-1 w-2 h-2 rounded-full bg-coral" />
               )}
             </Button>
@@ -1248,7 +1206,6 @@ const Index = () => {
                   setMaxPrice("");
                   setMinLength("");
                   setMaxLength("");
-                  setCountryFilter("all");
                 }}
               >
                 Clear
