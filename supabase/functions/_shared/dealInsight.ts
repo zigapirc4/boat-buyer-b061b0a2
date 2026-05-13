@@ -1,4 +1,4 @@
-import { evaluate, type BoatType, type EvalResult } from "./evaluateBoat.ts";
+import { evaluate, type BoatSegment, type BoatType, type EvalResult } from "./evaluateBoat.ts";
 
 /** Row shape from cached_listings (subset of columns). */
 export interface CachedListingRow {
@@ -195,6 +195,8 @@ export function getListingDealPayload(listing: CachedListingRow, index: Map<stri
     price_eur: Number(c.price_eur),
     length_feet: Number(c.length_feet),
     year: c.year ?? null,
+    /** Must match listing segment so evaluateBoat cohort filters (segOk) do not drop every peer. */
+    segment: (c.segment ?? listing.segment) as BoatSegment | null,
     title: c.title,
     url: c.url,
     image_url: c.image_url,
