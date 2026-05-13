@@ -1241,7 +1241,11 @@ function extractBoat24FeatureMapFromJsonLd(html: string): Record<string, string>
       addFeature(featureMap, "beam", ld.width?.value || ld.beam);
       addFeature(featureMap, "draft", ld.depth?.value || ld.draft);
       addFeature(featureMap, "displacement", ld.weight?.value || ld.displacement);
-      const addr = ld.address || ld.location?.address || ld.offers?.availableAtOrFrom?.address;
+      const offer0 = jsonLdPrimaryOffer(ld as Record<string, unknown>);
+      const addr =
+        ld.address ||
+        ld.location?.address ||
+        (offer0?.availableAtOrFrom as { address?: unknown } | undefined)?.address;
       addFeature(
         featureMap,
         "location",
@@ -1259,7 +1263,7 @@ function extractBoat24FeatureMapFromJsonLd(html: string): Record<string, string>
 }
 
 function extractBoat24LocationFromHtml(html: string): string | null {
-  const idx = html.search(/>\s*Location\s*</i);
+  const idx = html.search(/>\s*(?:Location|Lokacija|Standort|Localit[eè]|Posizione)\s*</i);
   if (idx < 0) return null;
   const block = captureBlock(html, Math.max(0, idx - 200), "div", 6000);
   const plain = stripTags(block)
@@ -3093,6 +3097,27 @@ Rules:
 
 // ---------- Parse a single listing into cached_listings shape ----------
 
+/** Boat24 (and others) often use `offers: [{ @type: Offer, price, ... }]` instead of a single object. */
+function jsonLdPrimaryOffer(ld: Record<string, unknown>): Record<string, unknown> | null {
+  const raw = ld.offers;
+  if (Array.isArray(raw)) {
+    const hit = raw.find(
+      (x) =>
+        x &&
+        typeof x === "object" &&
+        ("price" in (x as object) ||
+          "priceSpecification" in (x as object) ||
+          "priceCurrency" in (x as object)),
+    );
+    return (hit as Record<string, unknown>) ?? null;
+  }
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  const t = ld["@type"];
+  const typeStr = Array.isArray(t) ? t.map(String).join(",") : String(t ?? "");
+  if (/\bOffer\b/i.test(typeStr)) return ld;
+  return null;
+}
+
 function parseListing(html: string, url: string, site: string): {
   title: string;
   brand: string | null;
@@ -3168,17 +3193,35 @@ function parseListing(html: string, url: string, site: string): {
   for (const block of lds) {
     const arr = Array.isArray(block?.["@graph"]) ? block["@graph"] : [block];
     for (const ld of arr) {
-      const offers = ld?.offers || ld;
-      const p = offers?.price || offers?.priceSpecification?.price;
-      const cur = offers?.priceCurrency || offers?.priceSpecification?.priceCurrency || "EUR";
-      if (p) {
-        const num = typeof p === "string" ? parseFloat(p.replace(/[^\d.]/g, "")) : Number(p);
+      if (!ld || typeof ld !== "object") continue;
+      const offers = jsonLdPrimaryOffer(ld as Record<string, unknown>);
+      if (!offers) {
+        if (ld && typeof ld === "object" && (ld as Record<string, unknown>).name && !title) {
+          title = String((ld as Record<string, unknown>).name);
+        }
+        continue;
+      }
+      const ps = offers.priceSpecification as Record<string, unknown> | undefined;
+      const p =
+        offers.price ??
+        (ps && typeof ps === "object" ? (ps.price as string | number | undefined) : undefined) ??
+        (Array.isArray(offers.priceSpecification)
+          ? (offers.priceSpecification[0] as Record<string, unknown>)?.price
+          : undefined);
+      const cur =
+        (typeof offers.priceCurrency === "string" ? offers.priceCurrency : null) ??
+        (ps && typeof ps === "object" ? (ps.priceCurrency as string | undefined) : undefined) ??
+        "EUR";
+      if (p != null && p !== "") {
+        const num = typeof p === "string" ? parseFloat(String(p).replace(/[^\d.]/g, "")) : Number(p);
         if (num > 0) {
           price = Math.round(num * (FX_TO_EUR[cur] ?? 1));
           break;
         }
       }
-      if (ld?.name && !title) title = ld.name;
+      if (ld && typeof ld === "object" && (ld as Record<string, unknown>).name && !title) {
+        title = String((ld as Record<string, unknown>).name);
+      }
     }
     if (price !== null) break;
   }
