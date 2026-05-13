@@ -1,3 +1,5 @@
+import { randomBrowserHeaders } from "../_shared/browserHeaders.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -124,11 +126,7 @@ function extractPricePerMeterYear(text: string): { priceEur: number; currency: s
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  const headers = {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  };
+  const headers = randomBrowserHeaders();
   try {
     const res = await fetch(url, { headers, redirect: "follow", signal: ctrl.signal });
     if (res.ok) {
@@ -141,7 +139,8 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
     clearTimeout(t);
   }
   try {
-    const proxy = await fetch(`https://r.jina.ai/${url}`, { headers: { "User-Agent": headers["User-Agent"] } });
+    const jinaTarget = encodeURIComponent(url);
+    const proxy = await fetch(`https://r.jina.ai/${jinaTarget}`, { headers: randomBrowserHeaders() });
     if (!proxy.ok) return null;
     const body = await proxy.text();
     return body && body.length > 100 ? body : null;

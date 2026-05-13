@@ -6,6 +6,7 @@
 // yachtworld.com, blocket.se, findaly.co, yachtall.com, nautano.com.
 // Pagination matches the existing CATEGORY_PAGES config.
 
+import { randomBrowserHeaders } from "../_shared/browserHeaders.ts";
 import { cachedListingUrlVariants } from "../_shared/listingSites.ts";
 
 const corsHeaders = {
@@ -878,46 +879,14 @@ function extractMarketplaceSections(html: string, text: string): {
 
 // ---------- Fetch with proxy fallback ----------
 
-const BROWSER_HEADER_PROFILES: Array<Record<string, string>> = [
-  {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-    "Accept-Encoding": "gzip, deflate, br",
-    Connection: "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-  },
-  {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-    "Accept-Encoding": "gzip, deflate, br",
-    Connection: "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-  },
-  {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,it;q=0.8,de;q=0.7,hr;q=0.6",
-    "Accept-Encoding": "gzip, deflate, br",
-    Connection: "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-  },
-];
-
-function randomBrowserHeaders(extra?: Record<string, string>): Record<string, string> {
-  const base = BROWSER_HEADER_PROFILES[Math.floor(Math.random() * BROWSER_HEADER_PROFILES.length)];
-  return { ...base, ...(extra || {}) };
-}
-
 async function fetchHtmlViaProxy(url: string, timeoutMs = 15000): Promise<string | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(`https://r.jina.ai/${url}`, {
+    // Encode full target URL: raw `https://r.jina.ai/https://host/page?a=1&b=2` is parsed so `&b=2`
+    // becomes Jina's query string, not the target's — breaks listings with long query strings (e.g. mornar).
+    const jinaTarget = encodeURIComponent(url);
+    const res = await fetch(`https://r.jina.ai/${jinaTarget}`, {
       headers: randomBrowserHeaders({ "X-Return-Format": "html" }),
       signal: ctrl.signal,
     });
@@ -996,6 +965,19 @@ async function runWithConcurrency<T>(
 }
 
 async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null> {
+  let host = "";
+  try {
+    host = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    /* invalid url */
+  }
+  // mornar.net is often Cloudflare-challenged for datacenter IPs; Jina is more reliable but can be slow.
+  const mornarProxyBudget = Math.max(timeoutMs, 26_000);
+  if (host === "mornar.net") {
+    const early = await fetchHtmlViaProxy(url, mornarProxyBudget);
+    if (early && early.length > 500 && !isBlockedOrChallengePage(early)) return early;
+  }
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -1011,14 +993,16 @@ async function fetchHtml(url: string, timeoutMs = 15000): Promise<string | null>
   }
 
   // Fallback: r.jina.ai proxy (returns rendered HTML)
-  return await fetchHtmlViaProxy(url, timeoutMs);
+  const proxyTimeout = host === "mornar.net" ? mornarProxyBudget : timeoutMs;
+  return await fetchHtmlViaProxy(url, proxyTimeout);
 }
 
 async function fetchBoat24LocationViaProxy(url: string, timeoutMs = 12000): Promise<string | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(`https://r.jina.ai/${url}`, {
+    const jinaTarget = encodeURIComponent(url);
+    const res = await fetch(`https://r.jina.ai/${jinaTarget}`, {
       headers: randomBrowserHeaders(),
       signal: ctrl.signal,
     });
@@ -3710,6 +3694,7 @@ Deno.serve(async (req) => {
     if (site === "yachtworld.com") return 15000;
     if (site === "boatshop24") return 15000;
     if (site === "nautano.com" || site === "yachtall.com" || site === "findaly.co") return 14000;
+    if (site === "mornar.net") return 28_000;
     return 10000;
   };
 
@@ -4048,7 +4033,8 @@ Deno.serve(async (req) => {
         targetedResults.push({ url: linkUrl, data: parsed.flexible, status: r, source: "scrape-free" });
       }
     } catch (e) {
-      console.log(`[scrape-free] listing error ${linkUrl}: ${e}`);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.log(`[scrape-free] listing error ${linkUrl}: ${errMsg}`);
       stats.errors++;
       if (requestedUrls.length > 0) {
         targetedResults.push({
@@ -4060,6 +4046,7 @@ Deno.serve(async (req) => {
           },
           status: "error",
           source: "scrape-free",
+          reason: errMsg.length > 500 ? `${errMsg.slice(0, 500)}…` : errMsg,
         });
       }
     }
