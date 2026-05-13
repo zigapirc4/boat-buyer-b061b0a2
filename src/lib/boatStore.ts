@@ -15,6 +15,8 @@ export interface SavedListing {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  /** Canonical country (English) for filters/geo; optional on older saved rows. */
+  country?: string | null;
   image_url: string | null;
   source: string | null;
   savedAt: string;

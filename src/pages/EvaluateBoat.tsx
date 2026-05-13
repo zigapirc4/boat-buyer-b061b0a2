@@ -22,6 +22,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { cachedListingUrlVariants, normalizeListingUrl } from "@scrapeShared/listingSites";
+import { deriveCanonicalCountryFromLocation } from "@scrapeShared/listingCountry";
+import { formatListingPlaceLine } from "@/lib/listingPlaceDisplay";
 
 interface SimilarBoat {
   title: string;
@@ -51,6 +53,7 @@ interface ComparableBoat {
 
 interface ImportedExtras {
   location?: string;
+  country?: string;
   images?: string[];
   engineMake?: string;
   engineModel?: string;
@@ -73,6 +76,7 @@ interface CachedListingForModal {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  country?: string | null;
   image_url: string | null;
   image_urls: string[] | null;
   engine_info: string | null;
@@ -193,7 +197,7 @@ const EvaluateBoat = () => {
       const { data, error } = await (supabase as unknown as { from: (table: "cached_listings") => any })
         .from("cached_listings")
         .select(
-          "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
+          "id, title, url, boat_type, brand, model, year, price_eur, length_feet, location, country, image_url, image_urls, engine_info, hull_material, engine_hours, cabins, fuel_type, description, equipment, specs_raw, source, scraped_at",
         )
         .in("url", cachedListingUrlVariants(normalizedUrl))
         .limit(1)
@@ -252,6 +256,7 @@ const EvaluateBoat = () => {
 
       setExtras({
         location: row.location || undefined,
+        country: row.country ?? deriveCanonicalCountryFromLocation(row.location) ?? undefined,
         images:
           Array.isArray(row.image_urls) && row.image_urls.length > 0
             ? row.image_urls
@@ -280,6 +285,7 @@ const EvaluateBoat = () => {
           year: row.year,
           length_feet: row.length_feet,
           location: row.location,
+          country: row.country ?? deriveCanonicalCountryFromLocation(row.location) ?? undefined,
           image_url: row.image_url,
           source: row.source,
         });
@@ -494,11 +500,15 @@ const EvaluateBoat = () => {
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
             {extras.descriptionSummary}
           </p>
-          {extras.location && (
-            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-              <MapPin className="w-3 h-3" /> {extras.location}
-            </p>
-          )}
+          {(() => {
+            const place = formatListingPlaceLine({ country: extras.country, location: extras.location || null });
+            if (!place) return null;
+            return (
+              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                <MapPin className="w-3 h-3" /> {place}
+              </p>
+            );
+          })()}
         </Card>
       )}
 

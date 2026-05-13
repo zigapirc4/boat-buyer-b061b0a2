@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { saveListing, removeListing, isListingSaved, getSavedListings } from "@/lib/boatStore";
+import { saveListing, removeListing, isListingSaved, getSavedListings, type SavedListing } from "@/lib/boatStore";
 import { supabase } from "@/integrations/supabase/client";
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { BoatListingCard } from "@/components/BoatListingCard";
@@ -40,6 +40,7 @@ import {
 } from "@/lib/dealInsightsClient";
 import { useToast } from "@/hooks/use-toast";
 import { BUYER_GUIDES } from "@/lib/buyerGuides";
+import { deriveCanonicalCountryFromLocation } from "@scrapeShared/listingCountry";
 import {
   cachedListingUrlVariants,
   detectScrapeFreeTargetSite,
@@ -74,6 +75,7 @@ interface CachedListing {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  country?: string | null;
   image_url: string | null;
   image_urls: string[] | null;
   engine_info: string | null;
@@ -85,12 +87,29 @@ interface CachedListing {
   specs_raw?: unknown;
 }
 
+function savedSnapshotFromCachedListing(listing: CachedListing): Omit<SavedListing, "savedAt"> {
+  return {
+    id: listing.id,
+    title: listing.title,
+    url: listing.url,
+    boat_type: listing.boat_type,
+    price_eur: listing.price_eur,
+    year: listing.year,
+    length_feet: listing.length_feet,
+    location: listing.location,
+    image_url: listing.image_url,
+    source: listing.source,
+    country: listing.country ?? deriveCanonicalCountryFromLocation(listing.location) ?? undefined,
+  };
+}
+
 type ListingSortKey = "newest" | "best_deal" | "price_low" | "price_high" | "length_high" | "year_newest";
 
 type ListingDbFilters = {
   boatTypeFilter: string;
   sourceFilter: string;
   segmentFilter: string;
+  countryFilter: string;
   minPrice: string;
   maxPrice: string;
   minLength: string;
@@ -104,6 +123,7 @@ function applyListingDbFilters(q: any, f: ListingDbFilters): any {
   if (f.boatTypeFilter !== "all") query = query.eq("boat_type", f.boatTypeFilter);
   if (f.sourceFilter !== "all") query = query.eq("source", f.sourceFilter);
   if (f.segmentFilter !== "all") query = query.eq("segment", f.segmentFilter);
+  if (f.countryFilter !== "all") query = query.eq("country", f.countryFilter);
   const minP = f.minPrice.trim() ? Number.parseInt(f.minPrice, 10) : NaN;
   if (Number.isFinite(minP)) query = query.gte("price_eur", minP);
   const maxP = f.maxPrice.trim() ? Number.parseInt(f.maxPrice, 10) : NaN;
@@ -116,7 +136,7 @@ function applyListingDbFilters(q: any, f: ListingDbFilters): any {
   if (sq) {
     const esc = sq.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
     query = query.or(
-      `title.ilike.%${esc}%,location.ilike.%${esc}%,description.ilike.%${esc}%,engine_info.ilike.%${esc}%`,
+      `title.ilike.%${esc}%,location.ilike.%${esc}%,country.ilike.%${esc}%,description.ilike.%${esc}%,engine_info.ilike.%${esc}%`,
     );
   }
   return query;
@@ -202,6 +222,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
+  const [countryFilter, setCountryFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [minPrice, setMinPrice] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
@@ -226,6 +247,7 @@ const Index = () => {
   const [topDealsCards, setTopDealsCards] = useState<{ listing: CachedListing; payload: ListingDealPayload }[]>([]);
   const [topDealsLoading, setTopDealsLoading] = useState(true);
   const [facetSegments, setFacetSegments] = useState<string[]>([]);
+  const [facetCountries, setFacetCountries] = useState<string[]>([]);
   const [serverPageRows, setServerPageRows] = useState<CachedListing[]>([]);
   const [serverMatchCount, setServerMatchCount] = useState<number | null>(null);
   const [clientBatchRows, setClientBatchRows] = useState<CachedListing[]>([]);
@@ -268,18 +290,7 @@ const Index = () => {
         return n;
       });
     } else {
-      saveListing({
-        id: listing.id,
-        title: listing.title,
-        url: listing.url,
-        boat_type: listing.boat_type,
-        price_eur: listing.price_eur,
-        year: listing.year,
-        length_feet: listing.length_feet,
-        location: listing.location,
-        image_url: listing.image_url,
-        source: listing.source,
-      });
+      saveListing(savedSnapshotFromCachedListing(listing));
       setSavedIds((prev) => new Set(prev).add(listing.id));
     }
   };
@@ -312,19 +323,25 @@ const Index = () => {
     texas: [31.97, -99.9],
   };
 
-  function getLocationScore(location: string | null, userLat: number, userLon: number): number {
-    if (!location) return 9999;
-    const loc = location.toLowerCase();
+  function getLocationScore(
+    listing: { location: string | null; country?: string | null } | null,
+    userLat: number,
+    userLon: number,
+  ): number {
+    if (!listing) return 9999;
+    const loc = (listing.location || "").toLowerCase();
+    const countryHint = (listing.country || "").toLowerCase().replace(/^the\s+/, "").trim();
+    const hay = `${countryHint} ${loc}`.trim();
     let bestDist = 9999;
     for (const [name, [lat, lon]] of Object.entries(COUNTRY_COORDS)) {
-      if (loc.includes(name)) {
+      if (hay.includes(name)) {
         const dist = Math.sqrt(Math.pow(userLat - lat, 2) + Math.pow(userLon - lon, 2));
         bestDist = Math.min(bestDist, dist);
       }
     }
     if (bestDist === 9999) {
       const nearbyKeywords = ["adriatic", "mediterranean", "baltic", "europe"];
-      if (nearbyKeywords.some((k) => loc.includes(k))) bestDist = 20;
+      if (nearbyKeywords.some((k) => hay.includes(k))) bestDist = 20;
     }
     return bestDist;
   }
@@ -358,13 +375,14 @@ const Index = () => {
       boatTypeFilter,
       sourceFilter,
       segmentFilter,
+      countryFilter,
       minPrice,
       maxPrice,
       minLength,
       maxLength,
       searchQuery,
     }),
-    [boatTypeFilter, sourceFilter, segmentFilter, minPrice, maxPrice, minLength, maxLength, searchQuery],
+    [boatTypeFilter, sourceFilter, segmentFilter, countryFilter, minPrice, maxPrice, minLength, maxLength, searchQuery],
   );
 
   const useServerPagination = !goodDealsOnly && sortBy !== "best_deal" && userCoords === null;
@@ -385,6 +403,27 @@ const Index = () => {
       }
     };
     void loadSegments();
+    return () => {
+      cancelled = true;
+    };
+  }, [boatTypeFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCountries = async () => {
+      try {
+        let q = supabase.from("cached_listings").select("country").not("country", "is", null).limit(8000);
+        if (boatTypeFilter !== "all") q = q.eq("boat_type", boatTypeFilter);
+        const { data } = await q;
+        if (cancelled || !data) return;
+        const rows = data as unknown as { country: string | null }[];
+        const countries = [...new Set(rows.map((r) => r.country).filter(Boolean))].sort() as string[];
+        setFacetCountries(countries);
+      } catch (e) {
+        console.error("Failed to load country facets:", e);
+      }
+    };
+    void loadCountries();
     return () => {
       cancelled = true;
     };
@@ -443,8 +482,8 @@ const Index = () => {
           let rows = data as CachedListing[];
           if (userCoords) {
             rows = [...rows].sort((a, b) => {
-              const aDist = getLocationScore(a.location, userCoords.lat, userCoords.lon);
-              const bDist = getLocationScore(b.location, userCoords.lat, userCoords.lon);
+              const aDist = getLocationScore(a, userCoords.lat, userCoords.lon);
+              const bDist = getLocationScore(b, userCoords.lat, userCoords.lon);
               return aDist - bDist;
             });
           }
@@ -516,6 +555,13 @@ const Index = () => {
   const availableSegments = facetSegments;
 
   useEffect(() => {
+    if (countryFilter === "all") return;
+    if (!facetCountries.includes(countryFilter)) {
+      setCountryFilter("all");
+    }
+  }, [boatTypeFilter, countryFilter, facetCountries.join("|")]);
+
+  useEffect(() => {
     if (segmentFilter === "all") return;
     if (!availableSegments.includes(segmentFilter)) {
       setSegmentFilter("all");
@@ -546,6 +592,7 @@ const Index = () => {
   }, [
     boatTypeFilter,
     segmentFilter,
+    countryFilter,
     sourceFilter,
     minPrice,
     maxPrice,
@@ -589,18 +636,7 @@ const Index = () => {
 
     try {
       const finalizeImportedListing = (savedListing: CachedListing, toastDescription: string) => {
-        saveListing({
-          id: savedListing.id,
-          title: savedListing.title,
-          url: savedListing.url,
-          boat_type: savedListing.boat_type,
-          price_eur: savedListing.price_eur,
-          year: savedListing.year,
-          length_feet: savedListing.length_feet,
-          location: savedListing.location,
-          image_url: savedListing.image_url,
-          source: savedListing.source,
-        });
+        saveListing(savedSnapshotFromCachedListing(savedListing));
         setSavedIds((prev) => new Set(prev).add(savedListing.id));
         setListingsNonce((n) => n + 1);
         setSelectedListing(savedListing);
@@ -647,18 +683,7 @@ const Index = () => {
           return;
         }
         if (!isListingSaved(existingListing.id)) {
-          saveListing({
-            id: existingListing.id,
-            title: existingListing.title,
-            url: existingListing.url,
-            boat_type: existingListing.boat_type,
-            price_eur: existingListing.price_eur,
-            year: existingListing.year,
-            length_feet: existingListing.length_feet,
-            location: existingListing.location,
-            image_url: existingListing.image_url,
-            source: existingListing.source,
-          });
+          saveListing(savedSnapshotFromCachedListing(existingListing));
           setSavedIds((prev) => new Set(prev).add(existingListing.id));
         }
 
@@ -745,18 +770,7 @@ const Index = () => {
     if (!pendingTypeListing || !selectedType) return;
     const typedListing: CachedListing = { ...pendingTypeListing, boat_type: selectedType };
     await supabase.from("cached_listings").update({ boat_type: selectedType }).eq("id", pendingTypeListing.id);
-    saveListing({
-      id: typedListing.id,
-      title: typedListing.title,
-      url: typedListing.url,
-      boat_type: typedListing.boat_type,
-      price_eur: typedListing.price_eur,
-      year: typedListing.year,
-      length_feet: typedListing.length_feet,
-      location: typedListing.location,
-      image_url: typedListing.image_url,
-      source: typedListing.source,
-    });
+    saveListing(savedSnapshotFromCachedListing(typedListing));
     setSavedIds((prev) => new Set(prev).add(typedListing.id));
     setListingsNonce((n) => n + 1);
     setSelectedListing(typedListing);
@@ -1124,6 +1138,21 @@ const Index = () => {
                 ))}
               </SelectContent>
             </Select>
+            {facetCountries.length > 0 && (
+              <Select value={countryFilter} onValueChange={setCountryFilter}>
+                <SelectTrigger className="w-[150px] h-8 text-xs rounded-lg">
+                  <SelectValue placeholder="All countries" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All countries</SelectItem>
+                  {facetCountries.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
               <SelectTrigger className="w-[160px] h-8 text-xs rounded-lg">
                 <SelectValue />
@@ -1159,7 +1188,7 @@ const Index = () => {
               onClick={() => setShowFilters((f) => !f)}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" /> Filters
-              {(minPrice || maxPrice || minLength || maxLength) && (
+              {(minPrice || maxPrice || minLength || maxLength || countryFilter !== "all") && (
                 <span className="ml-1 w-2 h-2 rounded-full bg-coral" />
               )}
             </Button>
@@ -1219,6 +1248,7 @@ const Index = () => {
                   setMaxPrice("");
                   setMinLength("");
                   setMaxLength("");
+                  setCountryFilter("all");
                 }}
               >
                 Clear

@@ -17,6 +17,7 @@ import {
   type NegotiationLanguage,
   type NegotiationTone,
 } from "@/lib/negotiation";
+import { formatListingPlaceLine } from "@/lib/listingPlaceDisplay";
 
 interface CachedListing {
   id: string;
@@ -28,6 +29,7 @@ interface CachedListing {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  country?: string | null;
   image_url: string | null;
   image_urls: string[] | null;
   engine_info: string | null;
@@ -615,6 +617,8 @@ export const BoatDetailModal = ({
         cabins: listing.cabins ?? specs.cabins ?? null,
         fuel_type: listing.fuel_type ?? specs.fuel_type ?? null,
         location: listing.location ?? core.location ?? null,
+        country: listing.country ?? (typeof (core as { country?: string }).country === "string" ? (core as { country?: string }).country : null) ??
+          (typeof specs.country === "string" ? specs.country : null) ?? null,
         description: listing.description ?? raw.description ?? null,
         image_url: listing.image_url ?? (Array.isArray(specs.image_urls) ? specs.image_urls[0] : null),
         image_urls: listing.image_urls?.length ? listing.image_urls : (Array.isArray(specs.image_urls) ? specs.image_urls : null),
@@ -865,7 +869,15 @@ export const BoatDetailModal = ({
             {effective!.engine_hours && <span className="text-sm bg-muted px-3 py-1 rounded-full">{effective!.engine_hours}h engine</span>}
           </div>
 
-          {effective!.location && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {effective!.location}</p>}
+          {(() => {
+            const placeLine = formatListingPlaceLine(effective!);
+            if (!placeLine) return null;
+            return (
+              <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                <MapPin className="w-4 h-4" /> {placeLine}
+              </p>
+            );
+          })()}
           {effective!.engine_info && <p className="text-sm text-muted-foreground">⚙️ {effective!.engine_info}</p>}
           {effective!.description && (
             <div>

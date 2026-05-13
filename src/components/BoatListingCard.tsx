@@ -2,6 +2,7 @@ import { ArrowRight, Clock, ExternalLink, GitCompareArrows, Heart, MapPin, Ship 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatListingPlaceLine } from "@/lib/listingPlaceDisplay";
 
 export interface BoatListingCardListing {
   id: string;
@@ -13,6 +14,7 @@ export interface BoatListingCardListing {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  country?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
   hull_material: string | null;
@@ -113,11 +115,15 @@ export function BoatListingCard({
             </span>
           )}
         </div>
-        {listing.location && (
-          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-            <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{listing.location}</span>
-          </p>
-        )}
+        {(() => {
+          const place = formatListingPlaceLine(listing);
+          if (!place) return null;
+          return (
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{place}</span>
+            </p>
+          );
+        })()}
         <p className="text-[11px] text-muted-foreground mt-1">{insightReason}</p>
         <div className="flex items-center gap-2 mt-auto pt-1.5">
           <p className="text-[10px] text-muted-foreground/60 truncate">{listing.source}</p>

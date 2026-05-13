@@ -6,6 +6,7 @@
 // yachtworld.com, blocket.se, findaly.co, yachtall.com, nautano.com.
 // Pagination matches the existing CATEGORY_PAGES config.
 
+import { deriveCanonicalCountryFromLocation } from "../_shared/listingCountry.ts";
 import { randomBrowserHeaders } from "../_shared/browserHeaders.ts";
 import { cachedListingUrlVariants } from "../_shared/listingSites.ts";
 
@@ -21,6 +22,16 @@ function openAiKeyStrict(): string {
   if (!k) throw new Error("OPENAI_API_KEY_MISSING");
   return k;
 }
+
+/** `flexible.core` shape shared by scrape-free AI helpers and listing payloads. */
+type ListingFlexibleCore = {
+  title: string;
+  price_eur: number | null;
+  year: number | null;
+  length_m: number | null;
+  location: string | null;
+  country?: string | null;
+};
 
 type SailboatSegment =
   | "cruiser"
@@ -1843,7 +1854,7 @@ function buildFlexibleListingOutput(input: {
   full_text: string;
   dynamicSpecs: Record<string, unknown>;
 }): {
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 } {
@@ -2052,7 +2063,7 @@ function sanitizeAiBoatDetails(
 async function generateAiBoatDetails(input: {
   url: string;
   boatType: "sailboat" | "powerboat" | null;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<AiBoatDetails | null> {
@@ -2250,7 +2261,7 @@ function hasSailboatCatamaranSignal(input: {
 async function classifyBoatSegmentWithAi(input: {
   url: string;
   boatType: "sailboat" | "powerboat" | null;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<BoatSegment | null> {
@@ -2407,7 +2418,7 @@ function normalizeAiBrandModel(raw: unknown): { brand: string | null; model: str
 
 async function inferBoatTypeWithAi(input: {
   url: string;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<"sailboat" | "powerboat" | null> {
@@ -2495,7 +2506,7 @@ async function inferBrandModelWithAi(input: {
   url: string;
   currentBrand: string | null;
   currentModel: string | null;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<{ brand: string | null; model: string | null } | null> {
@@ -2564,7 +2575,7 @@ Rules:
 
 async function inferSpecsWithAi(input: {
   url: string;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<{
@@ -2697,7 +2708,7 @@ Rules:
 async function inferLocationWithAi(input: {
   url: string;
   currentLocation: string | null;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 }): Promise<string | null> {
@@ -2781,7 +2792,7 @@ function isSubsetOf(original: string[], candidate: string[]): boolean {
 async function reviewImagesAndEquipmentWithAi(input: {
   url: string;
   site: string;
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
   image_urls: string[];
@@ -3122,7 +3133,7 @@ function parseListing(html: string, url: string, site: string): {
   engine_info: string | null;
   specs_raw: Record<string, unknown> | null;
   flexible: {
-    core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+    core: ListingFlexibleCore;
     specs: Record<string, unknown>;
     raw: { description: string; full_text: string };
   };
@@ -3509,7 +3520,7 @@ async function getCachedListingRow(
 }
 
 function flexibleListingFromCachedRow(row: Record<string, unknown>): {
-  core: { title: string; price_eur: number | null; year: number | null; length_m: number | null; location: string | null };
+  core: ListingFlexibleCore;
   specs: Record<string, unknown>;
   raw: { description: string; full_text: string };
 } {
@@ -3536,6 +3547,7 @@ function flexibleListingFromCachedRow(row: Record<string, unknown>): {
       year: row.year != null ? Number(row.year) : null,
       length_m: lengthM,
       location: typeof row.location === "string" ? row.location : null,
+      country: typeof row.country === "string" && row.country.trim() ? row.country.trim() : null,
     },
     specs: {
       ...specsRaw,
@@ -3849,6 +3861,7 @@ Deno.serve(async (req) => {
         description: parsed.description,
         equipment: parsed.equipment,
         location: parsed.location,
+        country: null as string | null,
         engine_hours: parsed.engine_hours,
         fuel_type: parsed.fuel_type,
         cabins: parsed.cabins,
@@ -4012,6 +4025,14 @@ Deno.serve(async (req) => {
       row.location = aiLocation;
       parsed.flexible.core.location = aiLocation;
       mergeSpec(parsed.flexible.specs, "location", aiLocation);
+      const canonicalCountry = deriveCanonicalCountryFromLocation(aiLocation);
+      row.country = canonicalCountry;
+      mergeSpec(parsed.flexible.specs, "country", canonicalCountry);
+      if (canonicalCountry) {
+        parsed.flexible.core.country = canonicalCountry;
+      } else {
+        delete (parsed.flexible.core as { country?: string }).country;
+      }
       if (enableAiDataValidation) {
         const validation = await validateListingDataWithAi({ url: linkUrl, site, parsed });
         if (validation) {
@@ -4040,7 +4061,7 @@ Deno.serve(async (req) => {
         targetedResults.push({
           url: linkUrl,
           data: {
-            core: { title: "Unknown listing", price_eur: null, year: null, length_m: null, location: null },
+            core: { title: "Unknown listing", price_eur: null, year: null, length_m: null, location: null, country: null },
             specs: {},
             raw: { description: "", full_text: "" },
           },

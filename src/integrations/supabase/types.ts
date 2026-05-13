@@ -30,6 +30,7 @@ export type Database = {
           image_urls: string[] | null
           length_feet: number | null
           location: string | null
+          country: string | null
           price_eur: number | null
           scraped_at: string
           source: string | null
@@ -52,6 +53,7 @@ export type Database = {
           image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
+          country?: string | null
           price_eur?: number | null
           scraped_at?: string
           source?: string | null
@@ -74,6 +76,7 @@ export type Database = {
           image_urls?: string[] | null
           length_feet?: number | null
           location?: string | null
+          country?: string | null
           price_eur?: number | null
           scraped_at?: string
           source?: string | null

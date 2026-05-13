@@ -9,6 +9,7 @@ import { getSavedBoats, deleteBoat, getSavedListings, removeListing, type SavedB
 import { BoatDetailModal } from "@/components/BoatDetailModal";
 import { supabase } from "@/integrations/supabase/client";
 import { cachedListingUrlVariants } from "@scrapeShared/listingSites";
+import { deriveCanonicalCountryFromLocation } from "@scrapeShared/listingCountry";
 import { BoatListingCard } from "@/components/BoatListingCard";
 import {
   fetchDealInsightsForIds,
@@ -32,6 +33,7 @@ interface CachedListing {
   year: number | null;
   length_feet: number | null;
   location: string | null;
+  country?: string | null;
   image_url: string | null;
   image_urls: string[] | null;
   engine_info: string | null;
@@ -54,6 +56,7 @@ function savedListingToCachedRow(sl: SavedListing): CachedListing {
     year: sl.year,
     length_feet: sl.length_feet,
     location: sl.location,
+    country: sl.country ?? deriveCanonicalCountryFromLocation(sl.location) ?? undefined,
     image_url: sl.image_url,
     image_urls: sl.image_url ? [sl.image_url] : null,
     engine_info: null,
