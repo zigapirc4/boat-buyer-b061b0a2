@@ -35,6 +35,7 @@ import {
   fetchDealInsightsForIds,
   fetchTopDealsFromServer,
   placeholderInsightLoading,
+  placeholderListingDeal,
   type DealInsight,
   type ListingDealPayload,
 } from "@/lib/dealInsightsClient";
@@ -218,6 +219,8 @@ const Index = () => {
   const { toast } = useToast();
   const savedCount = getSavedListings().length;
   const [isLoading, setIsLoading] = useState(true);
+  /** Deal badges still loading after grid rows are shown (large client batches). */
+  const [dealsLoading, setDealsLoading] = useState(false);
   const [boatTypeFilter, setBoatTypeFilter] = useState<string>("all");
   const [segmentFilter, setSegmentFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -415,6 +418,7 @@ const Index = () => {
     let cancelled = false;
     const run = async () => {
       setIsLoading(true);
+      let idsToScore: string[] = [];
       try {
         let q = applyListingDbFilters(supabase.from("cached_listings").select("*", { count: "exact" }), listingFilters);
         q = applyListingSort(q, sortBy);
@@ -424,15 +428,9 @@ const Index = () => {
         if (cancelled) return;
         if (!error && data) {
           const rows = data as CachedListing[];
-          const ids = rows.map((r) => r.id);
-          let payloads: Record<string, ListingDealPayload> = {};
-          try {
-            payloads = await fetchDealInsightsForIds(ids);
-          } catch (e) {
-            console.error("grid deal insights:", e);
-          }
-          if (cancelled) return;
-          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+          idsToScore = rows.map((r) => r.id);
+          const placeholders = Object.fromEntries(idsToScore.map((id) => [id, placeholderListingDeal()]));
+          setInsightsMap((prev) => ({ ...prev, ...placeholders }));
           setServerPageRows(rows);
           setServerMatchCount(typeof count === "number" ? count : data.length);
           setClientBatchRows([]);
@@ -442,6 +440,13 @@ const Index = () => {
       } finally {
         if (!cancelled) setIsLoading(false);
       }
+      if (cancelled || idsToScore.length === 0) return;
+      void fetchDealInsightsForIds(idsToScore)
+        .then((payloads) => {
+          if (cancelled) return;
+          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+        })
+        .catch((e) => console.error("grid deal insights:", e));
     };
     void run();
     return () => {
@@ -454,6 +459,8 @@ const Index = () => {
     let cancelled = false;
     const run = async () => {
       setIsLoading(true);
+      setDealsLoading(false);
+      let idsToScore: string[] = [];
       try {
         let q = applyListingDbFilters(supabase.from("cached_listings").select("*"), listingFilters);
         q = q.order("scraped_at", { ascending: false }).limit(CLIENT_FALLBACK_LIMIT);
@@ -468,15 +475,7 @@ const Index = () => {
               return aDist - bDist;
             });
           }
-          const ids = rows.map((r) => r.id);
-          let payloads: Record<string, ListingDealPayload> = {};
-          try {
-            payloads = await fetchDealInsightsForIds(ids);
-          } catch (e) {
-            console.error("batch deal insights:", e);
-          }
-          if (cancelled) return;
-          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+          idsToScore = rows.map((r) => r.id);
           setClientBatchRows(rows);
           setServerPageRows([]);
           setServerMatchCount(null);
@@ -486,6 +485,17 @@ const Index = () => {
       } finally {
         if (!cancelled) setIsLoading(false);
       }
+      if (cancelled || idsToScore.length === 0) return;
+      setDealsLoading(true);
+      void fetchDealInsightsForIds(idsToScore)
+        .then((payloads) => {
+          if (cancelled) return;
+          setInsightsMap((prev) => ({ ...prev, ...payloads }));
+        })
+        .catch((e) => console.error("batch deal insights:", e))
+        .finally(() => {
+          if (!cancelled) setDealsLoading(false);
+        });
     };
     void run();
     return () => {
@@ -768,7 +778,7 @@ const Index = () => {
   const insightForListingCard = (id: string): DealInsight => {
     const hit = insightsMap[id];
     if (hit) return hit.insight;
-    if (isLoading) return placeholderInsightLoading();
+    if (isLoading || dealsLoading) return placeholderInsightLoading();
     return {
       fairPrice: null,
       gapPct: null,

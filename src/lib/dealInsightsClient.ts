@@ -30,6 +30,8 @@ export interface ListingDealPayload {
 }
 
 const CHUNK_SIZE = 120;
+/** Parallel Edge invokes per round-trip batch (under typical rate limits). */
+const INVOKE_CONCURRENCY = 3;
 
 /** Older deployed functions returned a bare `DealInsight` per id; new shape is full `ListingDealPayload`. */
 function coerceListingDealPayload(raw: unknown): ListingDealPayload {
@@ -55,24 +57,37 @@ function coerceListingDealPayload(raw: unknown): ListingDealPayload {
   return placeholderListingDeal();
 }
 
-/** Batch invoke Edge Function `listing-deal-insights` (max 400 ids per request). */
+async function invokeInsightsChunk(slice: string[]): Promise<Record<string, ListingDealPayload>> {
+  const chunkOut: Record<string, ListingDealPayload> = {};
+  const { data, error } = await supabase.functions.invoke("listing-deal-insights", {
+    body: { listing_ids: slice },
+  });
+  if (error) throw new Error(error.message);
+  const payload = data as {
+    success?: boolean;
+    insights?: Record<string, unknown>;
+    error?: string;
+  };
+  if (!payload?.success) throw new Error(payload?.error || "Failed to load deal insights");
+  for (const [id, row] of Object.entries(payload.insights ?? {})) {
+    chunkOut[id] = coerceListingDealPayload(row);
+  }
+  return chunkOut;
+}
+
+/** Batch invoke Edge Function `listing-deal-insights` (max 400 ids per request body; chunks run in parallel). */
 export async function fetchDealInsightsForIds(listing_ids: string[]): Promise<Record<string, ListingDealPayload>> {
   const ids = [...new Set(listing_ids)].filter(Boolean);
   const out: Record<string, ListingDealPayload> = {};
+  const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-    const slice = ids.slice(i, i + CHUNK_SIZE);
-    const { data, error } = await supabase.functions.invoke("listing-deal-insights", {
-      body: { listing_ids: slice },
-    });
-    if (error) throw new Error(error.message);
-    const payload = data as {
-      success?: boolean;
-      insights?: Record<string, unknown>;
-      error?: string;
-    };
-    if (!payload?.success) throw new Error(payload?.error || "Failed to load deal insights");
-    for (const [id, row] of Object.entries(payload.insights ?? {})) {
-      out[id] = coerceListingDealPayload(row);
+    chunks.push(ids.slice(i, i + CHUNK_SIZE));
+  }
+  for (let i = 0; i < chunks.length; i += INVOKE_CONCURRENCY) {
+    const batch = chunks.slice(i, i + INVOKE_CONCURRENCY);
+    const parts = await Promise.all(batch.map((slice) => invokeInsightsChunk(slice)));
+    for (const part of parts) {
+      Object.assign(out, part);
     }
   }
   return out;
